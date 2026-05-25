@@ -1,0 +1,46 @@
+device:
+  device_id: edge-001
+  school_id: 1
+
+cameras:
+  # Exemplo com webcam (Windows/Linux)
+  - camera_id: cam-web
+    room_id: DEV
+    rtsp_url: "0"  # Device index 0 (webcam padrão)
+    enabled: true
+  # Exemplo com RTSP
+  - camera_id: cam-001
+    room_id: A01
+    rtsp_url: rtsp://admin:password@192.168.1.100:554/stream1
+    enabled: true
+  - camera_id: cam-002
+    room_id: A02
+    rtsp_url: rtsp://admin:password@192.168.1.101:554/stream1
+    enabled: true
+
+vision:
+  presence:
+    sampling_seconds: 2
+    threshold: 0.75
+    min_face_size: 50
+    active_windows:
+      - start: "07:00"
+        end: "07:20"
+      - start: "13:00"
+        end: "13:20"
+    dedup_mode: day  # day | shift | class
+
+  engagement:
+    sampling_seconds: 5
+    window_seconds: 10
+    model_version: eng-v0
+
+sync:
+  batch_size: 10
+  retry_attempts: 3
+  retry_backoff_seconds: 5
+  sync_interval_seconds: 10
+
+logging:
+  level: INFO
+  format: json

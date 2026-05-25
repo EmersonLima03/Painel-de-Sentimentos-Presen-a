@@ -1,0 +1,45 @@
+# Requirements otimizado para Python 3.14
+# Use este arquivo se tiver problemas com requirements.txt padrão
+
+# Build tools (instalar primeiro)
+setuptools>=68.0.0
+wheel>=0.41.0
+pip>=24.0
+
+# Core
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# Database
+sqlalchemy>=2.0.36
+alembic>=1.14.0
+
+# Vision (CPU-friendly options)
+# Python 3.14 requer numpy >= 1.26.0
+numpy>=1.26.0,<2.0.0
+opencv-python>=4.10.0
+insightface>=0.7.3
+onnxruntime>=1.20.0
+mediapipe>=0.10.14
+
+# Vector search (optional, fallback to numpy)
+faiss-cpu>=1.8.0
+
+# HTTP client
+httpx>=0.27.0
+
+# Config
+python-dotenv>=1.0.1
+pyyaml>=6.0.2
+
+# Utils
+python-dateutil>=2.9.0
+
+# Logging
+structlog>=24.4.0
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0

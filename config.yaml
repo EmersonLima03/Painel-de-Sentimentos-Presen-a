@@ -1,0 +1,79 @@
+device:
+  device_id: edge-001
+  school_id: 1
+  default_camera_index: 0   # Câmera padrão (notebook); fallback quando índice escolhido falha
+  camera_connect_timeout_seconds: 3   # Timeout ao abrir câmera; depois faz fallback para default
+
+cameras:
+  # rtsp_url numérico = índice DirectShow (0, 1, 2...). Descubra com GET /cameras/devices (app rodando).
+  # Ex.: 0 = integrada, 1 = Iriun, 2 = USB 1080p (ordem varia no Windows — confira a lista).
+  - camera_id: cam-web
+    room_id: DEV
+    # 0 e 2 = 1920×1080 no seu PC; 1 = 1280×720 (só um é a USB — teste tapando a lente)
+    rtsp_url: "1"
+    webcam_width: 1920
+    webcam_height: 1080
+    enabled: true
+
+  # Segunda câmera (opcional): descomente se quiser notebook + USB ao mesmo tempo (mais CPU)
+  # - camera_id: cam-usb1080
+  #   room_id: DEV
+  #   rtsp_url: "0"
+  #   webcam_width: 1920
+  #   webcam_height: 1080
+  #   enabled: true
+
+vision:
+  # Teste 8–10 pessoas em fila: YuNet (multi-rosto, Windows) + FaceNet.
+  # Linux com InsightFace instalado: detector/embedder: insightface
+  detector: yunet            # yunet | insightface | full_range | short_range
+  embedder: facenet           # facenet | insightface
+  max_faces: 8
+  yunet_score_threshold: 0.62   # mais alto = menos fantasma na parede (antes 0.42)
+  min_face_area_ratio: 0.0015   # descarta caixas minúsculas
+  single_subject_mode: true     # webcam sozinha: mantém só o maior rosto
+  insightface_det_size: 960
+  insightface_min_det_score: 0.50
+  mediapipe_min_confidence: 0.55
+
+  presence:
+    sampling_seconds: 2
+    threshold: 0.70
+    match_margin: 0.10   # maior = exige mais diferença entre 1º e 2º aluno (menos troca Ester/Emerson)
+    th_on: 0.75          # histerese: reconhece acima deste valor
+    th_off: 0.68         # histerese: só volta a "desconhecido" abaixo deste valor
+    track_ttl_seconds: 2.5   # tracker: mantém caixa estável entre frames
+    max_templates_per_student: 7   # multi-template (óculos/sem): até N por aluno
+    min_face_size: 42
+    always_on: true   # dev: presença 24h; prod: false + active_windows
+    active_windows:
+      - start: "07:00"
+        end: "07:20"
+      - start: "13:00"
+        end: "13:20"
+    dedup_mode: day  # day | shift | class
+
+  engagement:
+    sampling_seconds: 5
+    window_seconds: 10
+    model_version: eng-v0
+
+# Cadastro por webcam: mais frames = mais precisão (média de embeddings)
+enrollment:
+  num_frames: 15           # Frames a capturar (ex.: 15–20 para máxima precisão)
+  frames_used: 10          # Top N melhores usados para calcular a média (ex.: 8–12)
+  capture_duration_seconds: 5.0   # Tempo em segundos para captura
+
+sync:
+  batch_size: 10
+  retry_attempts: 3
+  retry_backoff_seconds: 5
+  sync_interval_seconds: 10
+
+# Backup (DAT): embeddings + fila; criptografia via env BACKUP_PASSPHRASE
+backup:
+  dir: ./data/backups   # pen drive: ex. D:/backups
+
+logging:
+  level: INFO
+  format: json

@@ -1,0 +1,42 @@
+setuptools>=68.0.0
+wheel>=0.41.0
+
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+sqlalchemy>=2.0.23
+alembic>=1.12.1
+
+# Pin para Windows: facenet-pytorch exige numpy<2; opencv 4.13+ exige numpy>=2
+numpy==1.26.4
+# Uma única variante OpenCV, compatível com numpy 1.26
+opencv-contrib-python==4.10.0.84
+
+# MODELO REAL (versões testadas no Windows)
+torch==2.2.2
+torchvision==0.17.2
+facenet-pytorch==2.6.0
+# MediaPipe: preferir versão com Tasks API (face_detector). Fallback: Haar.
+mediapipe>=0.10.8
+faiss-cpu>=1.7.4
+cryptography>=41.0.0
+
+# Multi-rosto / distância: YuNet usa opencv-contrib (já instalado).
+# InsightFace (opcional, Linux ou Windows com Build Tools): pip install insightface onnxruntime
+
+# sync
+httpx>=0.25.2
+
+# config
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+
+# utils
+python-dateutil>=2.8.2
+structlog>=23.2.0
+
+# tests
+pytest>=7.4.3
+pytest-asyncio>=0.21.1
