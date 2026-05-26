@@ -35,6 +35,92 @@ _CAPTURE_HZ = 30.0
 _DETECT_HZ = 10.0  # overlay fluido; presença (2s) usa pipeline separado
 
 
+def _iou_xywh(box_a: tuple, box_b: tuple) -> float:
+    """IoU entre retângulos (x, y, w, h)."""
+    ax, ay, aw, ah = (float(box_a[0]), float(box_a[1]), float(box_a[2]), float(box_a[3]))
+    bx, by, bw, bh = (float(box_b[0]), float(box_b[1]), float(box_b[2]), float(box_b[3]))
+    a_x2, a_y2 = ax + aw, ay + ah
+    b_x2, b_y2 = bx + bw, by + bh
+    ix1, iy1 = max(ax, bx), max(ay, by)
+    ix2, iy2 = min(a_x2, b_x2), min(a_y2, b_y2)
+    iw = max(0.0, ix2 - ix1)
+    ih = max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    union = aw * ah + bw * bh - inter
+    return float(inter / union) if union > 0 else 0.0
+
+
+def _merge_overlay_boxes_with_prev(
+    boxes: List[tuple],
+    prev: List[dict],
+    *,
+    iou_threshold: float = 0.08,
+) -> List[dict]:
+    """
+    Preserva student_id no overlay quando YuNet muda a ordem das caixas.
+    Associa cada caixa nova ao registro anterior com maior IoU (greedy global).
+    """
+    if not boxes:
+        return []
+    if not prev:
+        return [
+            {
+                "track_id": i,
+                "bbox": [int(x), int(y), int(w), int(h)],
+                "student_id": None,
+                "full_name": None,
+                "confidence": 0.0,
+                "provável": False,
+                "top2_score": None,
+                "margin": None,
+            }
+            for i, (x, y, w, h) in enumerate(boxes)
+        ]
+
+    pairs: List[tuple] = []
+    for i, box in enumerate(boxes):
+        for j, p in enumerate(prev):
+            pb = p.get("bbox")
+            if not pb or len(pb) < 4:
+                continue
+            bbt = (int(pb[0]), int(pb[1]), int(pb[2]), int(pb[3]))
+            iou = _iou_xywh(tuple(box[:4]), bbt)
+            if iou > 0:
+                pairs.append((iou, i, j))
+
+    pairs.sort(key=lambda t: t[0], reverse=True)
+    used_i: set = set()
+    used_j: set = set()
+    box_to_old: Dict[int, dict] = {}
+    for iou, i, j in pairs:
+        if iou < iou_threshold:
+            break
+        if i in used_i or j in used_j:
+            continue
+        used_i.add(i)
+        used_j.add(j)
+        box_to_old[i] = prev[j]
+
+    merged: List[dict] = []
+    for i, (x, y, w, h) in enumerate(boxes):
+        old = box_to_old.get(i, {})
+        merged.append(
+            {
+                "track_id": i,
+                "bbox": [int(x), int(y), int(w), int(h)],
+                "student_id": old.get("student_id"),
+                "full_name": old.get("full_name"),
+                "confidence": float(old.get("confidence") or 0.0),
+                "provável": bool(old.get("provável", False)),
+                "top2_score": old.get("top2_score"),
+                "margin": old.get("margin"),
+            }
+        )
+    return merged
+
+
 class PipelineOrchestrator:
     """Orquestra captura em tempo real e processamento de IA em background."""
 
@@ -266,36 +352,9 @@ class PipelineOrchestrator:
                 self._stamp_overlay_frame(camera_id, frame)
                 self._overlay_boxes[camera_id] = boxes
                 self.faces_detected_last[camera_id] = len(boxes)
-                # Atualiza só posição das caixas; não apaga student_id da presença (2 s)
                 prev = self._overlay_matches.get(camera_id) or []
-                if prev and boxes:
-                    merged = []
-                    for i, (x, y, w, h) in enumerate(boxes):
-                        old = prev[i] if i < len(prev) else {}
-                        merged.append(
-                            {
-                                "track_id": old.get("track_id", i),
-                                "bbox": [x, y, w, h],
-                                "student_id": old.get("student_id"),
-                                "full_name": old.get("full_name"),
-                                "confidence": old.get("confidence", 0.0),
-                                "provável": old.get("provável", False),
-                                "top2_score": old.get("top2_score"),
-                                "margin": old.get("margin"),
-                            }
-                        )
-                    self._overlay_matches[camera_id] = merged
-                elif not prev and boxes:
-                    self._overlay_matches[camera_id] = [
-                        {
-                            "track_id": i,
-                            "bbox": [x, y, w, h],
-                            "student_id": None,
-                            "confidence": 0.0,
-                            "provável": False,
-                        }
-                        for i, (x, y, w, h) in enumerate(boxes)
-                    ]
+                if boxes:
+                    self._overlay_matches[camera_id] = _merge_overlay_boxes_with_prev(boxes, prev)
         except Exception as e:
             logger.warning("detect_only_error", camera_id=camera_id, error=str(e))
 

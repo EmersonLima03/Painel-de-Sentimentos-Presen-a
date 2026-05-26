@@ -906,6 +906,8 @@ async def debug_viewer():
     settings = get_settings()
     if not getattr(settings, "enable_debug_ui", False):
         raise HTTPException(status_code=404, detail="Debug viewer disabled (ENABLE_DEBUG_UI=1)")
+    th_on = float(getattr(settings, "presence_th_on", 0.75))
+    margin_min = float(getattr(settings, "presence_match_margin", 0.08))
     # Viewer bem simples: apenas imagem + texto de status/matches. Sem estilos complexos.
     html = """<!DOCTYPE html>
 <html>
@@ -977,33 +979,40 @@ async def debug_viewer():
         if (!matches.length) {
           return 'Nenhuma face visível para a câmera neste exato momento.\\nSe há pessoas na sala, aproxime-as um pouco ou verifique o enquadramento.';
         }
-        const TH_ON = 0.75;
-        const MARGIN_MIN = 0.08;
+        const TH_ON = __INJECT_TH_ON__;
+        const MARGIN_MIN = __INJECT_MARGIN_MIN__;
         return matches.map(m => {
           const sid = m.student_id || 'UNKNOWN';
           const label = m.label || sid;
           const score = m.confidence != null ? (Number(m.confidence) * 100).toFixed(1) + '%' : '-';
           const top2 = m.top2_score != null ? (Number(m.top2_score) * 100).toFixed(1) + '%' : '-';
           const marginVal = m.margin != null ? m.margin.toFixed(3) : '-';
+          const confN = m.confidence != null ? Number(m.confidence) : 0;
+          const marginOk = (m.margin == null) || (m.margin >= MARGIN_MIN);
           let nivel = 'desconhecido';
           if (!m.unknown && m.confidence != null) {
-            const marginOk = (m.margin == null) || (m.margin >= MARGIN_MIN);
-            if (m.confidence >= TH_ON && marginOk) {
+            if (confN >= TH_ON && marginOk) {
               nivel = 'seguro';
+            } else if (confN >= TH_ON && !marginOk) {
+              nivel = 'margem';
             } else {
-              nivel = 'provável (ainda não seguro)';
+              nivel = 'provável';
             }
           }
-          const interpretacao =
-            nivel === 'seguro'
-              ? 'Aluno reconhecido com segurança.'
-              : (sid === 'UNKNOWN'
-                  ? 'Rosto DESCONHECIDO (não cadastrado).'
-                  : 'Parece o aluno, mas ainda não está confiável (zona de histerese).');
+          let interpretacao;
+          if (nivel === 'seguro') {
+            interpretacao = 'Aluno reconhecido com segurança (confiança e margem ok).';
+          } else if (nivel === 'margem') {
+            interpretacao = 'Confiança alta, mas o 2º candidato está próximo (margin baixo). Multi-template ou cadastro mais nítido reduz troca entre pessoas.';
+          } else if (sid === 'UNKNOWN') {
+            interpretacao = 'Rosto DESCONHECIDO (não cadastrado).';
+          } else {
+            interpretacao = 'Confiança abaixo do limiar de exibição segura (histerese) — pode estabilizar no próximo ciclo de presença.';
+          }
           return [
             `Face ${m.track_id}: ${label} (${sid})`,
             `  - Confiança do modelo: ${score}`,
-            `  - Diferença p/ segundo melhor: ${top2} (margin=${marginVal})`,
+            `  - Diferença p/ segundo melhor: ${top2} (margin=${marginVal}; mín. ${MARGIN_MIN})`,
             `  - Interpretação: ${interpretacao}`,
           ].join('\\n');
         }).join('\\n\\n');
@@ -1029,6 +1038,7 @@ async def debug_viewer():
     </script>
   </body>
 </html>"""
+    html = html.replace("__INJECT_TH_ON__", str(th_on)).replace("__INJECT_MARGIN_MIN__", str(margin_min))
     return HTMLResponse(html)
 
 
@@ -1068,8 +1078,22 @@ async def debug_enroll_viewer():
   </head>
   <body>
     <h1>Cadastro Assistido de Aluno</h1>
-    <p class="small">Fluxo recomendado: 1) Validar qualidade 2) Cadastrar somente se qualidade ok.</p>
+    <p class="small">Fluxo: 1) Siga os passos abaixo na câmera 2) Validar qualidade 3) Cadastrar. Para <strong>mais de um template</strong> (lado, óculos, máscara), use o <strong>mesmo student_id</strong> e marque o checkbox antes de cadastrar de novo.</p>
     <img id="frame" alt="preview câmera" />
+
+    <div class="row">
+      <div class="card" style="flex:1 1 100%;max-width:100%;">
+        <h3>Passos visuais (recomendado — multi-template)</h3>
+        <ol style="margin:0;padding-left:1.25rem;line-height:1.55;font-size:13px;color:#cbd5e1;">
+          <li><strong>Frente</strong> — olhos na câmera, rosto centralizado (cadastro principal).</li>
+          <li><strong>Leve à esquerda</strong> (~20–30°) — mesmo aluno; marque <em>Adicionar template</em> → Validar → Cadastrar.</li>
+          <li><strong>Leve à direita</strong> — idem com checkbox marcado.</li>
+          <li><strong>Com óculos</strong> (se usa na escola) — idem, checkbox marcado.</li>
+          <li><strong>Com máscara</strong> (se aplicável) — idem, checkbox marcado.</li>
+        </ol>
+        <p class="small" style="margin-top:8px;">Checkbox <strong>desmarcado</strong> = apaga templates antigos desse aluno e grava só este. <strong>Marcado</strong> = mantém os anteriores e <strong>soma mais um vetor</strong> (até o limite em config.yaml → max_templates_per_student).</p>
+      </div>
+    </div>
 
     <div class="row">
       <div class="card">
@@ -1109,9 +1133,9 @@ async def debug_enroll_viewer():
           </div>
         </div>
         <div style="margin-top:8px;">
-          <label style="display:flex;align-items:center;gap:8px;">
-            <input id="append_template" type="checkbox" />
-            Adicionar template (multi-template) em vez de substituir o cadastro atual
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+            <input id="append_template" type="checkbox" style="width:auto;margin-top:2px;" />
+            <span><strong>Adicionar template</strong> (multi-template): mesmo <code>student_id</code> e nome; <strong>não apaga</strong> o cadastro anterior — acrescenta vista (lado/óculos/máscara). Primeiro cadastro do aluno: deixe <strong>desmarcado</strong>.</span>
           </label>
         </div>
         <div class="actions">
