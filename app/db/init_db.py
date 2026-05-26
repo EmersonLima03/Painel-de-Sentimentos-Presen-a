@@ -1,13 +1,18 @@
 """Inicialização do banco de dados."""
 
 from pathlib import Path
-from sqlalchemy import create_engine
+
 from sqlalchemy.orm import sessionmaker
+
+from app.db.database import create_db_engine
 from app.db.models import Base
 from app.config import get_settings
 from app.logging import get_logger
 
 logger = get_logger(__name__)
+
+_engine = None
+_SessionLocal = None
 
 
 def init_database() -> None:
@@ -20,7 +25,13 @@ def init_database() -> None:
     if db_path.exists():
         try:
             import importlib.util
-            run_path = Path(__file__).resolve().parent.parent.parent / "migrations" / "sqlite" / "003_embedding_blob.py"
+
+            run_path = (
+                Path(__file__).resolve().parent.parent.parent
+                / "migrations"
+                / "sqlite"
+                / "003_embedding_blob.py"
+            )
             if run_path.exists():
                 spec = importlib.util.spec_from_file_location("migration_003", run_path)
                 mod = importlib.util.module_from_spec(spec)
@@ -29,19 +40,30 @@ def init_database() -> None:
         except Exception as e:
             logger.debug("migration_003_skipped", error=str(e))
 
-    engine = create_engine(f"sqlite:///{settings.sqlite_path}", echo=False)
+    engine = get_engine()
     Base.metadata.create_all(engine)
 
     logger.info("database_initialized", path=settings.sqlite_path)
 
 
 def get_engine():
-    """Retorna engine SQLAlchemy."""
-    settings = get_settings()
-    return create_engine(f"sqlite:///{settings.sqlite_path}", echo=False)
+    """Retorna engine SQLAlchemy singleton com PRAGMAs WAL."""
+    global _engine, _SessionLocal
+    if _engine is None:
+        settings = get_settings()
+        _engine = create_db_engine(settings.sqlite_path, echo=False)
+        _SessionLocal = sessionmaker(bind=_engine, autoflush=False, expire_on_commit=False)
+    return _engine
 
 
 def get_session():
-    """Retorna session factory."""
-    engine = get_engine()
-    return sessionmaker(bind=engine)()
+    """Retorna nova sessão SQLAlchemy."""
+    if _SessionLocal is None:
+        get_engine()
+    return _SessionLocal()
+
+
+def close_session(session) -> None:
+    """Fecha sessão (sempre usar em endpoints que chamam get_session())."""
+    if session is not None:
+        session.close()

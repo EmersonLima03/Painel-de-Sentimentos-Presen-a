@@ -43,7 +43,8 @@ sync_worker: SyncWorker = None
 start_time = time.time()
 _debug_last_frame: Dict[str, Any] = {}  # camera_id -> frame (último frame para viewer fluido)
 _DEBUG_SNAPSHOT_MAX_WIDTH = 960
-_DEBUG_SNAPSHOT_JPEG_QUALITY = 70
+_DEBUG_SNAPSHOT_JPEG_QUALITY = 72
+_DEBUG_VIDEO_MAX_WIDTH = 1280  # preview fluido em 1080p downscale leve
 
 
 def _debug_placeholder_jpeg(text: str = "Aguardando frames...", width: int = 640, height: int = 360) -> bytes:
@@ -71,20 +72,18 @@ async def lifespan(app: FastAPI):
         sync_worker = SyncWorker()
         asyncio.create_task(sync_worker.start())
 
-        # Orchestrator: init pesado (detector, embedder, câmera) em thread para não travar o startup
+        # Orchestrator visível já no startup (câmera antes dos modelos pesados)
         _orchestrator = PipelineOrchestrator()
+        orchestrator = _orchestrator
 
         async def init_and_start_orchestrator():
-            global orchestrator
             try:
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, _orchestrator.initialize)
-                orchestrator = _orchestrator
                 logger.info("orchestrator_initialized")
                 await _orchestrator.start()
             except Exception as e:
-                logger.warning("orchestrator_init_failed", error=str(e))
-                orchestrator = None
+                logger.warning("orchestrator_init_failed", error=str(e), exc_info=True)
 
         asyncio.create_task(init_and_start_orchestrator())
         logger.info("app_started")
@@ -162,12 +161,17 @@ async def health() -> Dict:
                     presence_debug["matcher_embeddings"] = pipe.matcher.index.ntotal
                 elif hasattr(pipe.matcher, "embeddings"):
                     presence_debug["matcher_embeddings"] = len(pipe.matcher.embeddings)
+                from app.db.init_db import close_session, get_session
                 from app.db.repo import FaceEmbeddingRepository
+
                 sess = get_session()
-                emb_repo = FaceEmbeddingRepository(sess)
-                presence_debug["templates_per_student"] = emb_repo.get_templates_per_student(
-                    school_id=settings.school_id, device_id=settings.device_id
-                )
+                try:
+                    emb_repo = FaceEmbeddingRepository(sess)
+                    presence_debug["templates_per_student"] = emb_repo.get_templates_per_student(
+                        school_id=settings.school_id, device_id=settings.device_id
+                    )
+                finally:
+                    close_session(sess)
             except Exception:
                 pass
 
@@ -313,18 +317,6 @@ async def cameras() -> Dict:
             status = orchestrator.get_status()
             cameras_status = status.get("cameras", {})
             
-            session = get_session()
-            student_repo = StudentRepository(session)
-
-            def enrich_match_with_name(match):
-                if not match or not isinstance(match, dict):
-                    return match
-                sid = match.get("student_id")
-                if sid:
-                    student = student_repo.get_student(sid)
-                    match = {**match, "full_name": (student.full_name if student and student.full_name else None)}
-                return match
-
             for camera_id, cam_status in cameras_status.items():
                 room_id = "unknown"
                 for cam_config in settings.cameras:
@@ -332,11 +324,6 @@ async def cameras() -> Dict:
                         room_id = cam_config.room_id
                         break
                 raw_match = cam_status.get("last_presence_match")
-                if raw_match is not None:
-                    if isinstance(raw_match, list):
-                        raw_match = [enrich_match_with_name(m) for m in raw_match]
-                    else:
-                        raw_match = enrich_match_with_name(raw_match)
                 cameras_list.append({
                     "camera_id": camera_id,
                     "room_id": room_id,
@@ -387,10 +374,17 @@ class EnrollWebcamRequest(BaseModel):
     min_good_frames: int = 3
 
 
+def _enrollment_service() -> EnrollmentService:
+    """Reutiliza FacePipeline do orchestrator (mesmo embedder ONNX + YuNet do reconhecimento)."""
+    if orchestrator and getattr(orchestrator, "face_pipeline", None) is not None:
+        return EnrollmentService(face_pipeline=orchestrator.face_pipeline)
+    return EnrollmentService()
+
+
 @app.post("/enroll")
 async def enroll(request: EnrollRequest) -> Dict:
     """Cadastra face de aluno."""
-    service = EnrollmentService()
+    service = _enrollment_service()
     
     if request.image_path:
         success = service.enroll_from_image(request.image_path, request.student_id)
@@ -411,7 +405,7 @@ async def enroll(request: EnrollRequest) -> Dict:
 @app.post("/enroll/webcam")
 async def enroll_webcam(request: EnrollWebcamRequest) -> Dict:
     """Cadastra face de aluno capturando da webcam."""
-    service = EnrollmentService()
+    service = _enrollment_service()
     
     # Tentar reutilizar reader do orchestrator se disponível
     reader = None
@@ -553,68 +547,87 @@ async def backup_restore(body: BackupRestoreRequest) -> Dict:
     }
 
 
-def _debug_snapshot_jpeg_bytes(camera_id: str, overlay: int, full_res: bool) -> bytes:
-    """Monta um JPEG de debug para camera_id (reader já validado). Sempre retorna bytes."""
-    reader = orchestrator.readers.get(camera_id)
-    ret, frame = reader.read_frame()
-    if not ret or frame is None:
+def _get_debug_frame(camera_id: str) -> Optional[np.ndarray]:
+    """Último frame da câmera (buffer assíncrono) — sem ML."""
+    frame = None
+    if orchestrator:
+        frame = orchestrator.get_latest_frame(camera_id)
+    if frame is None and orchestrator:
+        reader = orchestrator.readers.get(camera_id)
+        if reader:
+            ret, frame = reader.read_frame()
+            if not ret:
+                frame = None
+    if frame is None:
         frame = _debug_last_frame.get(camera_id)
-        if frame is None:
-            return _debug_placeholder_jpeg("Aguardando frames da câmera " + camera_id + "...")
-    else:
-        _debug_last_frame[camera_id] = frame.copy()
+    elif frame is not None:
+        _debug_last_frame[camera_id] = frame
+    return frame
 
-    # Detecção/overlay na resolução nativa do frame; só reduzimos antes do JPEG (rostos longe somem se redimensionar antes)
-    draw_overlay = overlay == 1
-    try:
-        pipeline = orchestrator.presence_pipelines.get(camera_id)
-        faces = []
 
-        if not (draw_overlay and pipeline):
-            faces = pipeline.detector.detect(frame) if pipeline and pipeline.detector else []
+def _overlay_scale_for_frame(camera_id: str, frame_w: int, frame_h: int) -> tuple[float, float]:
+    """Escala bboxes do cache (tamanho do frame na detecção) para o frame de preview."""
+    if not orchestrator:
+        return 1.0, 1.0
+    src = orchestrator.get_overlay_source_size(camera_id)
+    if not src:
+        return 1.0, 1.0
+    src_w, src_h = src
+    if src_w <= 0 or src_h <= 0:
+        return 1.0, 1.0
+    return frame_w / float(src_w), frame_h / float(src_h)
 
-        if draw_overlay and pipeline:
-            current_matches = pipeline.recognize_frame_for_overlay(frame, use_margin=False)
-            sess = get_session()
-            student_repo = StudentRepository(sess)
 
-            for m in current_matches:
-                x, y, w, h = m["bbox"][0], m["bbox"][1], m["bbox"][2], m["bbox"][3]
-                track_id = m.get("track_id", 0)
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                sid = m.get("student_id")
-                conf = m.get("confidence", 0.0)
-                provavel = m.get("provável", False)
-
-                if sid:
-                    st = student_repo.get_student(sid)
-                    name = st.full_name if st and st.full_name else sid
-                    # cv2.putText nao desenha UTF-8 (provavel sem acento)
-                    label = f"{track_id}: {name} ({conf:.2f})" if not provavel else f"{track_id}: {name} (provavel)"
-                else:
-                    label = f"{track_id}: UNKNOWN ({conf:.2f})"
-                cv2.putText(frame, label, (x, max(y - 5, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-            cv2.putText(frame, f"faces: {len(current_matches)}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+def _draw_overlay_from_cache(frame: np.ndarray, camera_id: str) -> int:
+    """Desenha caixas do cache (posição 10 Hz) + rótulos da presença (2 s)."""
+    if not orchestrator:
+        return 0
+    fh, fw = frame.shape[:2]
+    sx, sy = _overlay_scale_for_frame(camera_id, fw, fh)
+    matches = orchestrator.get_overlay_matches(camera_id)
+    boxes = orchestrator.get_overlay_boxes(camera_id)
+    n = max(len(matches), len(boxes))
+    for i in range(n):
+        m = matches[i] if i < len(matches) else {}
+        if i < len(boxes):
+            x, y, w, h = boxes[i]
         else:
-            for (x, y, w, h) in faces:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                cv2.putText(frame, "Face", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            cv2.putText(frame, f"faces: {len(faces)}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    except Exception as e:
-        logger.warning("snapshot_detection_error", error=str(e))
+            bbox = m.get("bbox") or [0, 0, 0, 0]
+            x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
+        x, y, w, h = int(x * sx), int(y * sy), int(w * sx), int(h * sy)
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        sid = m.get("student_id")
+        conf = float(m.get("confidence") or 0.0)
+        display = (m.get("full_name") or sid or "?").strip()
+        label = f"{display} ({conf:.2f})"
+        cv2.putText(frame, label, (x, max(y - 5, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+    count = n if n else len(boxes)
+    cv2.putText(frame, f"faces: {count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+    return count
 
+
+def _encode_preview_jpeg(frame: np.ndarray, overlay: int, camera_id: str, full_res: bool) -> bytes:
+    """Encode rápido para MJPEG/snapshot — overlay no frame cheio, depois resize."""
+    frame = frame.copy()
     h, w = frame.shape[:2]
-    if not full_res and w > _DEBUG_SNAPSHOT_MAX_WIDTH:
-        scale = _DEBUG_SNAPSHOT_MAX_WIDTH / w
-        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-
-    try:
-        _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _DEBUG_SNAPSHOT_JPEG_QUALITY])
-        return buffer.tobytes()
-    except Exception as e:
-        logger.error("snapshot_encode_error", error=str(e))
+    if overlay == 1:
+        _draw_overlay_from_cache(frame, camera_id)
+    max_w = w if full_res else _DEBUG_VIDEO_MAX_WIDTH
+    if w > max_w:
+        scale = max_w / w
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_LINEAR)
+    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _DEBUG_SNAPSHOT_JPEG_QUALITY])
+    if not ok:
         return _debug_placeholder_jpeg("encode error")
+    return buf.tobytes()
+
+
+def _debug_snapshot_jpeg_bytes(camera_id: str, overlay: int, full_res: bool) -> bytes:
+    """Snapshot único (cadastro legado). Preferir /debug/mjpeg para fluidez."""
+    frame = _get_debug_frame(camera_id)
+    if frame is None:
+        return _debug_placeholder_jpeg("Aguardando frames da camera " + camera_id + "...")
+    return _encode_preview_jpeg(frame, overlay, camera_id, full_res)
 
 
 @app.get("/debug/snapshot")
@@ -631,27 +644,24 @@ async def debug_snapshot(
     if not settings.enable_debug_snapshot:
         raise HTTPException(status_code=404, detail="Debug snapshot disabled (ENABLE_DEBUG_SNAPSHOT=1)")
 
-    if not orchestrator:
-        body = _debug_placeholder_jpeg("Inicializando câmera e modelos… Aguarde.")
-        return StreamingResponse(
-            io.BytesIO(body),
-            media_type="image/jpeg",
-            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
-        )
-
-    available = list(orchestrator.readers.keys()) if orchestrator.readers else [c.camera_id for c in settings.cameras]
+    available = list(orchestrator.readers.keys()) if orchestrator and orchestrator.readers else [
+        c.camera_id for c in settings.cameras
+    ]
     if not camera_id:
         return JSONResponse(
             status_code=400,
             content={"error": "camera_id required", "available_cameras": available or []}
         )
 
-    reader = orchestrator.readers.get(camera_id)
-    if not reader:
-        return JSONResponse(
-            status_code=404,
-            content={"error": f"Camera {camera_id} not found", "available_cameras": available}
-        )
+    if orchestrator:
+        reader = orchestrator.readers.get(camera_id)
+        if not reader and available:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Camera {camera_id} not found", "available_cameras": available},
+            )
+    else:
+        reader = None
 
     body = _debug_snapshot_jpeg_bytes(camera_id, overlay, full_res)
     return StreamingResponse(
@@ -665,7 +675,7 @@ async def debug_snapshot(
 async def debug_mjpeg(
     camera_id: str = Query("cam-web", description="ID da câmera"),
     overlay: int = Query(1, description="1=overlay de faces/nomes"),
-    fps: float = Query(10.0, ge=2, le=30, description="Quadros por segundo (overlay pesado: use 6–12)"),
+    fps: float = Query(30.0, ge=2, le=30, description="Quadros por segundo (overlay usa cache; 30 recomendado)"),
 ):
     """
     Stream MJPEG (multipart) — um fluxo contínuo, mais suave que vários GET /debug/snapshot.
@@ -682,7 +692,7 @@ async def debug_mjpeg(
         ct = b"Content-Type: image/jpeg\r\n\r\n"
         while True:
             if not orchestrator or camera_id not in (orchestrator.readers or {}):
-                chunk = _debug_placeholder_jpeg("Inicializando ou câmera indisponível…")
+                chunk = _debug_placeholder_jpeg("Aguardando camera ou modelos...")
             else:
                 try:
                     chunk = _debug_snapshot_jpeg_bytes(camera_id, overlay, full_res=False)
@@ -845,29 +855,38 @@ async def debug_overlay_matches(
     reader = orchestrator.readers.get(camera_id)
     if not reader:
         return JSONResponse(status_code=404, content={"error": f"Camera {camera_id} not found", "available_cameras": available})
-    ret, frame = reader.read_frame()
-    if not ret or frame is None:
+    cached = orchestrator.get_overlay_matches(camera_id)
+    if cached:
+        matches = cached
+    else:
+        boxes = orchestrator.get_overlay_boxes(camera_id)
+        matches = [
+            {
+                "track_id": i,
+                "bbox": [x, y, w, h],
+                "student_id": None,
+                "confidence": 0.0,
+                "provável": False,
+            }
+            for i, (x, y, w, h) in enumerate(boxes)
+        ]
+    if not matches:
         return {
             "camera_id": camera_id,
             "current_matches": [],
-            "frame_pending": True,
-            "hint": "Frame ainda não disponível — câmera a conectar ou buffer vazio.",
+            "frame_pending": not orchestrator.has_latest_frame(camera_id),
+            "hint": "Aguardando detecção (8 Hz) ou presença (2 s) — sem ML neste endpoint.",
         }
-    pipeline = orchestrator.presence_pipelines.get(camera_id)
-    if not pipeline:
-        return {"camera_id": camera_id, "current_matches": []}
-    matches = pipeline.recognize_frame_for_overlay(frame, use_margin=False)
-    sess = get_session()
-    student_repo = StudentRepository(sess)
     out = []
     for m in matches:
         sid = m.get("student_id")
         unknown = sid is None
         conf = m.get("confidence", 0.0)
-        name = None
-        if sid:
-            st = student_repo.get_student(sid)
-            name = st.full_name if st and st.full_name else sid
+        name = m.get("full_name")
+        if sid and not name:
+            from app.db import student_cache
+
+            name = student_cache.get_display_name(sid)
         out.append({
             "track_id": m.get("track_id", 0),
             "label": name if name else ("UNKNOWN" if unknown else sid),
@@ -904,7 +923,7 @@ async def debug_viewer():
   </head>
   <body>
     <h1>Debug Viewer (cam-web)</h1>
-    <p>Somente webcam do notebook (<code>cam-web</code>). Vídeo abaixo usa <strong>MJPEG</strong> (fluxo contínuo); antes era vários JPEGs por segundo (não é “stream” de verdade).</p>
+    <p>Webcam <code>cam-web</code> — MJPEG ~30 FPS do buffer assíncrono; reconhecimento atualiza a cada 2 s (sem travar o vídeo).</p>
     <img id="frame" alt="preview cam-web" src="" />
     <div class="row">
       <div class="col">
@@ -920,7 +939,7 @@ async def debug_viewer():
       const base = window.location.origin;
       (function () {
         const img = document.getElementById('frame');
-        img.src = base + '/debug/mjpeg?camera_id=cam-web&overlay=1&fps=10';
+        img.src = base + '/debug/mjpeg?camera_id=cam-web&overlay=1&fps=30';
       })();
 
       function resumoCamera(cam) {
@@ -1113,7 +1132,7 @@ async def debug_enroll_viewer():
 
       function refreshFrame() {
         const cam = document.getElementById('camera_id').value || 'cam-web';
-        document.getElementById('frame').src = base + '/debug/snapshot?camera_id=' + encodeURIComponent(cam) + '&overlay=1&t=' + Date.now();
+        document.getElementById('frame').src = base + '/debug/mjpeg?camera_id=' + encodeURIComponent(cam) + '&overlay=1&fps=30&v=2';
       }
 
       function payloadBase() {
@@ -1201,7 +1220,6 @@ async def debug_enroll_viewer():
         }
       }
 
-      setInterval(refreshFrame, 250); // ~4 fps
       refreshFrame();
     </script>
   </body>
@@ -1261,7 +1279,7 @@ async def root():
             "enroll": "/enroll (POST)",
             "reload_config": "/config/reload (POST)",
             "debug_snapshot": "/debug/snapshot?camera_id=...&overlay=1 (GET, ENABLE_DEBUG_SNAPSHOT=1)",
-            "debug_mjpeg": "/debug/mjpeg?camera_id=cam-web&overlay=1&fps=10 (stream MJPEG)",
+            "debug_mjpeg": "/debug/mjpeg?camera_id=cam-web&overlay=1&fps=30 (stream MJPEG)",
             "debug_viewer": "/debug/viewer (GET, ENABLE_DEBUG_UI=1)",
             "mock_ingest": "/mock/ingest (POST)"
         }

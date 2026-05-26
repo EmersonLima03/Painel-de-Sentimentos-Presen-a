@@ -10,7 +10,7 @@ cameras:
   - camera_id: cam-web
     room_id: DEV
     # 0 e 2 = 1920×1080 no seu PC; 1 = 1280×720 (só um é a USB — teste tapando a lente)
-    rtsp_url: "1"
+    rtsp_url: "0"
     webcam_width: 1920
     webcam_height: 1080
     enabled: true
@@ -27,11 +27,11 @@ vision:
   # Teste 8–10 pessoas em fila: YuNet (multi-rosto, Windows) + FaceNet.
   # Linux com InsightFace instalado: detector/embedder: insightface
   detector: yunet            # yunet | insightface | full_range | short_range
-  embedder: facenet           # facenet | insightface
-  max_faces: 8
+  embedder: facenet             # facenet estável no Windows; onnx se DLL ok (pip install onnxruntime --force-reinstall)
+  max_faces: 10
   yunet_score_threshold: 0.62   # mais alto = menos fantasma na parede (antes 0.42)
   min_face_area_ratio: 0.0015   # descarta caixas minúsculas
-  single_subject_mode: true     # webcam sozinha: mantém só o maior rosto
+  single_subject_mode: false    # sala: até 10 rostos (true = só o maior, só para teste 1 pessoa)
   insightface_det_size: 960
   insightface_min_det_score: 0.50
   mediapipe_min_confidence: 0.55
@@ -44,7 +44,7 @@ vision:
     th_off: 0.68         # histerese: só volta a "desconhecido" abaixo deste valor
     track_ttl_seconds: 2.5   # tracker: mantém caixa estável entre frames
     max_templates_per_student: 7   # multi-template (óculos/sem): até N por aluno
-    min_face_size: 42
+    min_face_size: 36         # rostos mais distantes (~2–4 m na sala)
     always_on: true   # dev: presença 24h; prod: false + active_windows
     active_windows:
       - start: "07:00"

@@ -1,5 +1,7 @@
 """Detector de faces (pluggable)."""
 
+import threading
+
 import cv2
 import numpy as np
 from typing import List, Optional, Tuple
@@ -212,6 +214,8 @@ class YuNetDetector(FaceDetector):
             nms_threshold,
             max_faces,
         )
+        # YuNet/OpenCV DNN não é thread-safe: presença + detect_only + engajamento compartilham esta instância
+        self._lock = threading.Lock()
         logger.info("detector_initialized", type="yunet", max_faces=max_faces)
 
     def _get_model_path(self) -> str:
@@ -228,24 +232,43 @@ class YuNetDetector(FaceDetector):
         logger.info("yunet_model_downloaded", path=str(model_path))
         return str(model_path)
 
-    def detect(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
+    def detect_detailed(self, frame: np.ndarray) -> List:
+        """Detecção com bbox, score e 5 landmarks (YuNet)."""
+        from app.vision.face_types import FaceDetectionResult
+
+        if frame is None or frame.size == 0:
+            return []
         h, w = frame.shape[:2]
         if h < 2 or w < 2:
             return []
-        self.detector.setInputSize((w, h))
-        _, faces = self.detector.detect(frame)
+
+        # Cópia contígua evita assertion inputs[0].data == outputs[0].data em uso concorrente/in-place
+        inp = np.ascontiguousarray(frame.copy())
+
+        with self._lock:
+            self.detector.setInputSize((w, h))
+            try:
+                _, faces = self.detector.detect(inp)
+            except cv2.error as e:
+                logger.warning("yunet_detect_failed", error=str(e))
+                return []
+
         if faces is None or len(faces) == 0:
             return []
-        scored: List[Tuple[float, Tuple[int, int, int, int]]] = []
+        out: List[FaceDetectionResult] = []
         min_keep_score = max(0.55, self.score_threshold)
         for row in faces:
             x, y, fw, fh = int(row[0]), int(row[1]), int(row[2]), int(row[3])
             score = float(row[14]) if len(row) > 14 else float(row[4])
             if fw <= 0 or fh <= 0 or score < min_keep_score:
                 continue
-            scored.append((score, (x, y, fw, fh)))
-        scored.sort(key=lambda t: t[0], reverse=True)
-        return [b for _, b in scored[: self.max_faces]]
+            lm = row[4:14].reshape(5, 2).astype(np.float32) if len(row) >= 14 else np.zeros((5, 2), dtype=np.float32)
+            out.append(FaceDetectionResult(bbox=(x, y, fw, fh), score=score, landmarks=lm))
+        out.sort(key=lambda d: d.score, reverse=True)
+        return out[: self.max_faces]
+
+    def detect(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
+        return [d.bbox for d in self.detect_detailed(frame)]
 
 
 class InsightFaceDetector(FaceDetector):

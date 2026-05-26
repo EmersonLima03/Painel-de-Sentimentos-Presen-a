@@ -1,15 +1,16 @@
-"""Leitor RTSP com reconexão robusta. Também suporta webcam (device index)."""
+"""Leitor RTSP com reconexão robusta. Webcam usa AsyncVideoCapture (thread dedicada)."""
 
 import sys
-import cv2
 import time
-from typing import Optional, Tuple, Any
-from threading import Lock
+from typing import Any, Optional, Tuple
+
+import cv2
+
 from app.logging import get_logger
+from app.rtsp.video_capture import AsyncVideoCapture, DEFAULT_HEIGHT, DEFAULT_WIDTH
 
 logger = get_logger(__name__)
 
-# No Windows, câmeras virtuais (ex.: Iriun Webcam) podem precisar de backend explícito
 _WINDOWS = sys.platform == "win32"
 if _WINDOWS:
     try:
@@ -25,8 +26,8 @@ else:
 
 
 class RTSPReader:
-    """Leitor RTSP com reconexão automática. Suporta webcam (índice) e fallback para default."""
-    
+    """Leitor RTSP ou webcam (índice numérico) com reconexão automática."""
+
     def __init__(
         self,
         camera_id: str,
@@ -40,17 +41,17 @@ class RTSPReader:
         self.rtsp_url = rtsp_url
         self.reconnect_delay = reconnect_delay
         self.default_camera_index = default_camera_index
-        self.webcam_width = webcam_width
-        self.webcam_height = webcam_height
+        self.webcam_width = webcam_width or DEFAULT_WIDTH
+        self.webcam_height = webcam_height or DEFAULT_HEIGHT
         self.cap: Optional[cv2.VideoCapture] = None
-        self.lock = Lock()
+        self._async_capture: Optional[AsyncVideoCapture] = None
         self.is_connected = False
         self.last_frame_time = 0.0
         self.frame_count = 0
         self.last_error: Optional[str] = None
         self.is_webcam = False
         self.device_index: Optional[int] = None
-        
+
         try:
             device_idx = int((rtsp_url or "").strip())
             if device_idx >= 0:
@@ -62,166 +63,164 @@ class RTSPReader:
             self.device_index = None
 
     def _apply_webcam_resolution(self) -> None:
-        """Solicita resolução ao driver (webcam/USB); o driver pode ajustar ao modo mais próximo."""
         if not self.cap or not self.is_webcam:
             return
-        w, h = self.webcam_width, self.webcam_height
-        if w is None or h is None or w <= 0 or h <= 0:
-            return
         try:
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(w))
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(h))
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.webcam_width))
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.webcam_height))
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
             pass
-    
+
     def connect(self) -> bool:
-        """Conecta ao stream RTSP ou webcam."""
-        with self.lock:
+        if self.is_webcam and self.device_index is not None:
+            return self._connect_webcam_async()
+
+        try:
             if self.cap is not None:
                 self.cap.release()
                 self.cap = None
-            
+
+            logger.info("rtsp_connecting", camera_id=self.camera_id, url=self.rtsp_url)
+            self.cap = cv2.VideoCapture(self.rtsp_url)
             try:
-                if self.is_webcam and self.device_index is not None:
-                    logger.info("rtsp_connecting_webcam", camera_id=self.camera_id, device_index=self.device_index)
-                    # No Windows: tentar backends que funcionam melhor com câmera virtual (Iriun, etc.)
-                    if _WINDOWS and _CAP_DSHOW is not None:
-                        self.cap = cv2.VideoCapture(self.device_index, _CAP_DSHOW)
-                    else:
-                        self.cap = cv2.VideoCapture(self.device_index)
-                    self._apply_webcam_resolution()
-                    ret, frame = self.cap.read() if self.cap is not None else (False, None)
-                    if (not ret or frame is None) and _WINDOWS and _CAP_MSMF is not None:
-                        if self.cap:
-                            self.cap.release()
-                            self.cap = None
-                        logger.info("rtsp_webcam_try_msmf", camera_id=self.camera_id, device_index=self.device_index)
-                        self.cap = cv2.VideoCapture(self.device_index, _CAP_MSMF)
-                        self._apply_webcam_resolution()
-                    # Webcam não precisa de timeout
-                else:
-                    logger.info("rtsp_connecting", camera_id=self.camera_id, url=self.rtsp_url)
-                    self.cap = cv2.VideoCapture(self.rtsp_url)
-                    # Timeout de conexão (5 segundos) - só para RTSP
-                    try:
-                        self.cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
-                    except:
-                        pass  # Algumas versões do OpenCV não suportam
-                
-                # Configurar buffer (reduzir latência)
-                try:
-                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                except:
-                    pass
-
-                # Testar leitura
-                ret, frame = self.cap.read()
-                if ret and frame is not None:
-                    self.is_connected = True
-                    self.last_error = None
-                    self.last_frame_time = time.time()
-                    source_type = "webcam" if self.is_webcam else "rtsp"
-                    logger.info("rtsp_connected", camera_id=self.camera_id, source=source_type)
-                    return True
-
-                # Webcam: fallback para default se índice atual falhou (ex.: iPhone não conectado)
-                if self.is_webcam and self.device_index is not None and self.device_index != self.default_camera_index:
-                    self.cap.release()
-                    self.cap = None
-                    logger.warning("camera_open_failed", camera_id=self.camera_id, device_index=self.device_index, fallback_to_default=self.default_camera_index)
-                    self.device_index = self.default_camera_index
-                    if _WINDOWS and _CAP_DSHOW is not None:
-                        self.cap = cv2.VideoCapture(self.device_index, _CAP_DSHOW)
-                    else:
-                        self.cap = cv2.VideoCapture(self.device_index)
-                    try:
-                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                    except Exception:
-                        pass
-                    self._apply_webcam_resolution()
-                    ret, frame = self.cap.read()
-                    if ret and frame is not None:
-                        self.is_connected = True
-                        self.last_error = None
-                        self.last_frame_time = time.time()
-                        logger.info("rtsp_connected", camera_id=self.camera_id, source="webcam_fallback", device_index=self.device_index)
-                        return True
-
-                if self.cap:
-                    self.cap.release()
-                    self.cap = None
-                self.is_connected = False
-                self.last_error = "Failed to read initial frame"
-                logger.warning("rtsp_connection_failed", camera_id=self.camera_id, error=self.last_error)
-                return False
-
-            except Exception as e:
-                self.is_connected = False
-                self.last_error = str(e)
-                logger.error("rtsp_connection_error", camera_id=self.camera_id, error=str(e))
-                if self.cap:
-                    self.cap.release()
-                    self.cap = None
-                return False
-    
-    def read_frame(self) -> Tuple[bool, Optional[Any]]:
-        """Lê um frame do stream.
-        
-        Returns:
-            Tuple[bool, Optional[Any]]: (sucesso, frame) ou (False, None)
-        """
-        with self.lock:
-            if not self.is_connected or self.cap is None:
-                return False, None
-            
+                self.cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+            except Exception:
+                pass
             try:
-                ret, frame = self.cap.read()
-                
-                if ret and frame is not None:
-                    self.last_frame_time = time.time()
-                    self.frame_count += 1
-                    return True, frame
-                else:
-                    # Frame inválido - possível desconexão
-                    self.is_connected = False
-                    self.last_error = "Failed to read frame"
-                    logger.warning("rtsp_frame_read_failed", camera_id=self.camera_id)
-                    return False, None
-                    
-            except Exception as e:
-                self.is_connected = False
-                self.last_error = str(e)
-                logger.error("rtsp_read_error", camera_id=self.camera_id, error=str(e))
-                return False, None
-    
-    def ensure_connected(self) -> bool:
-        """Garante que está conectado, reconecta se necessário."""
-        if self.is_connected and self.cap is not None:
-            # Verificar se ainda está vivo
-            if time.time() - self.last_frame_time > 30.0:  # Timeout de 30s sem frames
-                logger.warning("rtsp_timeout", camera_id=self.camera_id)
-                self.is_connected = False
-        
-        if not self.is_connected:
-            return self.connect()
-        
-        return True
-    
-    def disconnect(self) -> None:
-        """Desconecta do stream."""
-        with self.lock:
-            if self.cap is not None:
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception:
+                pass
+
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                self.is_connected = True
+                self.last_error = None
+                self.last_frame_time = time.time()
+                logger.info("rtsp_connected", camera_id=self.camera_id, source="rtsp")
+                return True
+
+            if self.cap:
                 self.cap.release()
                 self.cap = None
             self.is_connected = False
-            logger.info("rtsp_disconnected", camera_id=self.camera_id)
-    
+            self.last_error = "Failed to read initial frame"
+            logger.warning("rtsp_connection_failed", camera_id=self.camera_id, error=self.last_error)
+            return False
+        except Exception as e:
+            self.is_connected = False
+            self.last_error = str(e)
+            logger.error("rtsp_connection_error", camera_id=self.camera_id, error=str(e))
+            if self.cap:
+                self.cap.release()
+                self.cap = None
+            return False
+
+    def _connect_webcam_async(self) -> bool:
+        if self._async_capture is not None:
+            self._async_capture.stop()
+
+        self._async_capture = AsyncVideoCapture(
+            self.device_index,
+            width=self.webcam_width,
+            height=self.webcam_height,
+            default_index=self.default_camera_index,
+            reconnect_delay=min(self.reconnect_delay, 2.0),
+        )
+        if not self._async_capture.connect():
+            self.is_connected = False
+            self.last_error = self._async_capture.last_error
+            return False
+
+        self._async_capture.start()
+        self.is_connected = True
+        self.last_error = None
+        self.last_frame_time = self._async_capture.last_frame_time
+        self.frame_count = self._async_capture.frame_count
+        logger.info(
+            "rtsp_connected",
+            camera_id=self.camera_id,
+            source="webcam_async",
+            device_index=self._async_capture.device_index,
+        )
+        return True
+
+    def read_frame(self) -> Tuple[bool, Optional[Any]]:
+        if self._async_capture is not None:
+            ret, frame = self._async_capture.read()
+            if ret and frame is not None:
+                self.is_connected = self._async_capture.is_connected
+                self.last_frame_time = self._async_capture.last_frame_time
+                self.frame_count = self._async_capture.frame_count
+                self.last_error = self._async_capture.last_error
+                return True, frame
+            self.is_connected = self._async_capture.is_connected
+            self.last_error = self._async_capture.last_error or "No frame yet"
+            return False, None
+
+        if not self.is_connected or self.cap is None:
+            return False, None
+
+        try:
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                self.last_frame_time = time.time()
+                self.frame_count += 1
+                return True, frame
+            self.is_connected = False
+            self.last_error = "Failed to read frame"
+            logger.warning("rtsp_frame_read_failed", camera_id=self.camera_id)
+            return False, None
+        except Exception as e:
+            self.is_connected = False
+            self.last_error = str(e)
+            logger.error("rtsp_read_error", camera_id=self.camera_id, error=str(e))
+            return False, None
+
+    def ensure_connected(self) -> bool:
+        if self._async_capture is not None:
+            if self._async_capture.is_connected:
+                if time.time() - self._async_capture.last_frame_time > 30.0:
+                    logger.warning("rtsp_timeout", camera_id=self.camera_id)
+                else:
+                    self.is_connected = True
+                    return True
+            return self.connect()
+
+        if self.is_connected and self.cap is not None:
+            if time.time() - self.last_frame_time > 30.0:
+                logger.warning("rtsp_timeout", camera_id=self.camera_id)
+                self.is_connected = False
+
+        if not self.is_connected:
+            return self.connect()
+        return True
+
+    def disconnect(self) -> None:
+        if self._async_capture is not None:
+            self._async_capture.stop()
+            self._async_capture = None
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+        self.is_connected = False
+        logger.info("rtsp_disconnected", camera_id=self.camera_id)
+
     def get_status(self) -> dict:
-        """Retorna status do reader."""
+        if self._async_capture is not None:
+            st = self._async_capture.get_status()
+            return {
+                "camera_id": self.camera_id,
+                "is_connected": st["is_connected"],
+                "last_frame_time": st["last_frame_time"],
+                "frame_count": st["frame_count"],
+                "last_error": st["last_error"],
+            }
         return {
             "camera_id": self.camera_id,
             "is_connected": self.is_connected,
             "last_frame_time": self.last_frame_time,
             "frame_count": self.frame_count,
-            "last_error": self.last_error
+            "last_error": self.last_error,
         }

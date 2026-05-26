@@ -8,6 +8,24 @@ from app.logging import get_logger
 
 logger = get_logger(__name__)
 
+_onnx_runtime_ok: Optional[bool] = None
+
+
+def onnx_runtime_available() -> bool:
+    """Testa import do onnxruntime (evita escolher ONNX quando a DLL falha no Windows)."""
+    global _onnx_runtime_ok
+    if _onnx_runtime_ok is not None:
+        return _onnx_runtime_ok
+    try:
+        import onnxruntime as ort  # noqa: F401
+
+        _ = ort.get_available_providers()
+        _onnx_runtime_ok = True
+    except Exception as e:
+        logger.warning("onnx_runtime_unavailable", error=str(e))
+        _onnx_runtime_ok = False
+    return _onnx_runtime_ok
+
 
 class FaceEmbedder:
     """Interface para gerador de embeddings."""
@@ -305,14 +323,38 @@ def create_embedder() -> FaceEmbedder:
         except Exception as e:
             logger.warning("insightface_embedder_failed", error=str(e))
 
-    prefer_facenet = embed_backend == "facenet" or (not use_insightface and settings.real)
+    if embed_backend in ("onnx", "arcface", "onnxruntime"):
+        if onnx_runtime_available():
+            try:
+                from app.vision.onnx_embedder import OnnxFaceEmbedder
+
+                logger.info("using_onnx_embedder")
+                return OnnxFaceEmbedder()
+            except Exception as e:
+                logger.warning("onnx_embedder_failed", error=str(e), fallback="facenet")
+        else:
+            logger.warning("onnx_runtime_missing", fallback="facenet")
+
+    prefer_facenet = embed_backend == "facenet" or (
+        embed_backend not in ("onnx", "arcface", "onnxruntime", "insightface")
+        and not use_insightface
+        and settings.real
+    )
 
     if settings.real or (not settings.simulation and settings.cameras):
-        if prefer_facenet or embed_backend != "insightface":
+        if prefer_facenet:
             try:
                 return FaceNetEmbedder()
             except Exception as e:
                 logger.warning("facenet_failed", error=str(e), fallback="insightface")
+        elif embed_backend == "insightface":
+            pass  # tratado acima
+        elif embed_backend in ("onnx", "arcface", "onnxruntime"):
+            try:
+                logger.warning("onnx_unavailable_using_facenet")
+                return FaceNetEmbedder()
+            except Exception as e:
+                logger.warning("facenet_fallback_failed", error=str(e))
         try:
             from app.vision.detector import _build_insightface_pair
             import app.vision.detector as det_mod

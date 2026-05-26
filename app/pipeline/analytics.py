@@ -56,33 +56,37 @@ class EngagementAnalytics:
         self._prev_gray = gray.copy()
         return float(np.mean(diff))
 
-    def process_frame(self, frame: np.ndarray) -> Optional[dict]:
+    def process_frame(
+        self,
+        frame: np.ndarray,
+        *,
+        face_count: Optional[int] = None,
+    ) -> Optional[dict]:
         """
         Processa frame para analytics de engajamento.
-        
-        Engajamento não é garantido: depende do detector capturar faces de forma
-        consistente (MediaPipe tende a funcionar melhor que Haar).
-        
-        Retorna: evento de janela se completada, None caso contrário.
+
+        Se face_count vier do orchestrator (cache YuNet), evita segunda detecção no mesmo frame.
         """
         current_time = time.time()
-        
-        # Inicializar janela
+
         if self.window_start_time is None:
             self.window_start_time = current_time
-        
-        # Movimento agregado (diferença entre frames)
+
         motion = self._frame_motion(frame)
         self.motion_buffer.append(motion)
 
-        # Detectar faces
-        faces = self.detector.detect(frame)
-        states = []
-        for (x, y, w, h) in faces:
-            face_roi = frame[y:y+h, x:x+w]
-            state = calculate_engagement_state(face_roi, (x, y, w, h))
-            states.append(state)
-        self.state_buffer.extend(states)
+        if face_count is not None:
+            n = max(0, int(face_count))
+            if n > 0:
+                self.state_buffer.extend(["neutral"] * n)
+        else:
+            faces = self.detector.detect(frame)
+            states = []
+            for (x, y, w, h) in faces:
+                face_roi = frame[y : y + h, x : x + w]
+                state = calculate_engagement_state(face_roi, (x, y, w, h))
+                states.append(state)
+            self.state_buffer.extend(states)
 
         self._window_frame_count += 1
         elapsed = current_time - self.window_start_time

@@ -21,6 +21,7 @@ facenet-pytorch==2.6.0
 # MediaPipe: preferir versão com Tasks API (face_detector). Fallback: Haar.
 mediapipe>=0.10.8
 faiss-cpu>=1.7.4
+onnxruntime>=1.17.0
 cryptography>=41.0.0
 
 # Multi-rosto / distância: YuNet usa opencv-contrib (já instalado).

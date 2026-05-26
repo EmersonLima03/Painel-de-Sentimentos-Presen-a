@@ -6,6 +6,8 @@ import time
 from typing import Optional, Dict
 from app.vision.detector import create_detector
 from app.vision.embedder import create_embedder
+from app.vision.face_alignment import crop_aligned_face
+from app.vision.face_pipeline import FacePipeline
 from app.vision.quality import calculate_face_quality
 from app.db.init_db import get_session
 from app.db.repo import StudentRepository, FaceEmbeddingRepository
@@ -19,9 +21,10 @@ logger = get_logger(__name__)
 class EnrollmentService:
     """Serviço para cadastrar faces de alunos."""
     
-    def __init__(self):
-        self.detector = create_detector()
-        self.embedder = create_embedder()
+    def __init__(self, face_pipeline: Optional[FacePipeline] = None):
+        self.face_pipeline = face_pipeline or FacePipeline()
+        self.detector = self.face_pipeline.detector
+        self.embedder = self.face_pipeline.embedder
     
     def enroll_from_image(self, image_path: str, student_id: str) -> bool:
         """
@@ -186,21 +189,23 @@ class EnrollmentService:
             while len(frames_captured) < num_frames and (time.time() - start_time) < capture_duration:
                 ret, frame = reader.read_frame()
                 if ret and frame is not None:
-                    # Detectar face
-                    faces = self.detector.detect(frame)
-                    if faces:
-                        # Usar primeira face detectada
-                        x, y, w, h = faces[0]
-                        face_roi = frame[y:y+h, x:x+w]
-                        
-                        # Calcular qualidade
-                        quality_label, quality_score = calculate_face_quality(face_roi, min_size=50)
-                        
+                    detections = self.face_pipeline.detect_with_landmarks(frame)
+                    if detections:
+                        det = detections[0]
+                        x, y, w, h = det.bbox
+                        face_roi = crop_aligned_face(
+                            frame, det.bbox, det.landmarks, output_size=(112, 112)
+                        )
+                        if face_roi is None or face_roi.size == 0:
+                            face_roi = frame[y : y + h, x : x + w]
+                        quality_label, quality_score = calculate_face_quality(
+                            face_roi, min_size=get_settings().face_min_size
+                        )
                         frames_captured.append({
                             "frame": face_roi,
                             "quality_score": quality_score,
                             "quality_label": quality_label,
-                            "bbox": (x, y, w, h)
+                            "bbox": (x, y, w, h),
                         })
                 
                 time.sleep(frame_interval)
@@ -298,76 +303,94 @@ class EnrollmentService:
                 embedding_mean = embedding_mean / norm
             
             # Salvar no banco
+            from app.db import student_cache
+            from app.db.init_db import close_session, get_session
+
             session = get_session()
-            settings = get_settings()
-            student_repo = StudentRepository(session)
-            existing_student = student_repo.get_student(student_id)
+            try:
+                settings = get_settings()
+                student_repo = StudentRepository(session)
+                existing_student = student_repo.get_student(student_id)
 
-            # 1. Criar/atualizar student
-            student_repo.create_student(
-                student_id=student_id,
-                school_id=settings.school_id,
-                room_id=None,  # Pode ser configurado depois
-                full_name=full_name,
-                external_ref=None,  # Futuro mapeamento LXP
-                is_active=True
-            )
+                student_repo.create_student(
+                    student_id=student_id,
+                    school_id=settings.school_id,
+                    room_id=None,
+                    full_name=full_name,
+                    external_ref=None,
+                    is_active=True,
+                )
 
-            # 2. Salvar embedding (multi-template: append ou substituir)
-            embedding_repo = FaceEmbeddingRepository(session)
-            if not append_template:
-                removed = embedding_repo.delete_embeddings_for_student(
+                embedding_repo = FaceEmbeddingRepository(session)
+                if not append_template:
+                    removed = embedding_repo.delete_embeddings_for_student(
+                        student_id, device_id=settings.device_id, school_id=settings.school_id
+                    )
+                    if removed:
+                        logger.info("enroll_templates_replaced", student_id=student_id, removed=removed)
+                model_version = (
+                    self.embedder.get_model_version()
+                    if hasattr(self.embedder, "get_model_version")
+                    else "unknown"
+                )
+                model_name = "onnx" if "onnx" in model_version.lower() else "facenet"
+                embedding_repo.create_embedding(
+                    student_id=student_id,
+                    device_id=settings.device_id,
+                    school_id=settings.school_id,
+                    embedding_vector=embedding_mean.tolist(),
+                    room_id=None,
+                    embedding_dim=len(embedding_mean),
+                    model_name=model_name,
+                    model_version=model_version,
+                    quality_score=float(best_frame["quality_score"]),
+                )
+                if append_template:
+                    embedding_repo.prune_oldest_templates(
+                        student_id, max_templates, device_id=settings.device_id, school_id=settings.school_id
+                    )
+                templates_count = embedding_repo.count_templates_for_student(
                     student_id, device_id=settings.device_id, school_id=settings.school_id
                 )
-                if removed:
-                    logger.info("enroll_templates_replaced", student_id=student_id, removed=removed)
-            embedding_repo.create_embedding(
-                student_id=student_id,
-                device_id=settings.device_id,
-                school_id=settings.school_id,
-                embedding_vector=embedding_mean.tolist(),
-                room_id=None,
-                embedding_dim=len(embedding_mean),
-                model_name="facenet",
-                model_version=self.embedder.get_model_version() if hasattr(self.embedder, 'get_model_version') else "facenet-pytorch-vggface2-512d-v1",
-                quality_score=float(best_frame["quality_score"])
-            )
-            if append_template:
-                embedding_repo.prune_oldest_templates(
-                    student_id, max_templates, device_id=settings.device_id, school_id=settings.school_id
+
+                student_cache.set_display_name(student_id, full_name)
+
+                logger.info(
+                    "enroll_complete",
+                    student_id=student_id,
+                    embeddings_generated=len(embeddings_list),
+                    embedding_dim=len(embedding_mean),
+                    quality_score=float(best_frame["quality_score"]),
                 )
-            templates_count = embedding_repo.count_templates_for_student(
-                student_id, device_id=settings.device_id, school_id=settings.school_id
-            )
-            
-            logger.info("enroll_complete", 
-                       student_id=student_id,
-                       embeddings_generated=len(embeddings_list),
-                       embedding_dim=len(embedding_mean),
-                       quality_score=float(best_frame["quality_score"]))
-            
-            return {
-                "status": "success",
-                "student_id": student_id,
-                "full_name": full_name,
-                "student_updated": existing_student is not None,
-                "append_template": append_template,
-                "templates_count": templates_count,
-                "quality_score": float(best_frame["quality_score"]),
-                "quality_label": best_frame["quality_label"],
-                "quality_avg": avg_quality,
-                "frames_captured": len(frames_captured),
-                "good_frames": len(good_frames),
-                "fair_frames": len(fair_frames),
-                "poor_frames": len(poor_frames),
-                "frames_used": len(embeddings_list),
-                "embedding_dim": len(embedding_mean),
-                "model_version": self.embedder.get_model_version() if hasattr(self.embedder, 'get_model_version') else "facenet-pytorch-vggface2-512d-v1",
-                "message": "Pessoa cadastrada. Certifique-se de que era a pessoa certa na câmera. Se errou, chame de novo com a pessoa certa para atualizar."
-            }
-            
+
+                return {
+                    "status": "success",
+                    "student_id": student_id,
+                    "full_name": full_name,
+                    "student_updated": existing_student is not None,
+                    "append_template": append_template,
+                    "templates_count": templates_count,
+                    "quality_score": float(best_frame["quality_score"]),
+                    "quality_label": best_frame["quality_label"],
+                    "quality_avg": avg_quality,
+                    "frames_captured": len(frames_captured),
+                    "good_frames": len(good_frames),
+                    "fair_frames": len(fair_frames),
+                    "poor_frames": len(poor_frames),
+                    "frames_used": len(embeddings_list),
+                    "embedding_dim": len(embedding_mean),
+                    "model_version": self.embedder.get_model_version()
+                    if hasattr(self.embedder, "get_model_version")
+                    else "facenet-pytorch-vggface2-512d-v1",
+                    "message": "Pessoa cadastrada. Certifique-se de que era a pessoa certa na câmera. Se errou, chame de novo com a pessoa certa para atualizar.",
+                }
+            finally:
+                close_session(session)
+
         except Exception as e:
             logger.error("enroll_webcam_error", student_id=student_id, error=str(e), exc_info=True)
+            if "session" in locals() and session is not None:
+                close_session(session)
             if should_disconnect and reader:
                 try:
                     reader.disconnect()

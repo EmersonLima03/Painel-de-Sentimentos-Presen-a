@@ -1,14 +1,17 @@
-"""Orquestrador principal do pipeline."""
+"""Orquestrador: captura assíncrona + IA em intervalos (presença 2s) sem bloquear vídeo."""
 
 import asyncio
 import time
-from typing import Dict, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List, Optional
+
 import numpy as np
 
 from app.rtsp.reader import RTSPReader
 from app.rtsp.watchdog import RTSPWatchdog
 from app.vision.detector import create_detector
 from app.vision.embedder import create_embedder
+from app.vision.face_pipeline import FacePipeline
 from app.vision.matcher import (
     FaceMatcher,
     FAISSMatcher,
@@ -16,6 +19,7 @@ from app.vision.matcher import (
 )
 from app.pipeline.presence import PresencePipeline
 from app.pipeline.analytics import EngagementAnalytics
+from app.db import student_cache
 from app.db.init_db import get_session
 from app.db.repo import (
     EventRepository,
@@ -27,41 +31,47 @@ from app.logging import get_logger
 
 logger = get_logger(__name__)
 
+_CAPTURE_HZ = 30.0
+_DETECT_HZ = 10.0  # overlay fluido; presença (2s) usa pipeline separado
+
 
 class PipelineOrchestrator:
-    """Orquestra processamento de múltiplas câmeras."""
-    
+    """Orquestra captura em tempo real e processamento de IA em background."""
+
     def __init__(self):
         self.settings = get_settings()
         self.running = False
-        
-        # RTSP readers
+
         self.readers: Dict[str, RTSPReader] = {}
         self.watchdog: Optional[RTSPWatchdog] = None
-        
-        # Pipelines por câmera
+        self.face_pipeline: Optional[FacePipeline] = None
+
         self.presence_pipelines: Dict[str, PresencePipeline] = {}
         self.engagement_analytics: Dict[str, EngagementAnalytics] = {}
-        
-        # Timers de sampling
+
         self.last_presence_sample: Dict[str, float] = {}
         self.last_engagement_sample: Dict[str, float] = {}
-        
-        # Métricas por câmera
+        self.last_detect_sample: Dict[str, float] = {}
+
         self.faces_detected_last: Dict[str, int] = {}
-        self.last_presence_match: Dict[str, dict] = {}  # {camera_id: list of {student_id, confidence, timestamp}}
-        self.last_presence_event_id: Dict[str, Optional[str]] = {}  # event_id do último check-in (ou None)
-    
+        self.last_presence_match: Dict[str, dict] = {}
+        self.last_presence_event_id: Dict[str, Optional[str]] = {}
+
+        self._latest_frames: Dict[str, np.ndarray] = {}
+        self._overlay_matches: Dict[str, List[dict]] = {}
+        self._overlay_boxes: Dict[str, List[tuple]] = {}
+        self._overlay_source_size: Dict[str, tuple] = {}  # (width, height) do frame na última detecção
+        self._executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="edge-vision")
+        self._presence_busy: Dict[str, bool] = {}
+
     def initialize(self) -> None:
-        """Inicializa todos os componentes."""
         logger.info("orchestrator_initializing")
-        
-        # Pular RTSP se desabilitado
-        if getattr(self.settings, 'disable_rtsp', False) or not self.settings.cameras:
+
+        if getattr(self.settings, "disable_rtsp", False) or not self.settings.cameras:
             logger.info("rtsp_disabled_by_config", cameras_count=len(self.settings.cameras))
             self.watchdog = None
             return
-        
+
         default_idx = getattr(self.settings, "default_camera_index", 0)
         for cam_config in self.settings.cameras:
             reader = RTSPReader(
@@ -74,18 +84,29 @@ class PipelineOrchestrator:
             self.readers[cam_config.camera_id] = reader
             self.last_presence_sample[cam_config.camera_id] = 0.0
             self.last_engagement_sample[cam_config.camera_id] = 0.0
-        
-        # Criar watchdog apenas se há readers
-        if self.readers:
-            self.watchdog = RTSPWatchdog(self.readers)
-        else:
-            self.watchdog = None
-        
-        # Criar componentes de visão (compartilhados)
+            self.last_detect_sample[cam_config.camera_id] = 0.0
+            self._presence_busy[cam_config.camera_id] = False
+
+        self.watchdog = RTSPWatchdog(self.readers) if self.readers else None
+
+        # Câmera primeiro: preview/cadastro funcionam enquanto modelos carregam
+        for camera_id, reader in self.readers.items():
+            try:
+                if reader.connect():
+                    logger.info("camera_connected_early", camera_id=camera_id)
+            except Exception as e:
+                logger.warning("camera_connect_early_failed", camera_id=camera_id, error=str(e))
+
         detector = create_detector()
-        embedder = create_embedder()
-        
-        # Criar pipelines por câmera
+        try:
+            embedder = create_embedder()
+        except Exception as e:
+            logger.error("embedder_init_failed", error=str(e))
+            from app.vision.embedder import DeterministicEmbedder
+
+            embedder = DeterministicEmbedder()
+        self.face_pipeline = FacePipeline(detector=detector, embedder=embedder)
+
         session = get_session()
         event_repo = EventRepository(session)
         attendance_repo = AttendanceRepository(session)
@@ -96,25 +117,23 @@ class PipelineOrchestrator:
         )
         embeddings = load_embeddings_from_face_embeddings(face_embeddings)
         logger.info("orchestrator_loading_embeddings", source="face_embeddings", count=len(embeddings))
-        
-        # Criar matcher (tentar FAISS, fallback para linear)
+
         try:
             if len(embeddings) > 0:
                 embedding_dim = len(embeddings[0][1])
                 base_matcher = FAISSMatcher(embeddings, dim=embedding_dim)
                 logger.info("orchestrator_using_faiss", count=len(embeddings), dim=embedding_dim)
             else:
-                base_matcher = FAISSMatcher([], dim=512)  # Dimensão padrão
+                base_matcher = FAISSMatcher([], dim=512)
                 logger.info("orchestrator_using_faiss_empty")
         except Exception as e:
             logger.warning("FAISS disabled: %s (using linear fallback)", str(e))
             base_matcher = FaceMatcher(embeddings)
-        
+
         for cam_config in self.settings.cameras:
             camera_id = cam_config.camera_id
             room_id = cam_config.room_id
-            
-            # Pipeline de presença
+
             presence_pipeline = PresencePipeline(
                 detector=detector,
                 embedder=embedder,
@@ -125,11 +144,11 @@ class PipelineOrchestrator:
                 camera_id=camera_id,
                 room_id=room_id,
                 device_id=self.settings.device_id,
-                school_id=self.settings.school_id
+                school_id=self.settings.school_id,
+                face_pipeline=self.face_pipeline,
             )
             self.presence_pipelines[camera_id] = presence_pipeline
-            
-            # Analytics de engajamento
+
             engagement = EngagementAnalytics(
                 detector=detector,
                 event_repo=event_repo,
@@ -137,24 +156,167 @@ class PipelineOrchestrator:
                 room_id=room_id,
                 device_id=self.settings.device_id,
                 school_id=self.settings.school_id,
-                window_seconds=10
+                window_seconds=10,
             )
             self.engagement_analytics[camera_id] = engagement
-        
+
+        try:
+            n = student_cache.load_all(school_id=self.settings.school_id)
+            logger.info("student_name_cache_loaded", count=n)
+        except Exception as e:
+            logger.warning("student_name_cache_load_failed", error=str(e))
+
         logger.info("orchestrator_initialized", num_cameras=len(self.readers))
-    
+
+    def get_latest_frame(self, camera_id: str) -> Optional[np.ndarray]:
+        frame = self._latest_frames.get(camera_id)
+        if frame is None:
+            return None
+        return frame.copy()
+
+    def has_latest_frame(self, camera_id: str) -> bool:
+        return self._latest_frames.get(camera_id) is not None
+
+    def get_overlay_matches(self, camera_id: str) -> List[dict]:
+        return list(self._overlay_matches.get(camera_id) or [])
+
+    def get_overlay_boxes(self, camera_id: str) -> List[tuple]:
+        return list(self._overlay_boxes.get(camera_id) or [])
+
+    def get_overlay_source_size(self, camera_id: str) -> Optional[tuple]:
+        return self._overlay_source_size.get(camera_id)
+
+    def _stamp_overlay_frame(self, camera_id: str, frame: np.ndarray) -> None:
+        h, w = frame.shape[:2]
+        self._overlay_source_size[camera_id] = (w, h)
+
+    @staticmethod
+    def _enrich_match_display(m: dict) -> dict:
+        sid = m.get("student_id")
+        full_name = student_cache.get_display_name(sid) if sid else None
+        return {**m, "full_name": full_name}
+
+    def _run_presence_sync(self, camera_id: str, frame: np.ndarray) -> None:
+        if self._presence_busy.get(camera_id):
+            return
+        self._presence_busy[camera_id] = True
+        try:
+            pipeline = self.presence_pipelines.get(camera_id)
+            if not pipeline:
+                return
+            result = pipeline.process_frame(frame)
+            if result and result.get("matches") is not None:
+                match_list = result["matches"]
+                self._stamp_overlay_frame(camera_id, frame)
+                if match_list:
+                    self.last_presence_match[camera_id] = [
+                        {
+                            "student_id": m.get("student_id"),
+                            "confidence": m.get("confidence", 0.0),
+                            "timestamp": time.time(),
+                            "bbox": m.get("bbox"),
+                            "full_name": student_cache.get_display_name(m.get("student_id"))
+                            if m.get("student_id")
+                            else None,
+                        }
+                        for m in match_list
+                    ]
+                    self._overlay_matches[camera_id] = [
+                        self._enrich_match_display(
+                            {
+                                "track_id": i,
+                                "bbox": m.get("bbox"),
+                                "student_id": m.get("student_id"),
+                                "confidence": m.get("confidence", 0.0),
+                                "provável": m.get("provável", False),
+                                "top2_score": m.get("top2_score"),
+                                "margin": m.get("margin"),
+                            }
+                        )
+                        for i, m in enumerate(match_list)
+                    ]
+                    self._overlay_boxes[camera_id] = [
+                        tuple(m["bbox"]) for m in match_list if m.get("bbox")
+                    ]
+                    logger.info(
+                        "presence_match_detected",
+                        camera_id=camera_id,
+                        student_ids=[m.get("student_id") for m in match_list],
+                    )
+                elif self._overlay_boxes.get(camera_id):
+                    self._overlay_matches[camera_id] = [
+                        {
+                            "track_id": i,
+                            "bbox": [x, y, w, h],
+                            "student_id": None,
+                            "confidence": 0.0,
+                            "provável": False,
+                        }
+                        for i, (x, y, w, h) in enumerate(self._overlay_boxes[camera_id])
+                    ]
+        except Exception as e:
+            logger.warning("presence_pipeline_error", camera_id=camera_id, error=str(e))
+        finally:
+            self._presence_busy[camera_id] = False
+
+    def _run_detect_sync(self, camera_id: str, frame: np.ndarray) -> None:
+        try:
+            if self.face_pipeline:
+                boxes = self.face_pipeline.detect_only(frame)
+                self._stamp_overlay_frame(camera_id, frame)
+                self._overlay_boxes[camera_id] = boxes
+                self.faces_detected_last[camera_id] = len(boxes)
+                # Atualiza só posição das caixas; não apaga student_id da presença (2 s)
+                prev = self._overlay_matches.get(camera_id) or []
+                if prev and boxes:
+                    merged = []
+                    for i, (x, y, w, h) in enumerate(boxes):
+                        old = prev[i] if i < len(prev) else {}
+                        merged.append(
+                            {
+                                "track_id": old.get("track_id", i),
+                                "bbox": [x, y, w, h],
+                                "student_id": old.get("student_id"),
+                                "full_name": old.get("full_name"),
+                                "confidence": old.get("confidence", 0.0),
+                                "provável": old.get("provável", False),
+                                "top2_score": old.get("top2_score"),
+                                "margin": old.get("margin"),
+                            }
+                        )
+                    self._overlay_matches[camera_id] = merged
+                elif not prev and boxes:
+                    self._overlay_matches[camera_id] = [
+                        {
+                            "track_id": i,
+                            "bbox": [x, y, w, h],
+                            "student_id": None,
+                            "confidence": 0.0,
+                            "provável": False,
+                        }
+                        for i, (x, y, w, h) in enumerate(boxes)
+                    ]
+        except Exception as e:
+            logger.warning("detect_only_error", camera_id=camera_id, error=str(e))
+
+    def _run_engagement_sync(self, camera_id: str, frame: np.ndarray) -> None:
+        analytics = self.engagement_analytics.get(camera_id)
+        if analytics:
+            try:
+                n_faces = self.faces_detected_last.get(camera_id, 0)
+                analytics.process_frame(frame, face_count=n_faces)
+            except Exception as e:
+                logger.warning("engagement_error", camera_id=camera_id, error=str(e))
+
     async def start(self) -> None:
-        """Inicia processamento assíncrono."""
         self.running = True
-        
-        # Se não há readers (RTSP desabilitado), apenas manter rodando
+
         if not self.readers:
             logger.info("orchestrator_no_cameras", message="RTSP desabilitado ou sem câmeras")
             while self.running:
-                await asyncio.sleep(10)  # Sleep longo quando não há câmeras
+                await asyncio.sleep(10)
             return
-        
-        # Conectar todos os readers em thread com timeout (evita travar se câmera não responder)
+
         loop = asyncio.get_event_loop()
         connect_timeout = getattr(self.settings, "camera_connect_timeout_seconds", 15)
         for camera_id, reader in self.readers.items():
@@ -164,94 +326,73 @@ class PipelineOrchestrator:
                 logger.warning("rtsp_connect_timeout", camera_id=camera_id, timeout_seconds=connect_timeout)
             except Exception as e:
                 logger.warning("rtsp_connect_error", camera_id=camera_id, error=str(e))
-        
-        logger.info("orchestrator_started")
-        
-        # Loop principal
-        loop = asyncio.get_event_loop()
+
+        logger.info("orchestrator_started", capture_hz=_CAPTURE_HZ)
+        frame_interval = 1.0 / _CAPTURE_HZ
+        detect_interval = 1.0 / _DETECT_HZ
+
         while self.running:
             try:
-                # Verificar conexões em thread (evita bloquear)
                 if self.watchdog:
                     await loop.run_in_executor(None, self.watchdog.check_all)
-                
-                # Processar cada câmera (só se há readers)
-                if self.readers:
-                    for camera_id, reader in self.readers.items():
-                        if not reader.is_connected:
-                            continue
-                        
-                        # Ler frame em thread (evita bloquear event loop / CTRL+C)
-                        ret, frame = await loop.run_in_executor(None, reader.read_frame)
-                        if not ret or frame is None:
-                            continue
-                        
-                        current_time = time.time()
-                        
-                        # Detectar faces para métricas (sempre, mesmo se não for processar presença)
-                        pipeline = self.presence_pipelines.get(camera_id)
-                        if pipeline:
-                            try:
-                                faces = pipeline.detector.detect(frame)
-                                self.faces_detected_last[camera_id] = len(faces)
-                                
-                                # Log periódico para debug (a cada 5 segundos)
-                                if int(current_time) % 5 == 0 and int(current_time) != int(self.last_presence_sample.get(camera_id, 0)):
-                                    logger.debug("face_detection_debug", 
-                                               camera_id=camera_id, 
-                                               faces_detected=len(faces),
-                                               detector_type=type(pipeline.detector).__name__)
-                            except Exception as e:
-                                logger.warning("face_detection_error", camera_id=camera_id, error=str(e))
-                        
-                        # Sampling de presença
-                        if current_time - self.last_presence_sample.get(camera_id, 0) >= self.settings.presence_sampling_seconds:
-                            if pipeline:
-                                try:
-                                    result = pipeline.process_frame(frame)
-                                    # Atualizar métrica apenas quando houver match (não sobrescrever com [] em "faces sem match")
-                                    if result and "matches" in result:
-                                        match_list = result["matches"]
-                                        if match_list:
-                                            self.last_presence_match[camera_id] = [
-                                                {
-                                                    "student_id": m.get("student_id"),
-                                                    "confidence": m.get("confidence", 0.0),
-                                                    "timestamp": current_time,
-                                                    "bbox": m.get("bbox"),
-                                                }
-                                                for m in match_list
-                                            ]
-                                            logger.info("presence_match_detected", 
-                                                       camera_id=camera_id,
-                                                       student_ids=[m.get("student_id") for m in match_list])
-                                except Exception as e:
-                                    logger.warning("presence_pipeline_error", camera_id=camera_id, error=str(e))
-                            self.last_presence_sample[camera_id] = current_time
-                        
-                        # Sampling de engajamento
-                        if current_time - self.last_engagement_sample.get(camera_id, 0) >= self.settings.engagement_sampling_seconds:
-                            analytics = self.engagement_analytics.get(camera_id)
-                            if analytics:
-                                analytics.process_frame(frame)
-                            self.last_engagement_sample[camera_id] = current_time
-                
-                # Sleep curto para não sobrecarregar CPU
-                await asyncio.sleep(0.1)
-                
+
+                now = time.time()
+                for camera_id, reader in list(self.readers.items()):
+                    if not reader.is_connected:
+                        continue
+
+                    ret, frame = reader.read_frame()
+                    if ret and frame is not None:
+                        self._latest_frames[camera_id] = frame
+
+                    latest = self._latest_frames.get(camera_id)
+                    if latest is None:
+                        continue
+
+                    if (
+                        not self._presence_busy.get(camera_id)
+                        and now - self.last_detect_sample.get(camera_id, 0) >= detect_interval
+                    ):
+                        self.last_detect_sample[camera_id] = now
+                        loop.run_in_executor(
+                            self._executor,
+                            self._run_detect_sync,
+                            camera_id,
+                            latest.copy(),
+                        )
+
+                    if now - self.last_presence_sample.get(camera_id, 0) >= self.settings.presence_sampling_seconds:
+                        self.last_presence_sample[camera_id] = now
+                        loop.run_in_executor(
+                            self._executor,
+                            self._run_presence_sync,
+                            camera_id,
+                            latest.copy(),
+                        )
+
+                    if now - self.last_engagement_sample.get(camera_id, 0) >= self.settings.engagement_sampling_seconds:
+                        self.last_engagement_sample[camera_id] = now
+                        loop.run_in_executor(
+                            self._executor,
+                            self._run_engagement_sync,
+                            camera_id,
+                            latest.copy(),
+                        )
+
+                await asyncio.sleep(frame_interval)
+
             except Exception as e:
                 logger.error("orchestrator_error", error=str(e))
                 await asyncio.sleep(1.0)
-    
+
     def stop(self) -> None:
-        """Para processamento."""
         self.running = False
+        self._executor.shutdown(wait=False, cancel_futures=True)
         for reader in self.readers.values():
             reader.disconnect()
         logger.info("orchestrator_stopped")
-    
+
     def get_status(self) -> dict:
-        """Retorna status do orchestrator."""
         camera_status = {}
         for camera_id, reader in self.readers.items():
             camera_status[camera_id] = {
@@ -260,14 +401,13 @@ class PipelineOrchestrator:
                 "last_presence_match": self.last_presence_match.get(camera_id),
                 "last_presence_event_id": self.last_presence_event_id.get(camera_id),
             }
-        
+
         return {
             "running": self.running,
-            "cameras": camera_status
+            "cameras": camera_status,
         }
-    
+
     def get_vision_backends(self) -> dict:
-        """Retorna backends de visão (detector, embedder, faiss) para observabilidade."""
         if not self.presence_pipelines:
             return {
                 "detector_backend": "none",
@@ -278,8 +418,7 @@ class PipelineOrchestrator:
         detector = pipeline.detector
         embedder = pipeline.embedder
         matcher = pipeline.matcher
-        
-        # Mapear classes para strings amigáveis (mediapipe_tasks = Tasks API)
+
         detector_map = {
             "MediaPipeDetector": "mediapipe_tasks",
             "InsightFaceDetector": "insightface",
@@ -290,14 +429,15 @@ class PipelineOrchestrator:
         embedder_map = {
             "FaceNetEmbedder": "facenet",
             "InsightFaceEmbedder": "insightface",
+            "OnnxFaceEmbedder": "onnx",
             "DeterministicEmbedder": "deterministic",
             "SimulationEmbedder": "simulation",
         }
-        
+
         detector_backend = detector_map.get(type(detector).__name__, type(detector).__name__.lower())
         embedder_backend = embedder_map.get(type(embedder).__name__, type(embedder).__name__.lower())
         faiss_enabled = type(matcher).__name__ == "FAISSMatcher"
-        
+
         return {
             "detector_backend": detector_backend,
             "embedder_backend": embedder_backend,

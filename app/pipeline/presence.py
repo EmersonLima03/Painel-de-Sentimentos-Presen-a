@@ -23,6 +23,11 @@ from app.db.repo import (
 )
 from app.vision.face_mesh_refiner import FaceMeshRefiner
 from app.vision.face_filters import stabilize_face_detections
+from app.vision.face_alignment import crop_aligned_face
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.vision.face_pipeline import FacePipeline
 from app.utils.ids import generate_event_id
 from app.utils.time import get_date_key, is_in_active_window, parse_active_windows
 from app.config import get_settings
@@ -49,10 +54,12 @@ class PresencePipeline:
         camera_id: str,
         room_id: str,
         device_id: str,
-        school_id: str
+        school_id: str,
+        face_pipeline: Optional["FacePipeline"] = None,
     ):
         self.detector = detector
         self.embedder = embedder
+        self.face_pipeline = face_pipeline
         self.matcher = matcher
         self.event_repo = event_repo
         self.attendance_repo = attendance_repo
@@ -148,15 +155,16 @@ class PresencePipeline:
             logger.debug("presence_window_inactive", camera_id=self.camera_id, always_on=settings.presence_always_on)
             return None
         
-        # Detectar faces
+        if self.face_pipeline is not None:
+            return self._process_frame_via_face_pipeline(frame)
+
         faces = self._detect_faces(frame)
         if not faces:
             logger.debug("presence_no_faces", camera_id=self.camera_id)
             return None
-        
+
         logger.debug("presence_faces_detected", camera_id=self.camera_id, num_faces=len(faces))
 
-        # Filtrar faces válidas (tamanho, proporção, área e qualidade) e montar bboxes para tracker
         valid: list = []
         frame_h, frame_w = frame.shape[:2]
         frame_area = float(frame_h * frame_w) if frame_h and frame_w else 1.0
@@ -225,9 +233,17 @@ class PresencePipeline:
             track.update_bbox((x, y, w, h), now)
             track.update_recognition(display_id, display_conf, now)
 
-            # Para matches/orchestrator: usar identidade estável (histerese)
-            if display_id:
-                matches.append({"student_id": display_id, "confidence": display_conf, "bbox": [x, y, w, h]})
+            top2_sim = topk[1][1] if len(topk) >= 2 else None
+            margin_val = (top1_sim - top2_sim) if top2_sim is not None else None
+            matches.append(
+                {
+                    "student_id": display_id,
+                    "confidence": display_conf if display_id else top1_sim,
+                    "bbox": [x, y, w, h],
+                    "top2_score": round(top2_sim, 4) if top2_sim is not None else None,
+                    "margin": round(margin_val, 4) if margin_val is not None else None,
+                }
+            )
 
             # Check-in só quando passar threshold + margin (segurança)
             match_result = self.matcher.find_match(embedding, self.threshold, margin=self.match_margin, k=3)
@@ -257,8 +273,143 @@ class PresencePipeline:
         
         if matches:
             return {"matches": matches}
-        # Teve faces válidas (valid não vazio) mas nenhum match acima do threshold
         return {"matches": []}
+
+    def _process_frame_via_face_pipeline(self, frame: np.ndarray) -> Optional[dict]:
+        """YuNet + alinhamento + ONNX batch (face_pipeline)."""
+        fp_result = self.face_pipeline.process_frame(frame, skip_if_busy=True)
+        if fp_result.get("skipped"):
+            return None
+
+        embedded = fp_result.get("embedded") or []
+        if not embedded:
+            return None
+
+        frame_h, frame_w = frame.shape[:2]
+        frame_area = float(frame_h * frame_w) if frame_h and frame_w else 1.0
+        valid: list = []
+        for det, embedding in embedded:
+            if embedding is None:
+                continue
+            x, y, w, h = det.bbox
+            if w <= 0 or h <= 0:
+                continue
+            aspect = w / float(h)
+            if aspect < _FACE_ASPECT_MIN or aspect > _FACE_ASPECT_MAX:
+                continue
+            area_ratio = (w * h) / frame_area
+            if area_ratio > 0.35:
+                continue
+            if min(w, h) < self.min_face_size:
+                continue
+            crop = crop_aligned_face(frame, det.bbox, det.landmarks, output_size=(112, 112))
+            if crop is None:
+                continue
+            quality_label, _ = calculate_face_quality(crop, self.min_face_size)
+            if quality_label == "poor" and min(crop.shape[:2]) < int(self.min_face_size * 1.6):
+                continue
+            valid.append((x, y, w, h, crop, quality_label, embedding))
+
+        if not valid:
+            return None
+
+        bboxes = [(x, y, w, h) for (x, y, w, h, _, _, _) in valid]
+        now = time.time()
+        tracked = self.tracker.update(bboxes, now=now)
+        matches: list = []
+        date_key = get_date_key()
+
+        for idx, ((x, y, w, h), track_id, track) in enumerate(tracked):
+            _, _, _, _, _crop, quality_label, embedding = valid[idx]
+            self._match_and_checkin(
+                track, x, y, w, h, embedding, quality_label, now, date_key, matches
+            )
+
+        if matches:
+            return {"matches": matches}
+        return {"matches": []}
+
+    def _match_and_checkin(
+        self,
+        track,
+        x: int,
+        y: int,
+        w: int,
+        h: int,
+        embedding: np.ndarray,
+        quality_label: str,
+        now: float,
+        date_key: str,
+        matches: list,
+    ) -> None:
+        topk = self.matcher.find_match_topk(embedding, k=3) if hasattr(self.matcher, "find_match_topk") else []
+        if not topk:
+            track.update_recognition(None, 0.0, now)
+            return
+
+        top1_id, top1_sim = topk[0]
+        was_recognized = track.last_student_id is not None
+
+        if was_recognized:
+            if top1_sim >= self.th_off and top1_id == track.last_student_id:
+                display_id, display_conf = top1_id, top1_sim
+            else:
+                display_id = top1_id if top1_sim >= self.th_on else None
+                display_conf = top1_sim if display_id else 0.0
+        else:
+            display_id = top1_id if top1_sim >= self.th_on else None
+            display_conf = top1_sim if display_id else 0.0
+
+        track.update_bbox((x, y, w, h), now)
+        track.update_recognition(display_id, display_conf, now)
+
+        top2_sim = topk[1][1] if len(topk) >= 2 else None
+        margin_val = (top1_sim - top2_sim) if top2_sim is not None else None
+        match_entry = {
+            "student_id": display_id,
+            "confidence": display_conf if display_id else top1_sim,
+            "bbox": [x, y, w, h],
+            "top2_score": round(top2_sim, 4) if top2_sim is not None else None,
+            "margin": round(margin_val, 4) if margin_val is not None else None,
+        }
+        matches.append(match_entry)
+
+        match_result = self.matcher.find_match(embedding, self.threshold, margin=self.match_margin, k=3)
+        if not match_result or match_result[0] != display_id:
+            return
+        student_id, confidence = match_result
+        logger.info(
+            "presence_match_found",
+            camera_id=self.camera_id,
+            student_id=student_id,
+            confidence=confidence,
+            threshold=self.threshold,
+        )
+
+        has_attendance = self.attendance_repo.has_attendance_today(student_id, self.room_id, date_key)
+        if has_attendance:
+            logger.info("attendance_duplicate", student_id=student_id, room_id=self.room_id, date_key=date_key)
+            return
+
+        self.attendance_repo.create_attendance(
+            student_id=student_id,
+            room_id=self.room_id,
+            confidence=confidence,
+            device_id=self.device_id,
+            date_key=date_key,
+        )
+        event = self._create_checkin_event(student_id, confidence, quality_label)
+        event_json = json.dumps(event)
+        self.event_repo.create_event(
+            event_id=event["event_id"], event_type="attendance_checkin", payload_json=event_json
+        )
+        logger.info(
+            "attendance_checkin",
+            student_id=student_id,
+            room_id=self.room_id,
+            confidence=confidence,
+            event_id=event["event_id"],
+        )
 
     def recognize_frame_for_overlay(self, frame: np.ndarray, use_margin: bool = False) -> list:
         """
