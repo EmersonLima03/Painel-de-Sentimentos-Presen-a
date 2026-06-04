@@ -900,12 +900,26 @@ async def debug_overlay_matches(
     return {"camera_id": camera_id, "current_matches": out}
 
 
+def _default_debug_camera_id(preferred: Optional[str] = None) -> str:
+    """Primeira câmera enabled no config; fallback para query ou cam-web."""
+    settings = get_settings()
+    if preferred:
+        return preferred
+    for cam in settings.cameras:
+        if cam.enabled:
+            return cam.camera_id
+    if settings.cameras:
+        return settings.cameras[0].camera_id
+    return "cam-web"
+
+
 @app.get("/debug/viewer", response_class=HTMLResponse)
-async def debug_viewer():
-    """Viewer simples de debug (DEV ONLY) para webcam do notebook (cam-web)."""
+async def debug_viewer(camera_id: Optional[str] = Query(None, description="ID da câmera (ex: cam-sala-tech)")):
+    """Viewer simples de debug (DEV ONLY). Usa ?camera_id= ou a primeira câmera enabled no config."""
     settings = get_settings()
     if not getattr(settings, "enable_debug_ui", False):
         raise HTTPException(status_code=404, detail="Debug viewer disabled (ENABLE_DEBUG_UI=1)")
+    cam_id = _default_debug_camera_id(camera_id)
     th_on = float(getattr(settings, "presence_th_on", 0.75))
     margin_min = float(getattr(settings, "presence_match_margin", 0.08))
     # Viewer bem simples: apenas imagem + texto de status/matches. Sem estilos complexos.
@@ -924,9 +938,9 @@ async def debug_viewer():
     </style>
   </head>
   <body>
-    <h1>Debug Viewer (cam-web)</h1>
-    <p>Webcam <code>cam-web</code> — MJPEG ~30 FPS do buffer assíncrono; reconhecimento atualiza a cada 2 s (sem travar o vídeo).</p>
-    <img id="frame" alt="preview cam-web" src="" />
+    <h1>Debug Viewer (__CAM_ID__)</h1>
+    <p>Câmera <code>__CAM_ID__</code> — MJPEG ~30 FPS; reconhecimento atualiza a cada 2 s. Outra câmera: <code>?camera_id=...</code></p>
+    <img id="frame" alt="preview __CAM_ID__" src="" />
     <div class="row">
       <div class="col">
         <h3>Status / cameras</h3>
@@ -939,13 +953,14 @@ async def debug_viewer():
     </div>
     <script>
       const base = window.location.origin;
+      const CAM_ID = '__CAM_ID__';
       (function () {
         const img = document.getElementById('frame');
-        img.src = base + '/debug/mjpeg?camera_id=cam-web&overlay=1&fps=30';
+        img.src = base + '/debug/mjpeg?camera_id=' + encodeURIComponent(CAM_ID) + '&overlay=1&fps=30';
       })();
 
       function resumoCamera(cam) {
-        if (!cam) return 'Nenhuma câmera \"cam-web\" encontrada. Verifique o config.yaml e reinicie o servidor.';
+        if (!cam) return 'Câmera \"' + CAM_ID + '\" não encontrada. Verifique config.yaml (enabled: true) e reinicie o servidor.';
         const conectado = cam.is_connected ? 'SIM' : 'NÃO';
         const faces = cam.faces_detected_last ?? '-';
         let linhas = [];
@@ -1021,9 +1036,9 @@ async def debug_viewer():
       function refreshStatus() {
         Promise.all([
           fetch(base + '/cameras').then(r => r.json()).catch(() => ({ cameras: [] })),
-          fetch(base + '/debug/overlay_matches?camera_id=cam-web').then(r => r.json()).catch(() => ({ current_matches: [] }))
+          fetch(base + '/debug/overlay_matches?camera_id=' + encodeURIComponent(CAM_ID)).then(r => r.json()).catch(() => ({ current_matches: [] }))
         ]).then(([cams, overlay]) => {
-          const cam = (cams.cameras || []).find(c => c.camera_id === 'cam-web');
+          const cam = (cams.cameras || []).find(c => c.camera_id === CAM_ID);
           const statusEl = document.getElementById('status');
           statusEl.textContent = resumoCamera(cam);
 
@@ -1038,7 +1053,11 @@ async def debug_viewer():
     </script>
   </body>
 </html>"""
-    html = html.replace("__INJECT_TH_ON__", str(th_on)).replace("__INJECT_MARGIN_MIN__", str(margin_min))
+    html = (
+        html.replace("__INJECT_TH_ON__", str(th_on))
+        .replace("__INJECT_MARGIN_MIN__", str(margin_min))
+        .replace("__CAM_ID__", cam_id)
+    )
     return HTMLResponse(html)
 
 

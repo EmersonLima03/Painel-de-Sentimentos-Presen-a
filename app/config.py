@@ -108,7 +108,9 @@ class Settings(BaseSettings):
     vision_insightface_min_det_score: float = Field(default=0.45, env="VISION_INSIGHTFACE_MIN_DET_SCORE")
     vision_yunet_score_threshold: float = Field(default=0.62, env="VISION_YUNET_SCORE_THRESHOLD")
     vision_min_face_area_ratio: float = Field(default=0.0015, env="VISION_MIN_FACE_AREA_RATIO")
-    vision_single_subject_mode: bool = Field(default=True, env="VISION_SINGLE_SUBJECT_MODE")
+    vision_face_aspect_min: float = Field(default=0.45, env="VISION_FACE_ASPECT_MIN")
+    vision_face_aspect_max: float = Field(default=1.55, env="VISION_FACE_ASPECT_MAX")
+    vision_single_subject_mode: bool = Field(default=False, env="VISION_SINGLE_SUBJECT_MODE")
 
     class Config:
         env_file = ".env"
@@ -186,6 +188,10 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "vision_min_face_area_ratio", float(vision["min_face_area_ratio"]))
             if "single_subject_mode" in vision:
                 object.__setattr__(self, "vision_single_subject_mode", bool(vision["single_subject_mode"]))
+            if "face_aspect_min" in vision:
+                object.__setattr__(self, "vision_face_aspect_min", float(vision["face_aspect_min"]))
+            if "face_aspect_max" in vision:
+                object.__setattr__(self, "vision_face_aspect_max", float(vision["face_aspect_max"]))
             if "presence" in vision:
                 pres = vision["presence"]
                 if "sampling_seconds" in pres:

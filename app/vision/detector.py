@@ -256,7 +256,8 @@ class YuNetDetector(FaceDetector):
         if faces is None or len(faces) == 0:
             return []
         out: List[FaceDetectionResult] = []
-        min_keep_score = max(0.55, self.score_threshold)
+        # Não impor piso 0.55: câmeras DVR/teto costumam scores 0.35–0.55 em rostos válidos
+        min_keep_score = max(0.35, float(self.score_threshold))
         for row in faces:
             x, y, fw, fh = int(row[0]), int(row[1]), int(row[2]), int(row[3])
             score = float(row[14]) if len(row) > 14 else float(row[4])

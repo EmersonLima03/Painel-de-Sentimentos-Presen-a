@@ -346,10 +346,33 @@ class PipelineOrchestrator:
             self._presence_busy[camera_id] = False
 
     def _run_detect_sync(self, camera_id: str, frame: np.ndarray) -> None:
+        """Detecção + reconhecimento para overlay (~10 Hz), alinhado ao que o viewer mostra."""
         try:
+            self._stamp_overlay_frame(camera_id, frame)
+            pipeline = self.presence_pipelines.get(camera_id)
+            if pipeline and hasattr(pipeline, "recognize_frame_for_overlay"):
+                match_list = pipeline.recognize_frame_for_overlay(frame)
+                self.faces_detected_last[camera_id] = len(match_list)
+                self._overlay_boxes[camera_id] = [
+                    tuple(m["bbox"]) for m in match_list if m.get("bbox")
+                ]
+                self._overlay_matches[camera_id] = [
+                    self._enrich_match_display(
+                        {
+                            "track_id": m.get("track_id", i),
+                            "bbox": m.get("bbox"),
+                            "student_id": m.get("student_id"),
+                            "confidence": float(m.get("confidence") or 0.0),
+                            "provável": bool(m.get("provável", False)),
+                            "top2_score": m.get("top2_score"),
+                            "margin": m.get("margin"),
+                        }
+                    )
+                    for i, m in enumerate(match_list)
+                ]
+                return
             if self.face_pipeline:
                 boxes = self.face_pipeline.detect_only(frame)
-                self._stamp_overlay_frame(camera_id, frame)
                 self._overlay_boxes[camera_id] = boxes
                 self.faces_detected_last[camera_id] = len(boxes)
                 prev = self._overlay_matches.get(camera_id) or []

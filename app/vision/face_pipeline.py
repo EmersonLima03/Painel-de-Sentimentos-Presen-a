@@ -37,6 +37,8 @@ class FacePipeline:
         self.max_faces = int(getattr(settings, "vision_max_faces", 10) or 10)
         self.min_face_size = int(settings.face_min_size or 42)
         self.min_face_area_ratio = float(getattr(settings, "vision_min_face_area_ratio", 0.0015) or 0.0015)
+        self.aspect_min = float(getattr(settings, "vision_face_aspect_min", 0.45) or 0.45)
+        self.aspect_max = float(getattr(settings, "vision_face_aspect_max", 1.55) or 1.55)
         self.single_subject_mode = bool(getattr(settings, "vision_single_subject_mode", False))
         self._last_process_ts = 0.0
         self._processing = False
@@ -73,6 +75,8 @@ class FacePipeline:
             w,
             min_face_size=self.min_face_size,
             min_area_ratio=self.min_face_area_ratio,
+            aspect_min=self.aspect_min,
+            aspect_max=self.aspect_max,
             single_subject_mode=self.single_subject_mode,
             max_faces=self.max_faces,
         )

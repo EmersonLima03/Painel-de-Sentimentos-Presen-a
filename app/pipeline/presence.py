@@ -35,9 +35,13 @@ from app.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Rosto frontal costuma ter largura/altura ~0.75–1.1; tronco/objetos costumam ficar fora disso.
-_FACE_ASPECT_MIN = 0.68
-_FACE_ASPECT_MAX = 1.32
+def _face_aspect_limits():
+    """Limites w/h do bbox — mais largos para câmera de teto (DVR)."""
+    s = get_settings()
+    return (
+        float(getattr(s, "vision_face_aspect_min", 0.45) or 0.45),
+        float(getattr(s, "vision_face_aspect_max", 1.55) or 1.55),
+    )
 
 
 class PresencePipeline:
@@ -79,7 +83,8 @@ class PresencePipeline:
         self.active_windows = parse_active_windows(settings.presence_active_windows)
         track_ttl = getattr(settings, "track_ttl_seconds", 2.5)
         self.tracker = BboxTracker(ttl_seconds=track_ttl, iou_threshold=0.35, max_tracks=16)
-        self.single_subject_mode = getattr(settings, "vision_single_subject_mode", True)
+        self.single_subject_mode = bool(getattr(settings, "vision_single_subject_mode", False))
+        self._aspect_min, self._aspect_max = _face_aspect_limits()
         self.min_face_area_ratio = float(getattr(settings, "vision_min_face_area_ratio", 0.0015) or 0.0015)
         self.vision_max_faces = int(getattr(settings, "vision_max_faces", 12) or 12)
 
@@ -105,6 +110,8 @@ class PresencePipeline:
             w,
             min_face_size=self.min_face_size,
             min_area_ratio=self.min_face_area_ratio,
+            aspect_min=self._aspect_min,
+            aspect_max=self._aspect_max,
             single_subject_mode=self.single_subject_mode,
             max_faces=self.vision_max_faces,
         )
@@ -173,7 +180,7 @@ class PresencePipeline:
                 continue
             # 1) Proporção do bbox: descartar tronco/objetos (faixa mais apertada que antes)
             aspect = w / float(h)
-            if aspect < _FACE_ASPECT_MIN or aspect > _FACE_ASPECT_MAX:
+            if aspect < self._aspect_min or aspect > self._aspect_max:
                 continue
             # 2) Área relativa: descartar bboxes que ocupam área exagerada do frame (corpo colado na câmera)
             area_ratio = (w * h) / frame_area
@@ -295,7 +302,7 @@ class PresencePipeline:
             if w <= 0 or h <= 0:
                 continue
             aspect = w / float(h)
-            if aspect < _FACE_ASPECT_MIN or aspect > _FACE_ASPECT_MAX:
+            if aspect < self._aspect_min or aspect > self._aspect_max:
                 continue
             area_ratio = (w * h) / frame_area
             if area_ratio > 0.35:
@@ -417,6 +424,7 @@ class PresencePipeline:
         Retorna: [{"bbox", "student_id"|None, "confidence", "provável": bool}, ...].
         provável=True quando entre th_off e th_on (mantém nome estável sem oscilar).
         """
+        now = time.time()
         out = []
         th_on = self.th_on
         th_off = self.th_off
@@ -430,23 +438,34 @@ class PresencePipeline:
             face_roi_raw = frame[y:y_end, x:x+w]
             face_roi = self._refine_face_roi_for_embedding(frame, x, y, w, h, face_roi_raw)
             quality_label, _ = calculate_face_quality(face_roi, self.min_face_size)
-            good_quality = quality_label != "poor"
-            if quality_label == "poor":
-                rh, rw = face_roi.shape[:2]
-                good_quality = min(rh, rw) >= int(self.min_face_size * 1.6)
-            if not good_quality:
+            rh, rw = face_roi.shape[:2]
+            # DVR/teto: aceitar rosto menor ou "poor" se ainda há pixels suficientes para embedding
+            good_quality = quality_label != "poor" or min(rh, rw) >= max(20, int(self.min_face_size * 1.2))
+            if min(rh, rw) < max(18, int(self.min_face_size * 0.85)):
                 continue
             valid.append((x, y, w, h, face_roi, good_quality))
 
         if not valid:
             self.tracker.update([], now=now)
+            if faces:
+                return [
+                    {
+                        "track_id": i,
+                        "bbox": [x, y, w, h],
+                        "student_id": None,
+                        "confidence": 0.0,
+                        "provável": False,
+                        "top2_score": None,
+                        "margin": None,
+                    }
+                    for i, (x, y, w, h) in enumerate(faces)
+                ]
             return self._overlay_hold_recent_tracks(now, th_on, th_off)
 
         bboxes = [(x, y, w, h) for (x, y, w, h, _, _) in valid]
-        now = time.time()
         tracked = self.tracker.update(bboxes, now=now)
 
-        overlay_min_conf = max(th_on - 0.02, th_off)  # não mostrar nome fraco tipo 0.24 na parede
+        overlay_min_conf = max(0.45, th_off - 0.08)  # mostrar nome provável mais cedo no viewer (DVR)
         recognition_cache_seconds = 1.0
 
         for idx, ((x, y, w, h), track_id, track) in enumerate(tracked):
@@ -529,13 +548,16 @@ class PresencePipeline:
                     display_id, display_conf, provavel = None, top1_sim, False
 
             track.update_bbox((x, y, w, h), now)
-            track.update_recognition(display_id, display_conf if display_id else 0.0, now)
-            # Fantasmas na parede costumam ter score < 0.5: não poluir overlay nem contador faces
-            if not display_id and top1_sim < 0.50:
-                continue
+            track.update_recognition(display_id, display_conf if display_id else top1_sim, now)
+            show_conf = display_conf if display_id else top1_sim
             out.append({
-                "track_id": track_id, "bbox": overlay_bbox, "student_id": display_id, "confidence": display_conf,
-                "provável": provavel, "top2_score": round(top2_sim, 4) if len(topk) >= 2 else None, "margin": margin
+                "track_id": track_id,
+                "bbox": overlay_bbox,
+                "student_id": display_id,
+                "confidence": show_conf,
+                "provável": provavel,
+                "top2_score": round(top2_sim, 4) if len(topk) >= 2 else None,
+                "margin": margin,
             })
         return out
 
