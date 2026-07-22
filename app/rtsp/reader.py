@@ -7,7 +7,7 @@ from typing import Any, Optional, Tuple
 import cv2
 
 from app.logging import get_logger
-from app.rtsp.video_capture import AsyncVideoCapture, DEFAULT_HEIGHT, DEFAULT_WIDTH
+from app.rtsp.video_capture import AsyncRTSPCapture, AsyncVideoCapture, DEFAULT_HEIGHT, DEFAULT_WIDTH
 
 logger = get_logger(__name__)
 
@@ -45,6 +45,7 @@ class RTSPReader:
         self.webcam_height = webcam_height or DEFAULT_HEIGHT
         self.cap: Optional[cv2.VideoCapture] = None
         self._async_capture: Optional[AsyncVideoCapture] = None
+        self._async_rtsp: Optional[AsyncRTSPCapture] = None
         self.is_connected = False
         self.last_frame_time = 0.0
         self.frame_count = 0
@@ -77,45 +78,35 @@ class RTSPReader:
         if self.is_webcam and self.device_index is not None:
             return self._connect_webcam_async()
 
-        try:
-            if self.cap is not None:
-                self.cap.release()
-                self.cap = None
+        return self._connect_rtsp_async()
 
-            logger.info("rtsp_connecting", camera_id=self.camera_id, url=self.rtsp_url)
-            self.cap = cv2.VideoCapture(self.rtsp_url)
-            try:
-                self.cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
-            except Exception:
-                pass
-            try:
-                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            except Exception:
-                pass
+    def _connect_rtsp_async(self) -> bool:
+        if self._async_rtsp is not None:
+            self._async_rtsp.stop()
 
-            ret, frame = self.cap.read()
-            if ret and frame is not None:
-                self.is_connected = True
-                self.last_error = None
-                self.last_frame_time = time.time()
-                logger.info("rtsp_connected", camera_id=self.camera_id, source="rtsp")
-                return True
-
-            if self.cap:
-                self.cap.release()
-                self.cap = None
+        logger.info("rtsp_connecting", camera_id=self.camera_id, url=self.rtsp_url)
+        self._async_rtsp = AsyncRTSPCapture(
+            self.rtsp_url,
+            reconnect_delay=min(self.reconnect_delay, 2.0),
+            flush_grabs=3,
+        )
+        if not self._async_rtsp.connect():
             self.is_connected = False
-            self.last_error = "Failed to read initial frame"
-            logger.warning("rtsp_connection_failed", camera_id=self.camera_id, error=self.last_error)
+            self.last_error = self._async_rtsp.last_error
+            logger.warning(
+                "rtsp_connection_failed",
+                camera_id=self.camera_id,
+                error=self.last_error,
+            )
             return False
-        except Exception as e:
-            self.is_connected = False
-            self.last_error = str(e)
-            logger.error("rtsp_connection_error", camera_id=self.camera_id, error=str(e))
-            if self.cap:
-                self.cap.release()
-                self.cap = None
-            return False
+
+        self._async_rtsp.start()
+        self.is_connected = True
+        self.last_error = None
+        self.last_frame_time = self._async_rtsp.last_frame_time
+        self.frame_count = self._async_rtsp.frame_count
+        logger.info("rtsp_connected", camera_id=self.camera_id, source="rtsp_async")
+        return True
 
     def _connect_webcam_async(self) -> bool:
         if self._async_capture is not None:
@@ -147,6 +138,18 @@ class RTSPReader:
         return True
 
     def read_frame(self) -> Tuple[bool, Optional[Any]]:
+        if self._async_rtsp is not None:
+            ret, frame = self._async_rtsp.read()
+            if ret and frame is not None:
+                self.is_connected = self._async_rtsp.is_connected
+                self.last_frame_time = self._async_rtsp.last_frame_time
+                self.frame_count = self._async_rtsp.frame_count
+                self.last_error = self._async_rtsp.last_error
+                return True, frame
+            self.is_connected = self._async_rtsp.is_connected
+            self.last_error = self._async_rtsp.last_error or "No frame yet"
+            return False, None
+
         if self._async_capture is not None:
             ret, frame = self._async_capture.read()
             if ret and frame is not None:
@@ -179,6 +182,15 @@ class RTSPReader:
             return False, None
 
     def ensure_connected(self) -> bool:
+        if self._async_rtsp is not None:
+            if self._async_rtsp.is_connected:
+                if time.time() - self._async_rtsp.last_frame_time > 30.0:
+                    logger.warning("rtsp_timeout", camera_id=self.camera_id)
+                else:
+                    self.is_connected = True
+                    return True
+            return self.connect()
+
         if self._async_capture is not None:
             if self._async_capture.is_connected:
                 if time.time() - self._async_capture.last_frame_time > 30.0:
@@ -198,6 +210,9 @@ class RTSPReader:
         return True
 
     def disconnect(self) -> None:
+        if self._async_rtsp is not None:
+            self._async_rtsp.stop()
+            self._async_rtsp = None
         if self._async_capture is not None:
             self._async_capture.stop()
             self._async_capture = None
@@ -208,6 +223,15 @@ class RTSPReader:
         logger.info("rtsp_disconnected", camera_id=self.camera_id)
 
     def get_status(self) -> dict:
+        if self._async_rtsp is not None:
+            st = self._async_rtsp.get_status()
+            return {
+                "camera_id": self.camera_id,
+                "is_connected": st["is_connected"],
+                "last_frame_time": st["last_frame_time"],
+                "frame_count": st["frame_count"],
+                "last_error": st["last_error"],
+            }
         if self._async_capture is not None:
             st = self._async_capture.get_status()
             return {

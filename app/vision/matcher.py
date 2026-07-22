@@ -7,6 +7,30 @@ from app.utils.embedding_io import deserialize_embedding
 
 logger = get_logger(__name__)
 
+
+def competitor_margin_from_topk(
+    topk: List[Tuple[str, float]],
+) -> Tuple[Optional[float], Optional[float], Optional[str]]:
+    """
+    Margem entre o 1º lugar e o melhor candidato de OUTRO aluno.
+    Ignora 2º/3º templates do mesmo student_id (evita ? com score 0.95).
+    """
+    if not topk:
+        return None, None, None
+    top1_id, top1_sim = topk[0]
+    best_other_sim: Optional[float] = None
+    best_other_id: Optional[str] = None
+    for sid, sim in topk[1:]:
+        if sid == top1_id:
+            continue
+        if best_other_sim is None or sim > best_other_sim:
+            best_other_sim = sim
+            best_other_id = sid
+    if best_other_sim is None:
+        return None, None, None
+    return top1_sim - best_other_sim, best_other_sim, best_other_id
+
+
 # Tentar importar FAISS (opcional)
 try:
     import faiss
@@ -60,11 +84,26 @@ class FaceMatcher:
         top1_id, top1_sim = topk[0]
         if top1_sim < threshold:
             return None
-        if margin > 0 and len(topk) >= 2:
-            _, top2_sim = topk[1]
-            if (top1_sim - top2_sim) < margin:
+        if margin > 0:
+            margin_val, _, _ = competitor_margin_from_topk(topk)
+            if margin_val is not None and margin_val < margin:
                 return None
         return (top1_id, top1_sim)
+
+    def find_match_topk_extended(
+        self,
+        query_embedding: np.ndarray,
+        k: int = 15,
+    ) -> List[Tuple[str, float]]:
+        """Top-k amplo para achar competidor de outro aluno (multi-template)."""
+        if self.embedding_matrix.size == 0:
+            return []
+        similarities = np.dot(self.embedding_matrix, query_embedding)
+        if len(similarities) == 0:
+            return []
+        k_actual = min(k, len(similarities))
+        top_indices = np.argsort(similarities)[-k_actual:][::-1]
+        return [(self.embeddings[int(i)][0], float(similarities[i])) for i in top_indices]
     
     def update_embeddings(self, embeddings: List[Tuple[str, np.ndarray]]) -> None:
         """Atualiza lista de embeddings."""
@@ -146,7 +185,7 @@ class FAISSMatcher:
         if query_norm > 0:
             query_embedding = query_embedding / query_norm
         query_matrix = query_embedding.reshape(1, -1).astype(np.float32)
-        k_search = min(max(k, 1), 3, self.index.ntotal)
+        k_search = min(max(k, 1), self.index.ntotal)
         similarities, indices = self.index.search(query_matrix, k_search)
         if len(similarities[0]) == 0:
             return []
@@ -171,11 +210,19 @@ class FAISSMatcher:
         top1_id, top1_sim = topk[0]
         if top1_sim < threshold:
             return None
-        if margin > 0 and len(topk) >= 2:
-            _, top2_sim = topk[1]
-            if (top1_sim - top2_sim) < margin:
+        if margin > 0:
+            margin_val, _, _ = competitor_margin_from_topk(topk)
+            if margin_val is not None and margin_val < margin:
                 return None
         return (top1_id, top1_sim)
+
+    def find_match_topk_extended(
+        self,
+        query_embedding: np.ndarray,
+        k: int = 15,
+    ) -> List[Tuple[str, float]]:
+        """Top-k amplo (até k) para margem entre alunos distintos."""
+        return self.find_match_topk(query_embedding, k=min(k, max(self.index.ntotal, 1)))
     
     def update_embeddings(self, embeddings: List[Tuple[str, np.ndarray]]) -> None:
         """Atualiza embeddings e reconstrói índice FAISS."""

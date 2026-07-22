@@ -43,8 +43,11 @@ sync_worker: SyncWorker = None
 start_time = time.time()
 _debug_last_frame: Dict[str, Any] = {}  # camera_id -> frame (último frame para viewer fluido)
 _DEBUG_SNAPSHOT_MAX_WIDTH = 960
-_DEBUG_SNAPSHOT_JPEG_QUALITY = 72
-_DEBUG_VIDEO_MAX_WIDTH = 1280  # preview fluido em 1080p downscale leve
+_DEBUG_SNAPSHOT_JPEG_QUALITY = 80
+_DEBUG_VIDEO_MAX_WIDTH = 1280  # preview — equilíbrio qualidade/latência (Ryzen 5)
+_integrations_status_cache: Dict[str, Any] = {}
+_integrations_status_cache_ts: float = 0.0
+_INTEGRATIONS_STATUS_CACHE_TTL = 5.0
 
 
 def _debug_placeholder_jpeg(text: str = "Aguardando frames...", width: int = 640, height: int = 360) -> bytes:
@@ -201,8 +204,10 @@ async def health() -> Dict:
 @app.get("/stats")
 async def stats() -> Dict:
     """Estatísticas do sistema."""
+    from app.db.init_db import close_session
+
+    session = get_session()
     try:
-        session = get_session()
         event_repo = EventRepository(session)
         stats_data = event_repo.get_stats()
         
@@ -247,6 +252,8 @@ async def stats() -> Dict:
             "status": "error",
             "error": str(e)
         }
+    finally:
+        close_session(session)
 
 
 @app.get("/events")
@@ -256,8 +263,10 @@ async def list_events(
     limit: int = Query(20, ge=1, le=100, description="Limite de resultados")
 ) -> Dict:
     """Lista eventos com filtros opcionais."""
+    from app.db.init_db import close_session
+
+    session = get_session()
     try:
-        session = get_session()
         from app.db.models import Event
         from sqlalchemy import desc
         import json
@@ -303,6 +312,50 @@ async def list_events(
     except Exception as e:
         logger.error("events_endpoint_error", error=str(e))
         return {"status": "error", "error": str(e)}
+    finally:
+        close_session(session)
+
+
+@app.get("/reports/attendance/today")
+async def report_attendance_today() -> Dict:
+    """Resumo de presença do dia (inspirado em AI-Based-Student-Monitoring)."""
+    from app.db.init_db import close_session
+    from app.services.reports import attendance_summary_today
+
+    settings = get_settings()
+    session = get_session()
+    try:
+        return {
+            "status": "ok",
+            **attendance_summary_today(session, school_id=settings.school_id),
+        }
+    except Exception as e:
+        logger.error("report_attendance_error", error=str(e))
+        return {"status": "error", "error": str(e)}
+    finally:
+        close_session(session)
+
+
+@app.get("/reports/engagement/summary")
+async def report_engagement_summary(
+    room_id: Optional[str] = Query(None, description="Filtrar por sala"),
+    limit: int = Query(30, ge=1, le=100),
+) -> Dict:
+    """Médias de engajamento por janela (emoção + movimento)."""
+    from app.db.init_db import close_session
+    from app.services.reports import engagement_summary
+
+    session = get_session()
+    try:
+        return {
+            "status": "ok",
+            **engagement_summary(session, room_id=room_id, limit=limit),
+        }
+    except Exception as e:
+        logger.error("report_engagement_error", error=str(e))
+        return {"status": "error", "error": str(e)}
+    finally:
+        close_session(session)
 
 
 @app.get("/cameras")
@@ -586,9 +639,17 @@ def _draw_overlay_from_cache(frame: np.ndarray, camera_id: str) -> int:
     sx, sy = _overlay_scale_for_frame(camera_id, fw, fh)
     matches = orchestrator.get_overlay_matches(camera_id)
     boxes = orchestrator.get_overlay_boxes(camera_id)
+    eng_faces = orchestrator.get_overlay_engagement(camera_id)
     n = max(len(matches), len(boxes))
     for i in range(n):
-        m = matches[i] if i < len(matches) else {}
+        m = dict(matches[i]) if i < len(matches) else {}
+        sid = m.get("student_id")
+        conf = float(m.get("confidence") or 0.0)
+        if not sid and conf < 0.10:
+            continue
+        if i < len(eng_faces) and not m.get("engagement_label"):
+            m["engagement_state"] = eng_faces[i].get("state")
+            m["engagement_label"] = eng_faces[i].get("label_pt")
         if i < len(boxes):
             x, y, w, h = boxes[i]
         else:
@@ -596,26 +657,39 @@ def _draw_overlay_from_cache(frame: np.ndarray, camera_id: str) -> int:
             x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
         x, y, w, h = int(x * sx), int(y * sy), int(w * sx), int(h * sy)
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        sid = m.get("student_id")
-        conf = float(m.get("confidence") or 0.0)
         display = (m.get("full_name") or sid or "?").strip()
         label = f"{display} ({conf:.2f})"
         cv2.putText(frame, label, (x, max(y - 5, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+        eng_label = m.get("engagement_label")
+        if eng_label:
+            eng_state = m.get("engagement_state") or ""
+            eng_color = (0, 255, 0) if eng_state == "attentive" else (
+                (0, 200, 255) if eng_state == "neutral" else (0, 80, 255)
+            )
+            cv2.putText(
+                frame, str(eng_label), (x, min(y + h + 18, fh - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, eng_color, 2,
+            )
     count = n if n else len(boxes)
     cv2.putText(frame, f"faces: {count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
     return count
 
 
 def _encode_preview_jpeg(frame: np.ndarray, overlay: int, camera_id: str, full_res: bool) -> bytes:
-    """Encode rápido para MJPEG/snapshot — overlay no frame cheio, depois resize."""
-    frame = frame.copy()
+    """Encode rápido para MJPEG/snapshot — reduz resolução antes do overlay/JPEG."""
     h, w = frame.shape[:2]
-    if overlay == 1:
-        _draw_overlay_from_cache(frame, camera_id)
     max_w = w if full_res else _DEBUG_VIDEO_MAX_WIDTH
     if w > max_w:
         scale = max_w / w
-        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_LINEAR)
+        frame = cv2.resize(
+            frame,
+            (int(w * scale), int(h * scale)),
+            interpolation=cv2.INTER_AREA,
+        )
+    else:
+        frame = frame.copy()
+    if overlay == 1:
+        _draw_overlay_from_cache(frame, camera_id)
     ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _DEBUG_SNAPSHOT_JPEG_QUALITY])
     if not ok:
         return _debug_placeholder_jpeg("encode error")
@@ -675,7 +749,7 @@ async def debug_snapshot(
 async def debug_mjpeg(
     camera_id: str = Query("cam-web", description="ID da câmera"),
     overlay: int = Query(1, description="1=overlay de faces/nomes"),
-    fps: float = Query(30.0, ge=2, le=30, description="Quadros por segundo (overlay usa cache; 30 recomendado)"),
+    fps: float = Query(20.0, ge=2, le=30, description="Quadros por segundo (20 recomendado para RTSP)"),
 ):
     """
     Stream MJPEG (multipart) — um fluxo contínuo, mais suave que vários GET /debug/snapshot.
@@ -881,7 +955,9 @@ async def debug_overlay_matches(
     for m in matches:
         sid = m.get("student_id")
         unknown = sid is None
-        conf = m.get("confidence", 0.0)
+        conf = float(m.get("confidence") or 0.0)
+        if unknown and conf < 0.10:
+            continue
         name = m.get("full_name")
         if sid and not name:
             from app.db import student_cache
@@ -896,8 +972,91 @@ async def debug_overlay_matches(
             "unknown": unknown,
             "top2_score": m.get("top2_score"),
             "margin": m.get("margin"),
+            "engagement_state": m.get("engagement_state"),
+            "engagement_label": m.get("engagement_label"),
         })
     return {"camera_id": camera_id, "current_matches": out}
+
+
+@app.get("/debug/integrations_status")
+async def debug_integrations_status(
+    camera_id: Optional[str] = Query(None, description="ID da câmera"),
+) -> Dict:
+    """Painel das integrações dos 5 projetos (emoção, relatórios, backends)."""
+    global _integrations_status_cache, _integrations_status_cache_ts
+
+    settings = get_settings()
+    cam_id = _default_debug_camera_id(camera_id) if orchestrator else (camera_id or "cam-web")
+    now = time.time()
+    if (
+        _integrations_status_cache
+        and (now - _integrations_status_cache_ts) < _INTEGRATIONS_STATUS_CACHE_TTL
+        and _integrations_status_cache.get("camera_id") == cam_id
+    ):
+        return _integrations_status_cache
+
+    from app.db.init_db import close_session
+    from app.services.reports import attendance_summary_today, engagement_summary
+    import json
+    from app.db.models import Event
+    from sqlalchemy import desc
+
+    session = get_session()
+    try:
+        integ = orchestrator.get_integrations_status(cam_id) if orchestrator else {}
+        att = attendance_summary_today(session, school_id=settings.school_id)
+        eng = engagement_summary(session, room_id=integ.get("room_id"), limit=5)
+
+        last_window = None
+        ev = (
+            session.query(Event)
+            .filter(Event.event_type == "engagement_window")
+            .order_by(desc(Event.created_at))
+            .limit(1)
+            .first()
+        )
+        if ev and ev.payload_json:
+            try:
+                last_window = json.loads(ev.payload_json)
+            except json.JSONDecodeError:
+                pass
+
+        result = {
+            "status": "ok",
+            "camera_id": cam_id,
+            "integrations": {
+                "real_time_classroom": "Mini-XCEPTION emoção → engajamento por face",
+                "engagement_recognition": "rótulos engaged/disengaged",
+                "ai_based_student": "GET /reports/attendance/today",
+                "presenca_edge": "YuNet + FAISS + FastAPI",
+            },
+            "backends": integ,
+            "attendance_today": {
+                "unique_students": att.get("unique_students"),
+                "total_checkins": att.get("total_checkins"),
+                "students": att.get("students", [])[:10],
+            },
+            "engagement_summary": {
+                "window_count": eng.get("window_count"),
+                "engagement_index_mean": eng.get("engagement_index_mean"),
+                "faces_detected_mean": eng.get("faces_detected_mean"),
+                "last_windows": eng.get("windows", [])[:3],
+            },
+            "last_engagement_window_event": last_window,
+            "api_links": {
+                "attendance_report": "/reports/attendance/today",
+                "engagement_report": f"/reports/engagement/summary?room_id={integ.get('room_id') or 'DEV'}",
+                "events_engagement": "/events?event_type=engagement_window&limit=5",
+            },
+        }
+        _integrations_status_cache = result
+        _integrations_status_cache_ts = now
+        return result
+    except Exception as e:
+        logger.error("integrations_status_error", error=str(e))
+        return {"status": "error", "error": str(e)}
+    finally:
+        close_session(session)
 
 
 def _default_debug_camera_id(preferred: Optional[str] = None) -> str:
@@ -931,7 +1090,8 @@ async def debug_viewer(camera_id: Optional[str] = Query(None, description="ID da
     <style>
       body { font-family: system-ui, sans-serif; background: #111827; color: #e5e7eb; margin: 0; padding: 12px; }
       h1 { font-size: 18px; margin: 0 0 8px; }
-      #frame { max-width: 100%; border: 1px solid #374151; background: #000; }
+      .video-wrap { width: 100%; max-width: 1280px; margin: 0 0 12px; }
+      #frame { width: 100%; height: auto; display: block; border: 1px solid #374151; background: #000; border-radius: 6px; }
       pre { background: #020617; padding: 8px; border-radius: 4px; overflow-x: auto; }
       .row { display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
       .col { flex: 1 1 260px; }
@@ -939,8 +1099,10 @@ async def debug_viewer(camera_id: Optional[str] = Query(None, description="ID da
   </head>
   <body>
     <h1>Debug Viewer (__CAM_ID__)</h1>
-    <p>Câmera <code>__CAM_ID__</code> — MJPEG ~30 FPS; reconhecimento atualiza a cada 2 s. Outra câmera: <code>?camera_id=...</code></p>
-    <img id="frame" alt="preview __CAM_ID__" src="" />
+    <p>Câmera <code>__CAM_ID__</code> — MJPEG ~20 FPS; reconhecimento atualiza a cada 2 s. Outra câmera: <code>?camera_id=...</code></p>
+    <div class="video-wrap">
+      <img id="frame" alt="preview __CAM_ID__" src="" />
+    </div>
     <div class="row">
       <div class="col">
         <h3>Status / cameras</h3>
@@ -950,13 +1112,17 @@ async def debug_viewer(camera_id: Optional[str] = Query(None, description="ID da
         <h3>Current matches (per face)</h3>
         <pre id="matches">Carregando…</pre>
       </div>
+      <div class="col">
+        <h3>Integrações (5 projetos)</h3>
+        <pre id="integrations">Carregando…</pre>
+      </div>
     </div>
     <script>
       const base = window.location.origin;
       const CAM_ID = '__CAM_ID__';
       (function () {
         const img = document.getElementById('frame');
-        img.src = base + '/debug/mjpeg?camera_id=' + encodeURIComponent(CAM_ID) + '&overlay=1&fps=30';
+        img.src = base + '/debug/mjpeg?camera_id=' + encodeURIComponent(CAM_ID) + '&overlay=1&fps=20';
       })();
 
       function resumoCamera(cam) {
@@ -1024,32 +1190,73 @@ async def debug_viewer(camera_id: Optional[str] = Query(None, description="ID da
           } else {
             interpretacao = 'Confiança abaixo do limiar de exibição segura (histerese) — pode estabilizar no próximo ciclo de presença.';
           }
+          const eng = m.engagement_label
+            ? `  - Engajamento (RTCMS+ER): ${m.engagement_label} [${m.engagement_state || '-'}]`
+            : '  - Engajamento: aguardando ciclo (~5s) — roda a cada 5s no vídeo';
           return [
             `Face ${m.track_id}: ${label} (${sid})`,
             `  - Confiança do modelo: ${score}`,
             `  - Diferença p/ segundo melhor: ${top2} (margin=${marginVal}; mín. ${MARGIN_MIN})`,
+            eng,
             `  - Interpretação: ${interpretacao}`,
           ].join('\\n');
         }).join('\\n\\n');
       }
 
-      function refreshStatus() {
+      function resumoIntegrations(data) {
+        if (!data || data.status !== 'ok') return 'Integrações: dados indisponíveis.';
+        const b = data.backends || {};
+        const att = data.attendance_today || {};
+        const eng = data.engagement_summary || {};
+        const lw = data.last_engagement_window_event || {};
+        const lines = [];
+        lines.push('=== Backends ativos ===');
+        lines.push(`Detector: ${b.detector || '-'}  |  Embedder: ${b.embedder || '-'}`);
+        lines.push(`Engajamento: ${b.engagement_backend || '-'}  (${b.engagement_model_version || '-'})`);
+        lines.push(`Modelo emoção TF: ${b.emotion_model_available ? 'SIM' : 'NÃO (usa heurística)'}`);
+        lines.push('');
+        lines.push('=== Presença hoje (AI-Based-Student) ===');
+        lines.push(`Check-ins: ${att.total_checkins ?? 0}  |  Alunos únicos: ${att.unique_students ?? 0}`);
+        lines.push('');
+        lines.push('=== Janela engajamento (agregado) ===');
+        lines.push(`Média índice: ${eng.engagement_index_mean ?? '-'}  |  Rostos médios: ${eng.faces_detected_mean ?? '-'}`);
+        if (lw.engagement_index_avg != null) {
+          lines.push(`Última janela: índice ${lw.engagement_index_avg}, atividade ${lw.activity_level || '-'}, modelo ${lw.model_version || '-'}`);
+        } else {
+          lines.push('Última janela: ainda não gerada (aguarde ~10s com rosto visível)');
+        }
+        lines.push('');
+        lines.push('=== APIs ===');
+        lines.push((data.api_links && data.api_links.attendance_report) || '/reports/attendance/today');
+        lines.push((data.api_links && data.api_links.engagement_report) || '/reports/engagement/summary');
+        return lines.join('\\n');
+      }
+
+      function refreshOverlay() {
         Promise.all([
           fetch(base + '/cameras').then(r => r.json()).catch(() => ({ cameras: [] })),
           fetch(base + '/debug/overlay_matches?camera_id=' + encodeURIComponent(CAM_ID)).then(r => r.json()).catch(() => ({ current_matches: [] }))
         ]).then(([cams, overlay]) => {
           const cam = (cams.cameras || []).find(c => c.camera_id === CAM_ID);
-          const statusEl = document.getElementById('status');
-          statusEl.textContent = resumoCamera(cam);
-
-          const matches = overlay.current_matches || [];
-          const matchesEl = document.getElementById('matches');
-          matchesEl.textContent = resumoMatches(matches);
+          document.getElementById('status').textContent = resumoCamera(cam);
+          document.getElementById('matches').textContent = resumoMatches(overlay.current_matches || []);
         });
       }
 
-      setInterval(refreshStatus, 1000);
-      refreshStatus();
+      function refreshIntegrations() {
+        fetch(base + '/debug/integrations_status?camera_id=' + encodeURIComponent(CAM_ID))
+          .then(r => r.json())
+          .catch(() => ({}))
+          .then(integ => {
+            const integEl = document.getElementById('integrations');
+            if (integEl) integEl.textContent = resumoIntegrations(integ);
+          });
+      }
+
+      setInterval(refreshOverlay, 1000);
+      setInterval(refreshIntegrations, 5000);
+      refreshOverlay();
+      refreshIntegrations();
     </script>
   </body>
 </html>"""
@@ -1062,7 +1269,9 @@ async def debug_viewer(camera_id: Optional[str] = Query(None, description="ID da
 
 
 @app.get("/debug/enroll", response_class=HTMLResponse)
-async def debug_enroll_viewer():
+async def debug_enroll_viewer(
+    camera_id: Optional[str] = Query(None, description="ID da câmera (ex: cam-vip-5440-01)"),
+):
     """
     Tela de cadastro assistido:
     - mostra câmera ao vivo
@@ -1073,6 +1282,11 @@ async def debug_enroll_viewer():
     if not getattr(settings, "enable_debug_ui", False):
         raise HTTPException(status_code=404, detail="Debug UI disabled (ENABLE_DEBUG_UI=1)")
 
+    cam_id = _default_debug_camera_id(camera_id)
+    enroll_frames = int(getattr(settings, "enroll_num_frames", 20))
+    enroll_used = int(getattr(settings, "enroll_frames_used", 12))
+    enroll_duration = float(getattr(settings, "enroll_capture_duration", 5.0))
+
     html = """<!DOCTYPE html>
 <html>
   <head>
@@ -1081,7 +1295,8 @@ async def debug_enroll_viewer():
     <style>
       body { font-family: system-ui, sans-serif; background: #111827; color: #e5e7eb; margin: 0; padding: 12px; }
       h1 { font-size: 18px; margin: 0 0 8px; }
-      #frame { max-width: 100%; border: 1px solid #374151; background: #000; border-radius: 6px; }
+      .video-wrap { width: 100%; max-width: 1280px; margin: 0 0 12px; }
+      #frame { width: 100%; height: auto; display: block; border: 1px solid #374151; background: #000; border-radius: 6px; }
       .row { display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
       .card { background: #0b1220; border: 1px solid #1f2937; border-radius: 8px; padding: 10px; flex: 1 1 320px; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -1098,7 +1313,9 @@ async def debug_enroll_viewer():
   <body>
     <h1>Cadastro Assistido de Aluno</h1>
     <p class="small">Fluxo: 1) Siga os passos abaixo na câmera 2) Validar qualidade 3) Cadastrar. Para <strong>mais de um template</strong> (lado, óculos, máscara), use o <strong>mesmo student_id</strong> e marque o checkbox antes de cadastrar de novo.</p>
-    <img id="frame" alt="preview câmera" />
+    <div class="video-wrap">
+      <img id="frame" alt="preview câmera" />
+    </div>
 
     <div class="row">
       <div class="card" style="flex:1 1 100%;max-width:100%;">
@@ -1128,19 +1345,19 @@ async def debug_enroll_viewer():
           </div>
           <div>
             <label>camera_id</label>
-            <input id="camera_id" value="cam-web" />
+            <input id="camera_id" value="__CAM_ID__" />
           </div>
           <div>
             <label>Duração (seg)</label>
-            <input id="capture_duration" value="5.0" />
+            <input id="capture_duration" value="__ENROLL_DURATION__" />
           </div>
           <div>
             <label>Frames a capturar</label>
-            <input id="num_frames" value="15" />
+            <input id="num_frames" value="__ENROLL_FRAMES__" />
           </div>
           <div>
             <label>Frames usados</label>
-            <input id="frames_used" value="10" />
+            <input id="frames_used" value="__ENROLL_USED__" />
           </div>
           <div>
             <label>Min quality score</label>
@@ -1174,8 +1391,8 @@ async def debug_enroll_viewer():
       let ultimoPreviewOk = false;
 
       function refreshFrame() {
-        const cam = document.getElementById('camera_id').value || 'cam-web';
-        document.getElementById('frame').src = base + '/debug/mjpeg?camera_id=' + encodeURIComponent(cam) + '&overlay=1&fps=30&v=2';
+        const cam = document.getElementById('camera_id').value || '__CAM_ID__';
+        document.getElementById('frame').src = base + '/debug/mjpeg?camera_id=' + encodeURIComponent(cam) + '&overlay=0&fps=20&v=3';
       }
 
       function payloadBase() {
@@ -1263,10 +1480,19 @@ async def debug_enroll_viewer():
         }
       }
 
+      const urlCam = new URLSearchParams(window.location.search).get('camera_id');
+      if (urlCam) document.getElementById('camera_id').value = urlCam;
       refreshFrame();
+      document.getElementById('camera_id').addEventListener('change', refreshFrame);
     </script>
   </body>
 </html>"""
+    html = (
+        html.replace("__CAM_ID__", cam_id)
+        .replace("__ENROLL_FRAMES__", str(enroll_frames))
+        .replace("__ENROLL_USED__", str(enroll_used))
+        .replace("__ENROLL_DURATION__", str(enroll_duration))
+    )
     return HTMLResponse(html)
 
 

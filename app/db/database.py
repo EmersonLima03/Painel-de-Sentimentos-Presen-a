@@ -30,6 +30,9 @@ def create_db_engine(sqlite_path: str, *, echo: bool = False) -> Engine:
         echo=echo,
         connect_args={"check_same_thread": False, "timeout": 30},
         pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=60,
     )
     event.listen(engine, "connect", _apply_sqlite_pragmas)
     logger.debug("sqlite_engine_created", path=sqlite_path, pragmas=list(_SQLITE_PRAGMAS))

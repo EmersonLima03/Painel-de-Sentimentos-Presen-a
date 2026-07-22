@@ -329,7 +329,7 @@ def create_detector() -> FaceDetector:
                 logger.warning("insightface_detector_failed", error=str(e), fallback="yunet")
                 backend = "yunet"
 
-        if backend in ("yunet", "yu-net"):
+        if backend in ("yunet", "yu-net", "auto"):
             try:
                 yunet_thr = float(
                     getattr(settings, "vision_yunet_score_threshold", 0.62) or 0.62
@@ -341,8 +341,28 @@ def create_detector() -> FaceDetector:
                 logger.info("using_realtime_detector", type="yunet")
                 return detector
             except Exception as e:
-                logger.warning("yunet_failed", error=str(e), fallback="mediapipe_short_range")
+                logger.warning("yunet_failed", error=str(e))
+                if backend == "auto":
+                    try:
+                        from app.vision.dnn_detector import OpenCVDnnFaceDetector
+
+                        dnn_thr = float(
+                            getattr(settings, "vision_dnn_conf_threshold", 0.35) or 0.35
+                        )
+                        logger.info("using_realtime_detector", type="opencv_dnn_ssd")
+                        return OpenCVDnnFaceDetector(
+                            conf_threshold=dnn_thr, max_faces=max_faces
+                        )
+                    except Exception as e2:
+                        logger.warning("dnn_failed", error=str(e2), fallback="mediapipe_short_range")
                 backend = "short_range"
+
+        if backend == "dnn":
+            from app.vision.dnn_detector import OpenCVDnnFaceDetector
+
+            dnn_thr = float(getattr(settings, "vision_dnn_conf_threshold", 0.35) or 0.35)
+            logger.info("using_realtime_detector", type="opencv_dnn_ssd")
+            return OpenCVDnnFaceDetector(conf_threshold=dnn_thr, max_faces=max_faces)
 
         variant = "full_range" if backend in ("full_range", "full", "long") else "short_range"
         if backend == "short_range":

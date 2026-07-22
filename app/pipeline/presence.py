@@ -12,6 +12,7 @@ from app.vision.embedder import FaceEmbedder
 from app.vision.matcher import (
     FaceMatcher,
     FAISSMatcher,
+    competitor_margin_from_topk,
     load_embeddings_from_face_embeddings,
 )
 from app.vision.quality import calculate_face_quality
@@ -448,7 +449,7 @@ class PresencePipeline:
         if not valid:
             self.tracker.update([], now=now)
             if faces:
-                return [
+                return self._filter_ghost_overlay_matches([
                     {
                         "track_id": i,
                         "bbox": [x, y, w, h],
@@ -459,14 +460,14 @@ class PresencePipeline:
                         "margin": None,
                     }
                     for i, (x, y, w, h) in enumerate(faces)
-                ]
+                ])
             return self._overlay_hold_recent_tracks(now, th_on, th_off)
 
         bboxes = [(x, y, w, h) for (x, y, w, h, _, _) in valid]
         tracked = self.tracker.update(bboxes, now=now)
 
         overlay_min_conf = max(0.45, th_off - 0.08)  # mostrar nome provável mais cedo no viewer (DVR)
-        recognition_cache_seconds = 1.0
+        recognition_cache_seconds = 2.5  # alinhado ao track_ttl: menos recomputação frame a frame
 
         for idx, ((x, y, w, h), track_id, track) in enumerate(tracked):
             _, _, _, _, face_roi, good_quality = valid[idx]
@@ -505,18 +506,22 @@ class PresencePipeline:
                 out.append({"track_id": track_id, "bbox": overlay_bbox, "student_id": None, "confidence": 0.0, "provável": False, "top2_score": None, "margin": None})
                 continue
 
-            topk = self.matcher.find_match_topk(embedding, k=3) if hasattr(self.matcher, "find_match_topk") else []
+            if hasattr(self.matcher, "find_match_topk_extended"):
+                topk = self.matcher.find_match_topk_extended(embedding, k=15)
+            elif hasattr(self.matcher, "find_match_topk"):
+                topk = self.matcher.find_match_topk(embedding, k=15)
+            else:
+                topk = []
             if not topk:
                 track.update_recognition(None, 0.0, now)
                 out.append({"track_id": track_id, "bbox": overlay_bbox, "student_id": None, "confidence": 0.0, "provável": False, "top2_score": None, "margin": None})
                 continue
 
             top1_id, top1_sim = topk[0]
-            top2_sim = topk[1][1] if len(topk) >= 2 else 0.0
-            margin_val = (top1_sim - top2_sim) if len(topk) >= 2 else None
+            margin_val, top2_sim, _ = competitor_margin_from_topk(topk)
             margin = round(margin_val, 4) if margin_val is not None else None
             match_margin = getattr(self, "match_margin", 0.08)
-            # Segurança: só atribuir student_id se score >= th_on E (margin ausente ou >= match_margin)
+            # Margem só contra OUTRO aluno; se só você está cadastrado, margin=None → ok
             margin_ok = margin is None or margin >= match_margin
             was_recognized = track.last_student_id is not None
 
@@ -547,8 +552,22 @@ class PresencePipeline:
                 else:
                     display_id, display_conf, provavel = None, top1_sim, False
 
+            # Histerese visual: não apagar nome se ainda é o mesmo aluno acima de th_off
+            if (
+                display_id is None
+                and track.last_student_id
+                and top1_id == track.last_student_id
+                and top1_sim >= th_off
+            ):
+                display_id = track.last_student_id
+                display_conf = top1_sim
+                provavel = top1_sim < th_on
+
             track.update_bbox((x, y, w, h), now)
-            track.update_recognition(display_id, display_conf if display_id else top1_sim, now)
+            persist_id = display_id if display_id else (
+                track.last_student_id if top1_sim >= th_off and top1_id == track.last_student_id else None
+            )
+            track.update_recognition(persist_id, display_conf if display_id else top1_sim, now)
             show_conf = display_conf if display_id else top1_sim
             out.append({
                 "track_id": track_id,
@@ -556,10 +575,21 @@ class PresencePipeline:
                 "student_id": display_id,
                 "confidence": show_conf,
                 "provável": provavel,
-                "top2_score": round(top2_sim, 4) if len(topk) >= 2 else None,
+                "top2_score": round(top2_sim, 4) if top2_sim is not None else None,
                 "margin": margin,
             })
-        return out
+        return self._filter_ghost_overlay_matches(out)
+
+    @staticmethod
+    def _filter_ghost_overlay_matches(matches: list) -> list:
+        """Só no overlay: remove falso positivo óbvio (ex. mochila com score ~0.04)."""
+        kept = []
+        for m in matches:
+            sid = m.get("student_id")
+            conf = float(m.get("confidence") or 0.0)
+            if sid or conf >= 0.10:
+                kept.append(m)
+        return kept
 
     def _overlay_hold_recent_tracks(self, now: float, th_on: float, th_off: float) -> list:
         """

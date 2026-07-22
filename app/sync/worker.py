@@ -4,7 +4,7 @@ import asyncio
 import json
 import time
 from typing import List
-from app.db.init_db import get_session
+from app.db.init_db import get_session, close_session
 from app.db.repo import EventRepository
 from app.sync.client import SupabaseClient
 from app.config import get_settings
@@ -46,11 +46,16 @@ class SyncWorker:
     async def sync_batch(self) -> None:
         """Sincroniza um lote de eventos."""
         session = get_session()
+        try:
+            await self._sync_batch_with_session(session)
+        finally:
+            close_session(session)
+
+    async def _sync_batch_with_session(self, session) -> None:
         event_repo = EventRepository(session)
-        
-        # Buscar eventos pendentes
+
         pending_events = event_repo.get_pending_events(limit=self.batch_size)
-        
+
         if not pending_events:
             return
         

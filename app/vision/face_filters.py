@@ -19,6 +19,7 @@ def stabilize_face_detections(
     aspect_max: float = 1.32,
     single_subject_mode: bool = False,
     largest_face_min_fraction: float = 0.28,
+    relative_min_fraction: float = 0.0,
     max_faces: int = 12,
 ) -> List[BBox]:
     """

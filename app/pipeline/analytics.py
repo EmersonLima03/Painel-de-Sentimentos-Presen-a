@@ -7,7 +7,8 @@ import numpy as np
 import cv2
 
 from app.vision.detector import FaceDetector
-from app.vision.engagement import calculate_engagement_state, aggregate_engagement_window
+from app.vision.engagement import aggregate_engagement_window
+from app.vision.engagement_service import get_engagement_calculator
 from app.db.repo import EventRepository
 from app.utils.ids import generate_event_id
 from app.config import get_settings
@@ -36,6 +37,7 @@ class EngagementAnalytics:
         self.device_id = device_id
         self.school_id = school_id
         self.window_seconds = window_seconds
+        self._calc_state, self._model_version = get_engagement_calculator()
         
         # Buffer de estados e movimento para agregação
         self.state_buffer: List[str] = []
@@ -61,11 +63,12 @@ class EngagementAnalytics:
         frame: np.ndarray,
         *,
         face_count: Optional[int] = None,
+        face_bboxes: Optional[List[tuple]] = None,
     ) -> Optional[dict]:
         """
         Processa frame para analytics de engajamento.
 
-        Se face_count vier do orchestrator (cache YuNet), evita segunda detecção no mesmo frame.
+        Preferir face_bboxes do orchestrator (mesma detecção da presença) para emoção/heurística por ROI.
         """
         current_time = time.time()
 
@@ -75,7 +78,18 @@ class EngagementAnalytics:
         motion = self._frame_motion(frame)
         self.motion_buffer.append(motion)
 
-        if face_count is not None:
+        if face_bboxes:
+            states = []
+            ih, iw = frame.shape[:2]
+            for (x, y, w, h) in face_bboxes:
+                x1, y1 = max(0, int(x)), max(0, int(y))
+                x2, y2 = min(iw, x1 + int(w)), min(ih, y1 + int(h))
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                face_roi = frame[y1:y2, x1:x2]
+                states.append(self._calc_state(face_roi, (x1, y1, w, h)))
+            self.state_buffer.extend(states)
+        elif face_count is not None:
             n = max(0, int(face_count))
             if n > 0:
                 self.state_buffer.extend(["neutral"] * n)
@@ -84,8 +98,7 @@ class EngagementAnalytics:
             states = []
             for (x, y, w, h) in faces:
                 face_roi = frame[y : y + h, x : x + w]
-                state = calculate_engagement_state(face_roi, (x, y, w, h))
-                states.append(state)
+                states.append(self._calc_state(face_roi, (x, y, w, h)))
             self.state_buffer.extend(states)
 
         self._window_frame_count += 1
@@ -143,5 +156,5 @@ class EngagementAnalytics:
                 "neutral": round(aggregated.get("neutral", 0.0), 2),
                 "distracted": round(aggregated.get("distracted", 0.0), 2)
             },
-            "model_version": "eng-v0"
+            "model_version": self._model_version,
         }

@@ -2,20 +2,29 @@ device:
   device_id: edge-001
   school_id: 1
   default_camera_index: 0   # Câmera padrão (notebook); fallback quando índice escolhido falha
-  camera_connect_timeout_seconds: 3   # Timeout ao abrir câmera; depois faz fallback para default
+  camera_connect_timeout_seconds: 10  # RTSP Intelbras: dar mais tempo para conectar
 
 cameras:
-  # Iriun no iPhone: índice 1 no Windows (0 = webcam do notebook). Liste com GET /cameras/devices
-  - camera_id: cam-web
-    room_id: DEV
-    rtsp_url: "0"
-    webcam_width: 1280
-    webcam_height: 720
+  # Intelbras VIP-5440-IA — IP 192.168.100.133 (subtype=0 principal | subtype=1 substream leve)
+  - camera_id: cam-vip-5440-01
+    room_id: SALA_TECH
+    # Substitua USER:PASSWORD — na URL o @ da senha vira %40
+    # subtype=1 = substream leve (menos delay/CPU); subtype=0 = 2.5K principal
+    rtsp_url: rtsp://admin:PASSWORD@192.168.100.133:554/cam/realmonitor?channel=1&subtype=1
     enabled: true
 
+  # Iriun / webcam — cadastro e testes locais (desligada enquanto usa RTSP)
+  - camera_id: cam-web
+    room_id: DEV
+    rtsp_url: "2"
+    webcam_width: 1280
+    webcam_height: 720
+    enabled: false
+
+  # DVR Intelbras (canal 10) — outro equipamento na rede
   - camera_id: cam-sala-tech
     room_id: SALA_TECH
-    rtsp_url: rtsp://admin:%23DulCli%4091@192.168.100.240:554/cam/realmonitor?channel=10&subtype=0
+    rtsp_url: rtsp://admin:PASSWORD@192.168.100.240:554/cam/realmonitor?channel=10&subtype=0
     enabled: false
 
   # Segunda câmera (opcional): descomente se quiser notebook + USB ao mesmo tempo (mais CPU)
@@ -27,11 +36,12 @@ cameras:
   #   enabled: true
 
 vision:
-  # Teste 8–10 pessoas em fila: YuNet (multi-rosto, Windows) + FaceNet.
-  # Linux com InsightFace instalado: detector/embedder: insightface
-  detector: yunet            # yunet | insightface | full_range | short_range
-  embedder: facenet             # facenet estável no Windows; onnx se DLL ok (pip install onnxruntime --force-reinstall)
-  max_faces: 10
+  # Produção sala ~30 alunos: YuNet + embeddings (onnx no Ryzen se DLL ok).
+  # Integração 5 projetos: ver docs/EVOLUCAO_INTEGRACAO_5_PROJETOS.md
+  detector: yunet            # yunet | auto | dnn | insightface | full_range | short_range
+  embedder: facenet          # facenet | onnx (recomendado CPU) | insightface
+  max_faces: 30
+  dnn_conf_threshold: 0.35   # só se detector: dnn ou auto com fallback
   yunet_score_threshold: 0.45   # DVR/teto: scores baixos são normais; suba se muitos falsos na parede
   min_face_area_ratio: 0.0005   # rostos pequenos no stream do DVR
   face_aspect_min: 0.45         # bbox mais largo/estreito (ângulo de cima)
@@ -59,14 +69,16 @@ vision:
     dedup_mode: day  # day | shift | class
 
   engagement:
-    sampling_seconds: 5
+    backend: head_pose       # head_pose (recomendado) | hybrid | emotion | heuristic
+    sampling_seconds: 3      # overlay engajamento (olhar para câmera)
     window_seconds: 10
-    model_version: eng-v0
+    model_version: eng-v2-headpose
+    # head_pose = MediaPipe landmarks (adequado sala). emotion = Mini-XCEPTION (legado)
 
 # Cadastro por webcam: mais frames = mais precisão (média de embeddings)
 enrollment:
-  num_frames: 15           # Frames a capturar (ex.: 15–20 para máxima precisão)
-  frames_used: 10          # Top N melhores usados para calcular a média (ex.: 8–12)
+  num_frames: 20           # Frames a capturar (ex.: 15–20 para máxima precisão)
+  frames_used: 12          # Top N melhores usados para calcular a média (ex.: 8–12)
   capture_duration_seconds: 5.0   # Tempo em segundos para captura
 
 sync:

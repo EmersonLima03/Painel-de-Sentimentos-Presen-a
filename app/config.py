@@ -108,9 +108,14 @@ class Settings(BaseSettings):
     vision_insightface_min_det_score: float = Field(default=0.45, env="VISION_INSIGHTFACE_MIN_DET_SCORE")
     vision_yunet_score_threshold: float = Field(default=0.62, env="VISION_YUNET_SCORE_THRESHOLD")
     vision_min_face_area_ratio: float = Field(default=0.0015, env="VISION_MIN_FACE_AREA_RATIO")
+    vision_face_relative_min_fraction: float = Field(default=0.22, env="VISION_FACE_RELATIVE_MIN_FRACTION")
     vision_face_aspect_min: float = Field(default=0.45, env="VISION_FACE_ASPECT_MIN")
     vision_face_aspect_max: float = Field(default=1.55, env="VISION_FACE_ASPECT_MAX")
     vision_single_subject_mode: bool = Field(default=False, env="VISION_SINGLE_SUBJECT_MODE")
+    vision_dnn_conf_threshold: float = Field(default=0.35, env="VISION_DNN_CONF_THRESHOLD")
+    vision_engagement_backend: str = Field(default="head_pose", env="VISION_ENGAGEMENT_BACKEND")
+    vision_engagement_model_version: str = Field(default="eng-v2-headpose", env="VISION_ENGAGEMENT_MODEL_VERSION")
+    vision_engagement_window_seconds: int = Field(default=10, env="VISION_ENGAGEMENT_WINDOW_SECONDS")
 
     class Config:
         env_file = ".env"
@@ -186,6 +191,10 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "vision_yunet_score_threshold", float(vision["yunet_score_threshold"]))
             if "min_face_area_ratio" in vision:
                 object.__setattr__(self, "vision_min_face_area_ratio", float(vision["min_face_area_ratio"]))
+            if "face_relative_min_fraction" in vision:
+                object.__setattr__(
+                    self, "vision_face_relative_min_fraction", float(vision["face_relative_min_fraction"])
+                )
             if "single_subject_mode" in vision:
                 object.__setattr__(self, "vision_single_subject_mode", bool(vision["single_subject_mode"]))
             if "face_aspect_min" in vision:
@@ -215,10 +224,18 @@ class Settings(BaseSettings):
                 if "max_templates_per_student" in pres:
                     object.__setattr__(self, "max_templates_per_student", int(pres["max_templates_per_student"]))
             
+            if "dnn_conf_threshold" in vision:
+                object.__setattr__(self, "vision_dnn_conf_threshold", float(vision["dnn_conf_threshold"]))
             if "engagement" in vision:
                 eng = vision["engagement"]
                 if "sampling_seconds" in eng:
                     object.__setattr__(self, "engagement_sampling_seconds", eng["sampling_seconds"])
+                if "window_seconds" in eng:
+                    object.__setattr__(self, "vision_engagement_window_seconds", int(eng["window_seconds"]))
+                if "backend" in eng:
+                    object.__setattr__(self, "vision_engagement_backend", str(eng["backend"]))
+                if "model_version" in eng:
+                    object.__setattr__(self, "vision_engagement_model_version", str(eng["model_version"]))
         
         # Enrollment config
         if "enrollment" in config:

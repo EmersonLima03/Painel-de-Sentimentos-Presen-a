@@ -30,10 +30,14 @@ vision:
         end: "13:20"
     dedup_mode: day  # day | shift | class
 
+  detector: yunet
+  embedder: facenet
+  max_faces: 30
   engagement:
+    backend: hybrid
     sampling_seconds: 5
     window_seconds: 10
-    model_version: eng-v0
+    model_version: eng-v1-emotion
 
 sync:
   batch_size: 10

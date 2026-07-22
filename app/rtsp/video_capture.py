@@ -1,7 +1,8 @@
-"""Captura assíncrona de webcam/USB (thread dedicada, frames em tempo real)."""
+"""Captura assíncrona de webcam/USB e RTSP (thread dedicada, frames em tempo real)."""
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from threading import Event, Lock, Thread
@@ -219,4 +220,186 @@ class AsyncVideoCapture:
             "frame_count": self._frame_count,
             "last_error": self._last_error,
             "device_index": self.device_index,
+        }
+
+
+class AsyncRTSPCapture:
+    """
+    Thread de captura RTSP: descarta frames antigos do buffer e expõe só o mais recente.
+    Evita delay acumulado quando o pipeline de ML é mais lento que o FPS da câmera.
+    """
+
+    def __init__(
+        self,
+        rtsp_url: str,
+        *,
+        reconnect_delay: float = 2.0,
+        max_failures_before_reconnect: int = 20,
+        flush_grabs: int = 3,
+    ):
+        self.rtsp_url = rtsp_url
+        self.reconnect_delay = reconnect_delay
+        self.max_failures = max_failures_before_reconnect
+        self.flush_grabs = max(0, flush_grabs)
+
+        self._cap: Optional[cv2.VideoCapture] = None
+        self._thread: Optional[Thread] = None
+        self._stop = Event()
+        self._lock = Lock()
+        self._latest_frame: Optional[np.ndarray] = None
+        self._latest_ts: float = 0.0
+        self._frame_count = 0
+        self._connected = False
+        self._last_error: Optional[str] = None
+        self._fail_streak = 0
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+    @property
+    def frame_count(self) -> int:
+        return self._frame_count
+
+    @property
+    def last_frame_time(self) -> float:
+        return self._latest_ts
+
+    @property
+    def last_error(self) -> Optional[str]:
+        return self._last_error
+
+    def _open_stream(self) -> bool:
+        if self._cap is not None:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
+
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+        cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+        try:
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)
+        except Exception:
+            pass
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            cap.release()
+            self._last_error = "Failed to read initial RTSP frame"
+            return False
+
+        self._cap = cap
+        self._connected = True
+        self._last_error = None
+        self._fail_streak = 0
+        with self._lock:
+            self._latest_frame = frame
+            self._latest_ts = time.time()
+            self._frame_count += 1
+        logger.info("async_rtsp_opened", url=self.rtsp_url, width=frame.shape[1], height=frame.shape[0])
+        return True
+
+    def connect(self) -> bool:
+        return self._open_stream()
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        if not self._connected and not self.connect():
+            logger.warning("async_rtsp_start_without_stream")
+        self._stop.clear()
+        self._thread = Thread(target=self._capture_loop, name="async-rtsp-capture", daemon=True)
+        self._thread.start()
+        logger.info("async_rtsp_thread_started")
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3.0)
+        self._thread = None
+        if self._cap is not None:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
+        self._connected = False
+        logger.info("async_rtsp_stopped")
+
+    def _read_latest(self) -> Tuple[bool, Optional[np.ndarray]]:
+        if self._cap is None or not self._cap.isOpened():
+            return False, None
+        try:
+            if self.flush_grabs > 0:
+                for _ in range(self.flush_grabs):
+                    if not self._cap.grab():
+                        break
+                ret, frame = self._cap.retrieve()
+            else:
+                ret, frame = self._cap.read()
+        except Exception as e:
+            self._last_error = str(e)
+            return False, None
+        if ret and frame is not None:
+            return True, frame
+        return False, None
+
+    def _capture_loop(self) -> None:
+        while not self._stop.is_set():
+            if self._cap is None or not self._cap.isOpened():
+                self._connected = False
+                time.sleep(self.reconnect_delay)
+                if self._stop.is_set():
+                    break
+                if self.connect():
+                    continue
+                time.sleep(self.reconnect_delay)
+                continue
+
+            ret, frame = self._read_latest()
+            if ret and frame is not None:
+                with self._lock:
+                    self._latest_frame = frame
+                    self._latest_ts = time.time()
+                    self._frame_count += 1
+                self._fail_streak = 0
+                self._connected = True
+                self._last_error = None
+            else:
+                self._fail_streak += 1
+                self._last_error = "Failed to read RTSP frame"
+                if self._fail_streak >= self.max_failures:
+                    logger.warning("async_rtsp_reconnect", failures=self._fail_streak)
+                    self._connected = False
+                    if self._cap is not None:
+                        try:
+                            self._cap.release()
+                        except Exception:
+                            pass
+                        self._cap = None
+                    self._fail_streak = 0
+                    time.sleep(self.reconnect_delay)
+                    self.connect()
+
+            time.sleep(0.001)
+
+    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+        with self._lock:
+            if self._latest_frame is None:
+                return False, None
+            return True, self._latest_frame.copy()
+
+    def get_status(self) -> dict:
+        return {
+            "is_connected": self._connected,
+            "last_frame_time": self._latest_ts,
+            "frame_count": self._frame_count,
+            "last_error": self._last_error,
+            "rtsp_url": self.rtsp_url,
         }

@@ -1,5 +1,6 @@
 """Inicialização do banco de dados."""
 
+from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy.orm import sessionmaker
@@ -67,3 +68,13 @@ def close_session(session) -> None:
     """Fecha sessão (sempre usar em endpoints que chamam get_session())."""
     if session is not None:
         session.close()
+
+
+@contextmanager
+def session_scope():
+    """Context manager: garante close da sessão (evita esgotar pool SQLite)."""
+    session = get_session()
+    try:
+        yield session
+    finally:
+        close_session(session)

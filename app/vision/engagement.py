@@ -36,9 +36,10 @@ def calculate_engagement_state(face_roi: np.ndarray, bbox: tuple) -> str:
     
     # Heurística simplificada
     # Em produção: usar modelo de head pose/eye gaze
-    if brightness > 120:  # Olhos mais brilhantes (olhando para frente)
+    # Webcam/fone: faixas mais baixas; evita "distraído" por sombra no rosto
+    if brightness > 95:
         return "attentive"
-    elif brightness > 80:
+    elif brightness > 55:
         return "neutral"
     else:
         return "distracted"

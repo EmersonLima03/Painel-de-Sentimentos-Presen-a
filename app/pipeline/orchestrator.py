@@ -31,8 +31,8 @@ from app.logging import get_logger
 
 logger = get_logger(__name__)
 
-_CAPTURE_HZ = 30.0
-_DETECT_HZ = 10.0  # overlay fluido; presença (2s) usa pipeline separado
+_CAPTURE_HZ = 20.0
+_DETECT_HZ = 6.0  # overlay; presença (2s) usa pipeline separado
 
 
 def _iou_xywh(box_a: tuple, box_b: tuple) -> float:
@@ -146,7 +146,10 @@ class PipelineOrchestrator:
         self._latest_frames: Dict[str, np.ndarray] = {}
         self._overlay_matches: Dict[str, List[dict]] = {}
         self._overlay_boxes: Dict[str, List[tuple]] = {}
+        self._overlay_engagement: Dict[str, List[dict]] = {}  # emoção/engajamento por face (RTCMS+ER)
         self._overlay_source_size: Dict[str, tuple] = {}  # (width, height) do frame na última detecção
+        self._engagement_calc = None
+        self._engagement_model_version: str = "eng-v0"
         self._executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="edge-vision")
         self._presence_busy: Dict[str, bool] = {}
 
@@ -235,6 +238,9 @@ class PipelineOrchestrator:
             )
             self.presence_pipelines[camera_id] = presence_pipeline
 
+            window_sec = int(
+                getattr(self.settings, "vision_engagement_window_seconds", None) or 10
+            )
             engagement = EngagementAnalytics(
                 detector=detector,
                 event_repo=event_repo,
@@ -242,7 +248,7 @@ class PipelineOrchestrator:
                 room_id=room_id,
                 device_id=self.settings.device_id,
                 school_id=self.settings.school_id,
-                window_seconds=10,
+                window_seconds=window_sec,
             )
             self.engagement_analytics[camera_id] = engagement
 
@@ -268,6 +274,38 @@ class PipelineOrchestrator:
 
     def get_overlay_boxes(self, camera_id: str) -> List[tuple]:
         return list(self._overlay_boxes.get(camera_id) or [])
+
+    def get_overlay_engagement(self, camera_id: str) -> List[dict]:
+        return list(self._overlay_engagement.get(camera_id) or [])
+
+    def get_integrations_status(self, camera_id: str) -> dict:
+        """Status visível das integrações (5 projetos GitHub) para debug/UI."""
+        from app.vision.emotion_engagement import is_emotion_backend_available
+
+        if self._engagement_calc is None:
+            try:
+                from app.vision.engagement_service import get_engagement_calculator
+
+                self._engagement_calc, self._engagement_model_version = get_engagement_calculator()
+            except Exception:
+                pass
+        room_id = None
+        for c in self.settings.cameras:
+            if c.camera_id == camera_id:
+                room_id = c.room_id
+                break
+        from app.vision.head_pose_engagement import is_head_pose_available
+
+        return {
+            "detector": getattr(self.settings, "vision_detector_backend", "yunet"),
+            "embedder": getattr(self.settings, "vision_embedder_backend", "facenet"),
+            "engagement_backend": getattr(self.settings, "vision_engagement_backend", "head_pose"),
+            "engagement_model_version": self._engagement_model_version,
+            "head_pose_available": is_head_pose_available(),
+            "emotion_model_available": is_emotion_backend_available(),
+            "room_id": room_id,
+            "per_face_engagement": self.get_overlay_engagement(camera_id),
+        }
 
     def get_overlay_source_size(self, camera_id: str) -> Optional[tuple]:
         return self._overlay_source_size.get(camera_id)
@@ -356,7 +394,7 @@ class PipelineOrchestrator:
                 self._overlay_boxes[camera_id] = [
                     tuple(m["bbox"]) for m in match_list if m.get("bbox")
                 ]
-                self._overlay_matches[camera_id] = [
+                enriched = [
                     self._enrich_match_display(
                         {
                             "track_id": m.get("track_id", i),
@@ -369,6 +407,10 @@ class PipelineOrchestrator:
                         }
                     )
                     for i, m in enumerate(match_list)
+                ]
+                self._overlay_matches[camera_id] = enriched
+                self._overlay_boxes[camera_id] = [
+                    tuple(m["bbox"]) for m in enriched if m.get("bbox")
                 ]
                 return
             if self.face_pipeline:
@@ -383,10 +425,83 @@ class PipelineOrchestrator:
 
     def _run_engagement_sync(self, camera_id: str, frame: np.ndarray) -> None:
         analytics = self.engagement_analytics.get(camera_id)
+        bboxes = self._overlay_boxes.get(camera_id) or []
+        # Engajamento por face no overlay (Mini-XCEPTION / híbrido — repos RTCMS + ER)
+        try:
+            if self._engagement_calc is None:
+                from app.vision.engagement_service import get_engagement_calculator
+
+                self._engagement_calc, self._engagement_model_version = get_engagement_calculator()
+            calc = self._engagement_calc
+            if calc and bboxes:
+                ih, iw = frame.shape[:2]
+                per_face = []
+                for (x, y, w, h) in bboxes:
+                    x1, y1 = max(0, int(x)), max(0, int(y))
+                    x2, y2 = min(iw, x1 + int(w)), min(ih, y1 + int(h))
+                    if x2 <= x1 or y2 <= y1:
+                        continue
+                    roi = frame[y1:y2, x1:x2]
+                    emotion_raw = None
+                    emotion_conf = None
+                    pose_dbg = {}
+                    backend = (
+                        getattr(self.settings, "vision_engagement_backend", None) or "head_pose"
+                    ).strip().lower()
+                    try:
+                        if backend == "emotion":
+                            from app.vision.emotion_engagement import predict_emotion_detail
+
+                            emotion_raw, emotion_conf, state, _, emotion_src = predict_emotion_detail(roi)
+                        else:
+                            from app.vision.head_pose_engagement import calculate_head_pose_engagement
+
+                            state, label_pt, pose_dbg = calculate_head_pose_engagement(roi, (x1, y1, w, h))
+                            emotion_src = pose_dbg.get("backend", "head_pose")
+                    except Exception:
+                        emotion_src = None
+                        state = calc(roi, (x1, y1, w, h))
+                        label_pt = {
+                            "attentive": "Engajado",
+                            "neutral": "Neutro",
+                            "distracted": "Distraido",
+                        }.get(state, state)
+                    if backend != "emotion":
+                        pass  # label_pt já veio do head_pose
+                    else:
+                        label_pt = {
+                            "attentive": "Engajado",
+                            "neutral": "Neutro",
+                            "distracted": "Distraido",
+                        }.get(state, state)
+                        if emotion_src == "smile":
+                            label_pt = f"{label_pt} (sorriso)"
+                        elif emotion_raw:
+                            label_pt = f"{label_pt} ({emotion_raw})"
+                    if pose_dbg and pose_dbg.get("yaw") is not None:
+                        label_pt = f"{label_pt} [olhar]"
+                    per_face.append({
+                        "bbox": [x1, y1, w, h],
+                        "state": state,
+                        "label_pt": label_pt,
+                        "emotion": emotion_raw,
+                        "emotion_conf": emotion_conf,
+                    })
+                self._overlay_engagement[camera_id] = per_face
+                for i, m in enumerate(self._overlay_matches.get(camera_id) or []):
+                    if i < len(per_face):
+                        m["engagement_state"] = per_face[i]["state"]
+                        m["engagement_label"] = per_face[i]["label_pt"]
+        except Exception as e:
+            logger.debug("overlay_engagement_error", camera_id=camera_id, error=str(e))
+
         if analytics:
             try:
-                n_faces = self.faces_detected_last.get(camera_id, 0)
-                analytics.process_frame(frame, face_count=n_faces)
+                analytics.process_frame(
+                    frame,
+                    face_count=len(bboxes),
+                    face_bboxes=bboxes if bboxes else None,
+                )
             except Exception as e:
                 logger.warning("engagement_error", camera_id=camera_id, error=str(e))
 
