@@ -34,17 +34,19 @@ class Event(Base):
 
 
 class AttendanceCache(Base):
-    """Cache de presença para dedup."""
+    """Cache de presença para dedup (dia ou sessão)."""
     __tablename__ = "attendance_cache"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     student_id = Column(String, nullable=False, index=True)
-    date_key = Column(String, nullable=False, index=True)  # YYYY-MM-DD
+    date_key = Column(String, nullable=False, index=True)  # YYYY-MM-DD ou session:<id>
+    session_id = Column(String, nullable=True, index=True)
     first_seen_at = Column(DateTime, default=datetime.utcnow)
     last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     room_id = Column(String, nullable=False)
     confidence = Column(Float, nullable=False)
     device_id = Column(String, nullable=False)
+    sightings = Column(Integer, default=1)  # presença periódica na sessão
     
     # Índice composto para busca rápida
     __table_args__ = (
@@ -81,3 +83,74 @@ class FaceEmbedding(Base):
     model_version = Column(String, nullable=True)
     quality_score = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ClassSession(Base):
+    """Sessão de aula (presença periódica e métricas)."""
+    __tablename__ = "class_sessions"
+
+    session_id = Column(String, primary_key=True)
+    school_id = Column(String, nullable=False, index=True)
+    room_id = Column(String, nullable=False, index=True)
+    device_id = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=True)
+    started_at = Column(DateTime, default=datetime.utcnow, index=True)
+    ended_at = Column(DateTime, nullable=True)
+    status = Column(String, default="active", index=True)  # active | ended
+    metadata_json = Column(Text, nullable=True)
+
+
+class BehavioralEvent(Base):
+    """Eventos comportamentais observáveis (revisáveis)."""
+    __tablename__ = "behavioral_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(String, unique=True, nullable=False, index=True)
+    event_type = Column(String, nullable=False, index=True)
+    school_id = Column(String, nullable=False, index=True)
+    room_id = Column(String, nullable=False, index=True)
+    device_id = Column(String, nullable=False)
+    camera_id = Column(String, nullable=True)
+    session_id = Column(String, nullable=True, index=True)
+    student_id = Column(String, nullable=True, index=True)
+    anonymous_track_id = Column(String, nullable=True, index=True)
+    started_at = Column(DateTime, nullable=False)
+    ended_at = Column(DateTime, nullable=False)
+    duration_seconds = Column(Float, nullable=False)
+    confidence = Column(Float, nullable=False)
+    observation_quality = Column(String, nullable=True)
+    source_model = Column(String, nullable=True)
+    model_version = Column(String, nullable=True)
+    status = Column(String, default="pending_review", index=True)  # pending_review|confirmed|rejected|inconclusive
+    reviewed_by = Column(String, nullable=True)
+    review_result = Column(String, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class StudentConsent(Base):
+    """Consentimento / exclusão de análise biométrica (LGPD mínima)."""
+    __tablename__ = "student_consents"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    student_id = Column(String, nullable=False, index=True)
+    school_id = Column(String, nullable=False, index=True)
+    consent_given = Column(Boolean, default=False)
+    guardian_name = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    granted_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PrivacyAudit(Base):
+    """Trilha simples de auditoria de privacidade."""
+    __tablename__ = "privacy_audits"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    action = Column(String, nullable=False, index=True)
+    actor = Column(String, nullable=True)
+    detail_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

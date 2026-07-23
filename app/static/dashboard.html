@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Presença — Painel Unificado</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #0b1210;
+      --bg1: #121c18;
+      --card: rgba(22, 34, 30, 0.92);
+      --card-solid: #16221e;
+      --text: #eef5f1;
+      --muted: #8fa399;
+      --line: rgba(143, 163, 153, 0.18);
+      --accent: #2f9e7a;
+      --accent-2: #5ec4a0;
+      --warn: #d4a84b;
+      --danger: #d26666;
+      --ok: #3cbf8a;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+      --radius: 18px;
+      --font: "DM Sans", system-ui, sans-serif;
+      --display: "Instrument Serif", Georgia, serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(900px 480px at 8% -8%, rgba(47, 158, 122, 0.22), transparent 55%),
+        radial-gradient(700px 420px at 96% 4%, rgba(70, 110, 140, 0.18), transparent 50%),
+        linear-gradient(180deg, var(--bg1), var(--bg0));
+      background-attachment: fixed;
+    }
+    .shell { max-width: 1280px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
+
+    /* Header */
+    .top {
+      display: flex; flex-wrap: wrap; gap: 1rem;
+      align-items: flex-end; justify-content: space-between;
+      margin-bottom: 1.25rem;
+    }
+    .brand-kicker {
+      font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--accent-2); font-weight: 600; margin: 0 0 0.35rem;
+    }
+    h1 {
+      font-family: var(--display); font-weight: 400; font-size: clamp(1.8rem, 3vw, 2.4rem);
+      margin: 0; letter-spacing: -0.02em; line-height: 1.1;
+    }
+    .disclaimer {
+      margin: 0.55rem 0 0; color: var(--muted); font-size: 0.82rem;
+      max-width: 36rem; line-height: 1.45;
+    }
+    .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    input[type="password"], input[type="text"] {
+      background: rgba(0,0,0,0.28); border: 1px solid var(--line); color: var(--text);
+      border-radius: 999px; padding: 0.55rem 0.9rem; min-width: 11rem; font: inherit;
+    }
+    button, .btn {
+      appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 600;
+      border-radius: 999px; padding: 0.55rem 1rem; background: var(--accent); color: #062017;
+      transition: transform .15s ease, filter .15s ease;
+    }
+    button:hover, .btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    button.ghost, .btn.ghost {
+      background: transparent; color: var(--text); border: 1px solid var(--line);
+    }
+    button.reject { background: var(--danger); color: #fff; }
+    button.inconclusive { background: var(--warn); color: #1c1406; }
+    button.sm { padding: 0.35rem 0.7rem; font-size: 0.8rem; margin: 0 0.2rem 0.2rem 0; }
+
+    /* Nav tabs */
+    .tabs {
+      display: flex; flex-wrap: wrap; gap: 0.4rem;
+      padding: 0.35rem; background: rgba(0,0,0,0.22);
+      border: 1px solid var(--line); border-radius: 999px; width: fit-content;
+      margin-bottom: 1.25rem;
+    }
+    .tabs button {
+      background: transparent; color: var(--muted); font-weight: 500; padding: 0.45rem 0.95rem;
+    }
+    .tabs button.active {
+      background: var(--card-solid); color: var(--text);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    }
+
+    /* Cards */
+    .panel { display: none; animation: fade .25s ease; }
+    .panel.active { display: block; }
+    @keyframes fade { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none;} }
+
+    .grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(12, 1fr); }
+    .card {
+      grid-column: span 3;
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 1.05rem 1.1rem; box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+    .card.wide { grid-column: span 6; }
+    .card.full { grid-column: span 12; }
+    .card h2 {
+      margin: 0 0 0.85rem; font-size: 0.78rem; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+    }
+    .kpi { font-family: var(--display); font-size: 2.1rem; line-height: 1; }
+    .sub { color: var(--muted); font-size: 0.8rem; margin-top: 0.4rem; }
+    .row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; padding: 0.45rem 0; border-bottom: 1px solid var(--line); }
+    .row:last-child { border-bottom: 0; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.55rem;
+      border-radius: 999px; border: 1px solid var(--line);
+    }
+    .pill.ok { color: var(--ok); border-color: rgba(60,191,138,.35); background: rgba(60,191,138,.08); }
+    .pill.warn { color: var(--warn); border-color: rgba(212,168,75,.35); background: rgba(212,168,75,.08); }
+    .pill.bad { color: var(--danger); border-color: rgba(210,102,102,.35); background: rgba(210,102,102,.08); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    th, td { text-align: left; padding: 0.65rem 0.4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .bar { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: rgba(0,0,0,0.35); margin-top: 0.65rem; }
+    .bar span { display: block; height: 100%; }
+    .pos { background: #3cbf8a; }
+    .neu { background: #7d8f9c; }
+    .neg { background: #d26666; }
+    .inc { background: #4d5a63; }
+
+    .spark {
+      display: flex; align-items: flex-end; gap: 3px; height: 52px; margin-top: 0.75rem;
+    }
+    .spark i {
+      flex: 1; min-width: 4px; border-radius: 3px 3px 1px 1px;
+      background: linear-gradient(180deg, var(--accent-2), var(--accent));
+      opacity: 0.85;
+    }
+
+    .links { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .links a {
+      color: var(--text); text-decoration: none; border: 1px solid var(--line);
+      border-radius: 999px; padding: 0.45rem 0.85rem; font-size: 0.85rem;
+      background: rgba(0,0,0,0.18);
+    }
+    .links a:hover { border-color: var(--accent); color: var(--accent-2); }
+
+    .empty { color: var(--muted); font-size: 0.9rem; padding: 0.5rem 0; }
+    .toast {
+      position: fixed; right: 1rem; bottom: 1rem; background: var(--card-solid);
+      border: 1px solid var(--line); padding: 0.7rem 1rem; border-radius: 12px;
+      box-shadow: var(--shadow); display: none; z-index: 20; font-size: 0.85rem;
+    }
+    .toast.show { display: block; }
+
+    @media (max-width: 980px) {
+      .card, .card.wide { grid-column: span 6; }
+      .card.full { grid-column: span 12; }
+    }
+    @media (max-width: 640px) {
+      .card, .card.wide, .card.full { grid-column: span 12; }
+      .tabs { width: 100%; border-radius: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="top">
+      <div>
+        <p class="brand-kicker">Presença · Edge Vision</p>
+        <h1>Painel unificado</h1>
+        <p class="disclaimer" id="disclaimer">Carregando visão consolidada do sistema…</p>
+      </div>
+      <div class="controls">
+        <input id="token" type="password" placeholder="API token (se exigido)" />
+        <button type="button" class="ghost" onclick="refreshAll()">Atualizar</button>
+        <span class="pill" id="livePill"><span class="dot"></span> —</span>
+      </div>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button type="button" class="active" data-tab="overview">Visão geral</button>
+      <button type="button" data-tab="cameras">Câmeras</button>
+      <button type="button" data-tab="pedagogy">Engajamento &amp; clima</button>
+      <button type="button" data-tab="activity">Timeline &amp; revisão</button>
+      <button type="button" data-tab="tools">Ferramentas</button>
+    </nav>
+
+    <!-- Overview -->
+    <section class="panel active" id="tab-overview">
+      <div class="grid" id="overviewKpis"></div>
+      <div class="grid" style="margin-top:0.9rem">
+        <div class="card wide">
+          <h2>Fila de sincronização</h2>
+          <div id="queueBox" class="empty">—</div>
+        </div>
+        <div class="card wide">
+          <h2>Observabilidade dos sinais</h2>
+          <div id="obsBox" class="empty">—</div>
+        </div>
+        <div class="card full">
+          <h2>Stack de visão</h2>
+          <div id="visionBox" class="empty">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cameras -->
+    <section class="panel" id="tab-cameras">
+      <div class="grid">
+        <div class="card full">
+          <h2>Status das câmeras</h2>
+          <div id="camerasBox" class="empty">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pedagogy -->
+    <section class="panel" id="tab-pedagogy">
+      <div class="grid">
+        <div class="card wide">
+          <h2>Engajamento aparente</h2>
+          <div id="engBox" class="empty">—</div>
+        </div>
+        <div class="card wide">
+          <h2>Clima / humor aparente</h2>
+          <div id="climateBox" class="empty">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Activity -->
+    <section class="panel" id="tab-activity">
+      <div class="grid">
+        <div class="card full">
+          <h2>Timeline da aula</h2>
+          <div id="timelineBox" class="empty">—</div>
+        </div>
+        <div class="card full">
+          <h2>Revisão humana</h2>
+          <div id="reviewBox" class="empty">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tools -->
+    <section class="panel" id="tab-tools">
+      <div class="grid">
+        <div class="card full">
+          <h2>Atalhos operacionais</h2>
+          <p class="sub" style="margin-bottom:0.9rem">Tudo em um lugar — debug e APIs continuam existindo, mas o dia a dia fica aqui.</p>
+          <div class="links" id="linksBox"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const tokenInput = $("token");
+    tokenInput.value = localStorage.getItem("api_token") || "";
+
+    function tok() {
+      const t = tokenInput.value.trim();
+      if (t) localStorage.setItem("api_token", t);
+      return localStorage.getItem("api_token") || "";
+    }
+
+    function toast(msg) {
+      const el = $("toast");
+      el.textContent = msg;
+      el.classList.add("show");
+      setTimeout(() => el.classList.remove("show"), 2800);
+    }
+
+    async function api(path, opts = {}) {
+      const t = tok();
+      const sep = path.includes("?") ? "&" : "?";
+      const url = path + (t ? sep + "api_token=" + encodeURIComponent(t) : "");
+      const headers = { ...(opts.headers || {}) };
+      if (t) headers["X-API-Token"] = t;
+      const r = await fetch(url, { ...opts, headers });
+      if (!r.ok) throw new Error((await r.text()).slice(0, 180));
+      return r.json();
+    }
+
+    function fmtUptime(s) {
+      s = Number(s) || 0;
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+      if (h > 0) return h + "h " + m + "m";
+      return m + "m " + (s % 60) + "s";
+    }
+
+    function pill(ok, label) {
+      const cls = ok === true ? "ok" : ok === false ? "bad" : "warn";
+      return `<span class="pill ${cls}"><span class="dot"></span>${label}</span>`;
+    }
+
+    function climateBar(dist) {
+      if (!dist) return "";
+      const p = (dist.positive_apparent || 0) * 100;
+      const n = (dist.neutral_apparent || 0) * 100;
+      const g = (dist.negative_apparent || 0) * 100;
+      const i = (dist.inconclusive || 0) * 100;
+      return `<div class="bar"><span class="pos" style="width:${p}%"></span><span class="neu" style="width:${n}%"></span><span class="neg" style="width:${g}%"></span><span class="inc" style="width:${i}%"></span></div>
+        <div class="sub">+${p.toFixed(0)}% · neutro ${n.toFixed(0)}% · −${g.toFixed(0)}% · inconclusivo ${i.toFixed(0)}%</div>`;
+    }
+
+    function spark(points, key) {
+      if (!points || !points.length) return "";
+      const vals = points.map(p => Number(p[key] || 0));
+      const max = Math.max(...vals, 0.01);
+      return `<div class="spark">${vals.slice(-24).map(v => `<i style="height:${Math.max(8, (v/max)*100)}%"></i>`).join("")}</div>`;
+    }
+
+    /* Tabs */
+    document.querySelectorAll("#tabs button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#tabs button").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        $("tab-" + btn.dataset.tab).classList.add("active");
+      });
+    });
+
+    async function review(id, result) {
+      try {
+        await api("/dashboard/api/events/" + encodeURIComponent(id) + "/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ result, reviewed_by: "dashboard_user" }),
+        });
+        toast("Evento marcado como " + result);
+        await loadReview();
+        await loadOverview();
+      } catch (e) {
+        toast("Falha na revisão: " + e.message);
+      }
+    }
+
+    async function loadOverview() {
+      const d = await api("/dashboard/api/overview");
+      $("disclaimer").textContent = d.disclaimer || "";
+      const sys = d.system || {};
+      const cam = d.cameras || {};
+      const sess = d.session || {};
+      const q = d.queue || {};
+      const obs = d.observability || {};
+      const vision = sys.vision || {};
+
+      const running = !!sys.pipeline_running;
+      $("livePill").className = "pill " + (running ? "ok" : "warn");
+      $("livePill").innerHTML = `<span class="dot"></span>${running ? "Pipeline ativo" : "Pipeline idle"}`;
+
+      $("overviewKpis").innerHTML = `
+        <div class="card"><h2>Sistema</h2><div class="kpi">${sys.status || "—"}</div>
+          <div class="sub">v${sys.version || "?"} · uptime ${fmtUptime(sys.uptime_seconds)} · device ${sys.device_id || "—"}</div>
+          <div style="margin-top:0.65rem">${pill(!!sys.supabase_enabled, sys.supabase_enabled ? "Sync nuvem OK" : "Sync local")}
+          ${pill(!sys.simulation_mode, sys.simulation_mode ? "Simulação" : "Real")}</div></div>
+        <div class="card"><h2>Câmeras</h2><div class="kpi">${cam.online ?? 0}<span style="font-size:1rem;color:var(--muted)"> / ${cam.total ?? 0}</span></div>
+          <div class="sub">${cam.faces_last ?? 0} faces no último ciclo</div></div>
+        <div class="card"><h2>Sessão</h2><div class="kpi">${sess.present_count ?? 0}</div>
+          <div class="sub">presentes · ${sess.status || "sem sessão"}${sess.session_id ? " · " + String(sess.session_id).slice(0,8)+"…" : ""}</div></div>
+        <div class="card"><h2>Fila</h2><div class="kpi">${q.pending ?? 0}</div>
+          <div class="sub">pendentes · ${q.sent ?? 0} enviados · ${q.failed ?? 0} falhas</div></div>
+      `;
+
+      $("queueBox").innerHTML = `
+        <div class="row"><span>Total</span><strong>${q.total ?? 0}</strong></div>
+        <div class="row"><span>Pendentes</span>${pill((q.pending||0)===0, (q.pending||0) + " pending")}</div>
+        <div class="row"><span>Enviados</span><strong>${q.sent ?? 0}</strong></div>
+        <div class="row"><span>Falhas</span>${pill((q.failed||0)===0, (q.failed||0) + " failed")}</div>
+      `;
+
+      $("obsBox").innerHTML = `
+        <div class="row"><span>Baixa qualidade</span><strong>${obs.low_observation_quality_events ?? 0}</strong></div>
+        <div class="row"><span>Fora do campo</span><strong>${obs.out_of_field_events ?? 0}</strong></div>
+        <div class="row"><span>Possível sonolência</span><strong>${obs.possible_drowsiness_events ?? 0}</strong></div>
+        <div class="row"><span>Pendentes de revisão</span>${pill((obs.pending_review||0)===0, (obs.pending_review||0) + " review")}</div>
+      `;
+
+      $("visionBox").innerHTML = `
+        <div class="row"><span>Detector</span><strong>${vision.detector_backend || "—"}</strong></div>
+        <div class="row"><span>Embedder</span><strong>${vision.embedder_backend || "—"}</strong></div>
+        <div class="row"><span>FAISS</span>${pill(!!vision.faiss_enabled, vision.faiss_enabled ? "ativo" : "fallback linear")}</div>
+        <div class="row"><span>Escola</span><strong>${sys.school_id || "—"}</strong></div>
+      `;
+
+      /* cameras tab */
+      const items = cam.items || [];
+      if (!items.length) {
+        $("camerasBox").innerHTML = `<p class="empty">Nenhuma câmera no orquestrador. Verifique config.yaml (enabled: true).</p>`;
+      } else {
+        $("camerasBox").innerHTML = `<table><thead><tr><th>Câmera</th><th>Status</th><th>Faces</th><th>Último match</th><th>Fonte</th></tr></thead><tbody>
+          ${items.map(c => `<tr>
+            <td><strong>${c.camera_id}</strong></td>
+            <td>${pill(!!c.connected, c.connected ? "online" : "offline")}${c.error ? `<div class="sub">${c.error}</div>` : ""}</td>
+            <td>${c.faces ?? 0}</td>
+            <td>${c.last_match ? JSON.stringify(c.last_match).slice(0,80) : "—"}</td>
+            <td class="sub">${String(c.source || "—").slice(0,48)}</td>
+          </tr>`).join("")}
+        </tbody></table>`;
+      }
+
+      /* pedagogy */
+      const eng = d.engagement || {};
+      const clim = d.climate || {};
+      const engPts = eng.points || [];
+      const climPts = clim.points || [];
+      if (!engPts.length) {
+        $("engBox").innerHTML = `<p class="empty">Aguardando janelas de engajamento (~10s com faces no campo).</p>`;
+      } else {
+        $("engBox").innerHTML = `
+          <div class="kpi">${((eng.avg_engagement_index || 0) * 100).toFixed(0)}%</div>
+          <div class="sub">${eng.label || "Engajamento aparente"} · ${engPts.length} janelas</div>
+          ${spark(engPts, "engagement_index_avg")}
+        `;
+      }
+      if (!climPts.length) {
+        $("climateBox").innerHTML = `<p class="empty">Aguardando janelas de clima (~15s).</p>`;
+      } else {
+        const last = climPts[climPts.length - 1];
+        $("climateBox").innerHTML = `
+          <div class="kpi" style="font-size:1.45rem">${last.dominant_climate || "—"}</div>
+          <div class="sub">${clim.label || "Clima aparente"} · ${climPts.length} janelas</div>
+          ${climateBar(last.climate_distribution)}
+        `;
+      }
+
+      /* tools links */
+      const links = d.links || {};
+      $("linksBox").innerHTML = [
+        ["Viewer debug", links.debug_viewer || "/debug/viewer"],
+        ["Cadastro assistido", links.debug_enroll || "/debug/enroll"],
+        ["Health JSON", links.health || "/health"],
+        ["Stats JSON", links.stats || "/stats"],
+        ["DoD módulo", links.module_dod || "/module/dod"],
+        ["API docs", links.docs || "/docs"],
+      ].map(([label, href]) => `<a href="${href}" target="_blank" rel="noopener">${label}</a>`).join("");
+
+      return d;
+    }
+
+    async function loadTimeline() {
+      const d = await api("/dashboard/api/timeline");
+      const items = d.items || [];
+      if (!items.length) {
+        $("timelineBox").innerHTML = `<p class="empty">Sem eventos ainda. Deixe a câmera processar alguns ciclos.</p>`;
+        return;
+      }
+      $("timelineBox").innerHTML = `<table><thead><tr><th>Quando</th><th>Tipo</th><th>Detalhe</th><th>Sync</th></tr></thead><tbody>
+        ${items.slice(-50).reverse().map(it => {
+          const p = it.payload || {};
+          const label = p.label_pt || p.dominant_climate || p.behavioral_type || p.student_id || it.event_type;
+          return `<tr><td class="sub">${(it.created_at || "").replace("T"," ").slice(0,19)}</td><td>${it.event_type}</td><td>${label}</td><td>${it.status || "—"}</td></tr>`;
+        }).join("")}
+      </tbody></table>`;
+    }
+
+    async function loadReview() {
+      const d = await api("/dashboard/api/events?status=pending_review");
+      const events = d.events || [];
+      if (!events.length) {
+        $("reviewBox").innerHTML = `<p class="empty">Nenhum evento pendente de revisão humana.</p>`;
+        return;
+      }
+      $("reviewBox").innerHTML = `<table><thead><tr><th>Tipo</th><th>Duração</th><th>Confiança</th><th>Qualidade</th><th>Ação</th></tr></thead><tbody>
+        ${events.map(e => `<tr>
+          <td>${e.event_type}</td>
+          <td>${Number(e.duration_seconds || 0).toFixed(1)}s</td>
+          <td>${((e.confidence || 0) * 100).toFixed(0)}%</td>
+          <td>${e.observation_quality || "—"}</td>
+          <td>
+            <button class="sm" onclick="review('${e.event_id}','confirmed')">Confirmar</button>
+            <button class="sm reject" onclick="review('${e.event_id}','rejected')">Rejeitar</button>
+            <button class="sm inconclusive" onclick="review('${e.event_id}','inconclusive')">Inconclusivo</button>
+          </td>
+        </tr>`).join("")}
+      </tbody></table>`;
+    }
+
+    async function refreshAll() {
+      try {
+        await loadOverview();
+        await Promise.all([loadTimeline(), loadReview()]);
+      } catch (e) {
+        $("disclaimer").textContent = "Erro ao carregar painel: " + e.message;
+        toast(e.message);
+      }
+    }
+
+    refreshAll();
+    setInterval(refreshAll, 12000);
+  </script>
+</body>
+</html>

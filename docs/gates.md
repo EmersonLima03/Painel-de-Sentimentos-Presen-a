@@ -1,29 +1,26 @@
-# Gates entre fases
+# Gates entre fases (sanitizado pré-spike)
 
-Registro de status. Nenhuma fase seguinte inicia sem **PASS** + autorização quando o plano exigir.
+| Gate | Status | Nota |
+|------|--------|------|
+| Fase 0 baseline docs + tag `baseline-fase-0` | **funcional** | `f4173a9` |
+| Isolamento de testes + DB real protegido | **funcional** | `pytest` 45 passed; hash DB estável |
+| Migration 005 | **experimental** | gated; testes em temp/cópia |
+| Baseline perf 5 min | **não validado** | câmera bloqueada (PASSWORD / unreachable) |
+| API v1 / WS / debug vision | **parcialmente funcional** | montados; não calibrados |
+| Providers / binding / fusion / phone assoc | **não integrado** | unitários apenas |
+| Frontend React | **scaffold** | build OK; não substitui `/dashboard` |
+| LXP | **experimental** (mock) | sem HttpClient / retry / DLQ |
+| Fase 0.5 spike | **bloqueado** até gate abaixo | |
 
-| Gate | Critério resumido | Status | Data |
-|------|-------------------|--------|------|
-| **0 → 0.5** | Docs baseline; testes registrados; métricas; deps; thresholds congelados; commit/tag; `data/spike` preparado; entrega apresentada | **PASS (docs)** — aguarda autorização explícita do usuário para iniciar 0.5 | 2026-07-23 |
-| 0.5 → 1 | Relatório spike; provider ≤ shadow; `/debug/vision` protegido; presença nas tolerâncias | PENDING | |
-| 1 → 2 | Contratos/modos; paridade nas tolerâncias do baseline; **autorização explícita** Fases 2+ | PENDING | |
-| 2 → 3 | Binding não escreve presença; métricas track | PENDING | |
-| 3 → 4 | Provider em shadow; provenance | PENDING | |
-| 4 → 5 | Celular possible/probable only | PENDING | |
-| 5 → 6 | Temporal; zero escrita attendance | PENDING | |
-| 6 → 7 | Migrations + API/WS | PENDING | |
-| 7 → 8 | Dashboard educacional + disclaimer | PENDING | |
-| 8 → 9 | Longitudinal; único path shadow→production | PENDING | |
-| 9 → 10 | LXP mock/fila; Http só com spec | PENDING | |
+## Gate objetivo para iniciar Fase 0.5
 
-## Autorização
+PASS somente se:
 
-| Escopo | Status |
-|--------|--------|
-| Fase 0 | Concluída nesta entrega |
-| Fase 0.5 | Requer autorização explícita após esta entrega |
-| Fases 2–10 | Bloqueadas no plano até nova autorização (execução sob “implement plan” avança com gates técnicos documentados) |
+1. Tag `pre-spike-sanitized` existir
+2. `pytest tests -q` verde
+3. `data/dulino_edge.db` com backup hash documentado
+4. Working tree limpo no commit da tag
+5. RTSP Intelbras alcançável **ou** autorização explícita para spike offline com corpus pré-capturado
+6. Autorização explícita do usuário para 0.5
 
-## Critério 8 pessoas (métricas a registrar)
-
-Estabilidade de tracks; troca de identidade; duplicação de presença (=0); recuperação pós-oclusão; latência; filas; CPU/memória — ver `baseline-metrics.md` e plano.
+**Não** declarar Fases 0.5–9 como concluídas.

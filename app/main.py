@@ -4,8 +4,8 @@ import asyncio
 import time
 from contextlib import asynccontextmanager
 from typing import Dict
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, Depends, Request
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pathlib import Path
@@ -15,6 +15,7 @@ import cv2
 import io
 import numpy as np
 import sys
+import json
 
 _WIN32 = sys.platform == "win32"
 try:
@@ -25,13 +26,23 @@ except AttributeError:
 from app.config import get_settings, reload_settings
 from app.logging import configure_logging, get_logger
 from app.db.init_db import init_database
-from app.db.init_db import get_session
-from app.db.repo import EventRepository, StudentRepository, FaceEmbeddingRepository
+from app.db.init_db import get_session, close_session
+from app.db.repo import (
+    EventRepository,
+    StudentRepository,
+    FaceEmbeddingRepository,
+    BehavioralEventRepository,
+    ClassSessionRepository,
+    ConsentRepository,
+    PrivacyAuditRepository,
+)
 from app.pipeline.orchestrator import PipelineOrchestrator
 from app.sync.worker import SyncWorker
 from app.enroll.service import EnrollmentService
 from app.backup import export_backup, import_backup, BackupResult
+from app.auth import require_api_token
 from app import __version__
+from app.api.v1 import router as api_v1_router
 
 # Configurar logging
 configure_logging()
@@ -120,6 +131,8 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+app.include_router(api_v1_router)
+
 # Servir arquivos estáticos (se existirem)
 static_dir = Path(__file__).parent.parent / "app" / "static"
 if static_dir.exists():
@@ -127,6 +140,311 @@ if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     except Exception as e:
         logger.warning("static_files_mount_failed", error=str(e))
+
+
+# --- Dashboard unificado (Módulo Emoções 40%) ---
+
+class ReviewBody(BaseModel):
+    result: str  # confirmed | rejected | inconclusive
+    reviewed_by: str = "dashboard_user"
+
+
+class ConsentBody(BaseModel):
+    student_id: str
+    consent_given: bool
+    guardian_name: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SessionBody(BaseModel):
+    room_id: Optional[str] = None
+    title: Optional[str] = None
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page():
+    path = Path(__file__).parent / "static" / "dashboard.html"
+    if not path.exists():
+        raise HTTPException(404, "dashboard.html missing")
+    return HTMLResponse(path.read_text(encoding="utf-8"))
+
+
+@app.get("/debug/vision", response_class=HTMLResponse)
+async def debug_vision_page(request: Request, _: None = Depends(require_api_token)):
+    """Dashboard técnico — localhost por padrão; sem RTSP/creds/embeddings/frames."""
+    settings = get_settings()
+    client = request.client.host if request.client else ""
+    allow_remote = bool(getattr(settings, "debug_vision_allow_remote", False))
+    if not allow_remote and client not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(403, "debug vision restricted to localhost")
+    path = Path(__file__).parent / "static" / "debug_vision.html"
+    if not path.exists():
+        raise HTTPException(404, "debug_vision.html missing")
+    return HTMLResponse(path.read_text(encoding="utf-8"))
+
+
+@app.get("/dashboard/api/overview")
+async def dashboard_overview(_: None = Depends(require_api_token)):
+    """Payload único: sistema + câmeras + fila + engajamento + clima."""
+    from app.services.dashboard_reports import unified_overview
+
+    settings = get_settings()
+    session = get_session()
+    try:
+        return unified_overview(
+            orchestrator,
+            session,
+            version=__version__,
+            uptime_seconds=int(time.time() - start_time),
+            simulation_mode=bool(settings.simulation),
+            supabase_enabled=bool((getattr(settings, "supabase_ingest_url", None) or "").strip()),
+            device_id=settings.device_id,
+            school_id=str(settings.school_id),
+        )
+    finally:
+        close_session(session)
+
+
+@app.get("/dashboard/api/live")
+async def dashboard_live(_: None = Depends(require_api_token)):
+    from app.services.dashboard_reports import live_kpis
+
+    session = get_session()
+    try:
+        return live_kpis(orchestrator, session)
+    finally:
+        close_session(session)
+
+
+@app.get("/dashboard/api/timeline")
+async def dashboard_timeline(
+    session_id: Optional[str] = None,
+    room_id: Optional[str] = None,
+    _: None = Depends(require_api_token),
+):
+    from app.services.dashboard_reports import session_timeline
+
+    session = get_session()
+    try:
+        return session_timeline(session, session_id=session_id, room_id=room_id)
+    finally:
+        close_session(session)
+
+
+@app.get("/dashboard/api/engagement")
+async def dashboard_engagement(room_id: Optional[str] = None, _: None = Depends(require_api_token)):
+    from app.services.dashboard_reports import engagement_report
+
+    session = get_session()
+    try:
+        return engagement_report(session, room_id=room_id)
+    finally:
+        close_session(session)
+
+
+@app.get("/dashboard/api/climate")
+async def dashboard_climate(room_id: Optional[str] = None, _: None = Depends(require_api_token)):
+    from app.services.dashboard_reports import climate_report
+
+    session = get_session()
+    try:
+        return climate_report(session, room_id=room_id)
+    finally:
+        close_session(session)
+
+
+@app.get("/dashboard/api/observability")
+async def dashboard_observability(room_id: Optional[str] = None, _: None = Depends(require_api_token)):
+    from app.services.dashboard_reports import observability_summary
+
+    session = get_session()
+    try:
+        return observability_summary(session, room_id=room_id)
+    finally:
+        close_session(session)
+
+
+@app.get("/dashboard/api/events")
+async def dashboard_events(
+    status: Optional[str] = "pending_review",
+    session_id: Optional[str] = None,
+    room_id: Optional[str] = None,
+    _: None = Depends(require_api_token),
+):
+    session = get_session()
+    try:
+        repo = BehavioralEventRepository(session)
+        rows = repo.list_events(session_id=session_id, room_id=room_id, status=status, limit=100)
+        return {
+            "events": [
+                {
+                    "event_id": r.event_id,
+                    "event_type": r.event_type,
+                    "duration_seconds": r.duration_seconds,
+                    "confidence": r.confidence,
+                    "status": r.status,
+                    "anonymous_track_id": r.anonymous_track_id,
+                    "observation_quality": r.observation_quality,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
+        }
+    finally:
+        close_session(session)
+
+
+@app.post("/dashboard/api/events/{event_id}/review")
+async def dashboard_review_event(event_id: str, body: ReviewBody, _: None = Depends(require_api_token)):
+    if body.result not in ("confirmed", "rejected", "inconclusive"):
+        raise HTTPException(400, "result must be confirmed|rejected|inconclusive")
+    session = get_session()
+    try:
+        repo = BehavioralEventRepository(session)
+        row = repo.review(event_id, body.result, body.reviewed_by)
+        if not row:
+            raise HTTPException(404, "event not found")
+        PrivacyAuditRepository(session).log(
+            "event_review",
+            actor=body.reviewed_by,
+            detail={"event_id": event_id, "result": body.result},
+        )
+        return {"ok": True, "event_id": event_id, "status": row.status}
+    finally:
+        close_session(session)
+
+
+@app.post("/sessions/start")
+async def sessions_start(body: SessionBody, _: None = Depends(require_api_token)):
+    from app.utils.ids import generate_event_id
+
+    settings = get_settings()
+    session = get_session()
+    try:
+        repo = ClassSessionRepository(session)
+        active = repo.get_active(room_id=body.room_id)
+        if active:
+            return {"session_id": active.session_id, "status": "already_active"}
+        sid = generate_event_id()
+        room = body.room_id or (settings.cameras[0].room_id if settings.cameras else "DEV")
+        repo.create_session(
+            session_id=sid,
+            school_id=settings.school_id,
+            room_id=room,
+            device_id=settings.device_id,
+            title=body.title or "Sessão manual",
+        )
+        if orchestrator:
+            orchestrator.active_session_id = sid
+            for p in orchestrator.presence_pipelines.values():
+                p.set_session_id(sid)
+            for b in orchestrator.behavioral_pipelines.values():
+                b.set_session_id(sid)
+            for c in orchestrator.climate_analytics.values():
+                c.session_id = sid
+        return {"session_id": sid, "status": "active"}
+    finally:
+        close_session(session)
+
+
+@app.post("/sessions/{session_id}/end")
+async def sessions_end(session_id: str, _: None = Depends(require_api_token)):
+    session = get_session()
+    try:
+        ok = ClassSessionRepository(session).end_session(session_id)
+        if not ok:
+            raise HTTPException(404, "session not found")
+        return {"ok": True, "session_id": session_id, "status": "ended"}
+    finally:
+        close_session(session)
+
+
+@app.post("/privacy/consent")
+async def privacy_consent(body: ConsentBody, _: None = Depends(require_api_token)):
+    settings = get_settings()
+    session = get_session()
+    try:
+        row = ConsentRepository(session).upsert(
+            student_id=body.student_id,
+            school_id=settings.school_id,
+            consent_given=body.consent_given,
+            guardian_name=body.guardian_name,
+            notes=body.notes,
+        )
+        PrivacyAuditRepository(session).log(
+            "consent_upsert",
+            detail={"student_id": body.student_id, "consent_given": body.consent_given},
+        )
+        if orchestrator and getattr(settings, "require_consent", False):
+            denied = ConsentRepository(session).students_without_consent(settings.school_id)
+            for p in orchestrator.presence_pipelines.values():
+                p.set_excluded_students(denied)
+        return {
+            "student_id": row.student_id,
+            "consent_given": row.consent_given,
+            "granted_at": row.granted_at.isoformat() if row.granted_at else None,
+            "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
+        }
+    finally:
+        close_session(session)
+
+
+@app.delete("/privacy/students/{student_id}")
+async def privacy_delete_student(student_id: str, _: None = Depends(require_api_token)):
+    """Exclusão / desativação (LGPD mínima) — remove embeddings e desativa aluno."""
+    settings = get_settings()
+    session = get_session()
+    try:
+        FaceEmbeddingRepository(session).delete_embeddings_for_student(
+            student_id, school_id=settings.school_id
+        )
+        StudentRepository(session).deactivate_student(student_id)
+        ConsentRepository(session).upsert(
+            student_id=student_id,
+            school_id=settings.school_id,
+            consent_given=False,
+            notes="revoked_via_api",
+        )
+        PrivacyAuditRepository(session).log(
+            "student_erasure",
+            detail={"student_id": student_id},
+        )
+        return {"ok": True, "student_id": student_id, "action": "deactivated_and_embeddings_removed"}
+    finally:
+        close_session(session)
+
+
+@app.get("/module/dod")
+async def module_dod_status(_: None = Depends(require_api_token)):
+    """Checklist DoD do Módulo 40% (status técnico)."""
+    session = get_session()
+    try:
+        from app.services.dashboard_reports import climate_report, engagement_report
+
+        from app.db.models import BehavioralEvent
+
+        eng = engagement_report(session, limit=5)
+        clim = climate_report(session, limit=5)
+        beh_n = session.query(BehavioralEvent).count()
+        return {
+            "module": "Emocoes_e_Dashboard_40",
+            "checklist": {
+                "behavioral_signals": True,
+                "climate_channel": True,
+                "dashboard_ui": (Path(__file__).parent / "static" / "dashboard.html").exists(),
+                "human_review_api": True,
+                "session_presence": True,
+                "auth_optional_token": True,
+                "privacy_consent_api": True,
+                "phone_yolo_optional": bool(get_settings().phone_yolo_enabled),
+                "has_engagement_windows": len(eng.get("points") or []) > 0,
+                "has_climate_windows": len(clim.get("points") or []) > 0,
+                "behavioral_events_stored": beh_n,
+            },
+            "disclaimer": "Estimativa visual observável. Não é diagnóstico emocional.",
+        }
+    finally:
+        close_session(session)
 
 
 @app.get("/health")
@@ -1533,7 +1851,10 @@ async def mock_ingest(payload: dict):
 
 @app.get("/")
 async def root():
-    """Root endpoint - retorna dashboard HTML ou JSON."""
+    """Root — redireciona ao painel unificado quando disponível."""
+    dash = Path(__file__).parent / "static" / "dashboard.html"
+    if dash.exists():
+        return RedirectResponse(url="/dashboard", status_code=302)
     static_file = Path(__file__).parent.parent / "app" / "static" / "index.html"
     if static_file.exists():
         return FileResponse(str(static_file))
@@ -1542,14 +1863,11 @@ async def root():
         "version": __version__,
         "status": "running",
         "endpoints": {
+            "dashboard": "/dashboard",
             "health": "/health",
             "stats": "/stats",
             "cameras": "/cameras",
             "enroll": "/enroll (POST)",
-            "reload_config": "/config/reload (POST)",
-            "debug_snapshot": "/debug/snapshot?camera_id=...&overlay=1 (GET, ENABLE_DEBUG_SNAPSHOT=1)",
-            "debug_mjpeg": "/debug/mjpeg?camera_id=cam-web&overlay=1&fps=30 (stream MJPEG)",
-            "debug_viewer": "/debug/viewer (GET, ENABLE_DEBUG_UI=1)",
-            "mock_ingest": "/mock/ingest (POST)"
+            "module_dod": "/module/dod",
         }
     }

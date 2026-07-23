@@ -8,7 +8,17 @@ import numpy as np
 from app.utils.embedding_io import serialize_embedding
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from app.db.models import Event, AttendanceCache, DeviceState, Student, FaceEmbedding
+from app.db.models import (
+    Event,
+    AttendanceCache,
+    DeviceState,
+    Student,
+    FaceEmbedding,
+    ClassSession,
+    BehavioralEvent,
+    StudentConsent,
+    PrivacyAudit,
+)
 from app.utils.time import get_date_key
 from app.logging import get_logger
 
@@ -94,7 +104,7 @@ class AttendanceRepository:
         return count > 0
     
     def create_attendance(self, student_id: str, room_id: str, confidence: float, device_id: str, 
-                         date_key: Optional[str] = None) -> AttendanceCache:
+                         date_key: Optional[str] = None, session_id: Optional[str] = None) -> AttendanceCache:
         """Cria registro de presença."""
         if date_key is None:
             date_key = get_date_key()
@@ -102,16 +112,18 @@ class AttendanceRepository:
         attendance = AttendanceCache(
             student_id=student_id,
             date_key=date_key,
+            session_id=session_id,
             room_id=room_id,
             confidence=confidence,
-            device_id=device_id
+            device_id=device_id,
+            sightings=1,
         )
         self.session.add(attendance)
         self.session.commit()
         return attendance
     
     def update_last_seen(self, student_id: str, room_id: str, date_key: Optional[str] = None) -> None:
-        """Atualiza último visto."""
+        """Atualiza último visto e incrementa sightings (presença periódica)."""
         if date_key is None:
             date_key = get_date_key()
         
@@ -125,7 +137,18 @@ class AttendanceRepository:
         
         if attendance:
             attendance.last_seen_at = datetime.utcnow()
+            try:
+                attendance.sightings = int(getattr(attendance, "sightings", 1) or 1) + 1
+            except Exception:
+                pass
             self.session.commit()
+
+    def list_for_session(self, session_id: str) -> List[AttendanceCache]:
+        return (
+            self.session.query(AttendanceCache)
+            .filter(AttendanceCache.session_id == session_id)
+            .all()
+        )
 
 
 class StudentRepository:
@@ -333,3 +356,202 @@ class FaceEmbeddingRepository:
         if device_id:
             q = q.filter(FaceEmbedding.device_id == device_id)
         return {row.student_id: row.n for row in q.all()}
+
+
+class ClassSessionRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create_session(
+        self,
+        session_id: str,
+        school_id: str,
+        room_id: str,
+        device_id: str,
+        title: Optional[str] = None,
+    ) -> ClassSession:
+        from app.db.models import ClassSession
+
+        row = ClassSession(
+            session_id=session_id,
+            school_id=school_id,
+            room_id=room_id,
+            device_id=device_id,
+            title=title,
+            status="active",
+        )
+        self.session.add(row)
+        self.session.commit()
+        return row
+
+    def get_active(self, room_id: Optional[str] = None) -> Optional[ClassSession]:
+        from app.db.models import ClassSession
+
+        q = self.session.query(ClassSession).filter(ClassSession.status == "active")
+        if room_id:
+            q = q.filter(ClassSession.room_id == room_id)
+        return q.order_by(ClassSession.started_at.desc()).first()
+
+    def end_session(self, session_id: str) -> bool:
+        from app.db.models import ClassSession
+
+        row = self.session.query(ClassSession).filter(ClassSession.session_id == session_id).first()
+        if not row:
+            return False
+        row.status = "ended"
+        row.ended_at = datetime.utcnow()
+        self.session.commit()
+        return True
+
+    def list_recent(self, limit: int = 20) -> List[ClassSession]:
+        from app.db.models import ClassSession
+
+        return (
+            self.session.query(ClassSession)
+            .order_by(ClassSession.started_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+
+class BehavioralEventRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(self, **kwargs) -> BehavioralEvent:
+        from app.db.models import BehavioralEvent
+
+        row = BehavioralEvent(**kwargs)
+        self.session.add(row)
+        self.session.commit()
+        return row
+
+    def list_events(
+        self,
+        *,
+        session_id: Optional[str] = None,
+        room_id: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[BehavioralEvent]:
+        from app.db.models import BehavioralEvent
+
+        q = self.session.query(BehavioralEvent)
+        if session_id:
+            q = q.filter(BehavioralEvent.session_id == session_id)
+        if room_id:
+            q = q.filter(BehavioralEvent.room_id == room_id)
+        if status:
+            q = q.filter(BehavioralEvent.status == status)
+        return q.order_by(BehavioralEvent.created_at.desc()).limit(limit).all()
+
+    def review(self, event_id: str, result: str, reviewed_by: str) -> Optional[BehavioralEvent]:
+        from app.db.models import BehavioralEvent
+
+        row = self.session.query(BehavioralEvent).filter(BehavioralEvent.event_id == event_id).first()
+        if not row:
+            return None
+        row.status = result
+        row.review_result = result
+        row.reviewed_by = reviewed_by
+        row.reviewed_at = datetime.utcnow()
+        self.session.commit()
+        return row
+
+
+class ConsentRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def upsert(
+        self,
+        student_id: str,
+        school_id: str,
+        consent_given: bool,
+        guardian_name: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> StudentConsent:
+        from app.db.models import StudentConsent
+
+        row = (
+            self.session.query(StudentConsent)
+            .filter(StudentConsent.student_id == student_id, StudentConsent.school_id == school_id)
+            .order_by(StudentConsent.id.desc())
+            .first()
+        )
+        now = datetime.utcnow()
+        if row is None:
+            row = StudentConsent(
+                student_id=student_id,
+                school_id=school_id,
+                consent_given=consent_given,
+                guardian_name=guardian_name,
+                notes=notes,
+                granted_at=now if consent_given else None,
+                revoked_at=None if consent_given else now,
+            )
+            self.session.add(row)
+        else:
+            row.consent_given = consent_given
+            row.guardian_name = guardian_name
+            row.notes = notes
+            if consent_given:
+                row.granted_at = now
+                row.revoked_at = None
+            else:
+                row.revoked_at = now
+        self.session.commit()
+        return row
+
+    def has_consent(self, student_id: str, school_id: str) -> bool:
+        from app.db.models import StudentConsent
+
+        row = (
+            self.session.query(StudentConsent)
+            .filter(StudentConsent.student_id == student_id, StudentConsent.school_id == school_id)
+            .order_by(StudentConsent.id.desc())
+            .first()
+        )
+        return bool(row and row.consent_given)
+
+    def students_without_consent(self, school_id: str) -> List[str]:
+        """IDs ativos sem consentimento (para exclusão da análise biométrica)."""
+        from app.db.models import StudentConsent
+
+        active = self.session.query(Student).filter(
+            Student.school_id == school_id, Student.is_active == True
+        ).all()
+        denied = []
+        for s in active:
+            if not self.has_consent(s.student_id, school_id):
+                # Em modo piloto: se NÃO houver nenhum registro de consent, trata como permitido
+                # apenas quando require_consent=False (config). Aqui retorna só revogados explícitos.
+                row = (
+                    self.session.query(StudentConsent)
+                    .filter(
+                        StudentConsent.student_id == s.student_id,
+                        StudentConsent.school_id == school_id,
+                    )
+                    .first()
+                )
+                if row is not None and not row.consent_given:
+                    denied.append(s.student_id)
+        return denied
+
+
+class PrivacyAuditRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def log(self, action: str, actor: Optional[str] = None, detail: Optional[dict] = None) -> PrivacyAudit:
+        from app.db.models import PrivacyAudit
+        import json
+
+        row = PrivacyAudit(
+            action=action,
+            actor=actor,
+            detail_json=json.dumps(detail or {}, ensure_ascii=False),
+        )
+        self.session.add(row)
+        self.session.commit()
+        return row

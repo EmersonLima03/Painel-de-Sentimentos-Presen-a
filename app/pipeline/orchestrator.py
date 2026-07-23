@@ -19,12 +19,15 @@ from app.vision.matcher import (
 )
 from app.pipeline.presence import PresencePipeline
 from app.pipeline.analytics import EngagementAnalytics
+from app.pipeline.climate import ClimateAnalytics
+from app.pipeline.behavioral import BehavioralSignalsPipeline
 from app.db import student_cache
 from app.db.init_db import get_session
 from app.db.repo import (
     EventRepository,
     AttendanceRepository,
     FaceEmbeddingRepository,
+    BehavioralEventRepository,
 )
 from app.config import get_settings
 from app.logging import get_logger
@@ -134,10 +137,20 @@ class PipelineOrchestrator:
 
         self.presence_pipelines: Dict[str, PresencePipeline] = {}
         self.engagement_analytics: Dict[str, EngagementAnalytics] = {}
+        self.climate_analytics: Dict[str, object] = {}
+        self.behavioral_pipelines: Dict[str, object] = {}
+        self.active_session_id: Optional[str] = None
 
         self.last_presence_sample: Dict[str, float] = {}
         self.last_engagement_sample: Dict[str, float] = {}
         self.last_detect_sample: Dict[str, float] = {}
+        self.last_behavioral_sample: Dict[str, float] = {}
+        self.last_climate_sample: Dict[str, float] = {}
+        self.last_phone_sample: Dict[str, float] = {}
+        self._phone_visible_since: Dict[str, Optional[float]] = {}
+        self._overlay_signals: Dict[str, List[dict]] = {}
+        self._overlay_phones: Dict[str, List[tuple]] = {}
+        self._latest_climate: Dict[str, dict] = {}
 
         self.faces_detected_last: Dict[str, int] = {}
         self.last_presence_match: Dict[str, dict] = {}
@@ -174,6 +187,10 @@ class PipelineOrchestrator:
             self.last_presence_sample[cam_config.camera_id] = 0.0
             self.last_engagement_sample[cam_config.camera_id] = 0.0
             self.last_detect_sample[cam_config.camera_id] = 0.0
+            self.last_behavioral_sample[cam_config.camera_id] = 0.0
+            self.last_climate_sample[cam_config.camera_id] = 0.0
+            self.last_phone_sample[cam_config.camera_id] = 0.0
+            self._phone_visible_since[cam_config.camera_id] = None
             self._presence_busy[cam_config.camera_id] = False
 
         self.watchdog = RTSPWatchdog(self.readers) if self.readers else None
@@ -200,6 +217,7 @@ class PipelineOrchestrator:
         event_repo = EventRepository(session)
         attendance_repo = AttendanceRepository(session)
         face_embedding_repo = FaceEmbeddingRepository(session)
+        behavioral_repo = BehavioralEventRepository(session)
 
         face_embeddings = face_embedding_repo.get_all_active_embeddings(
             school_id=self.settings.school_id
@@ -219,6 +237,30 @@ class PipelineOrchestrator:
             logger.warning("FAISS disabled: %s (using linear fallback)", str(e))
             base_matcher = FaceMatcher(embeddings)
 
+        # Sessão ativa automática por room (presença periódica)
+        try:
+            from app.db.repo import ClassSessionRepository
+            from app.utils.ids import generate_event_id
+
+            sess_repo = ClassSessionRepository(session)
+            active = sess_repo.get_active()
+            if active:
+                self.active_session_id = active.session_id
+            else:
+                sid = generate_event_id()
+                room0 = self.settings.cameras[0].room_id if self.settings.cameras else "DEV"
+                sess_repo.create_session(
+                    session_id=sid,
+                    school_id=self.settings.school_id,
+                    room_id=room0,
+                    device_id=self.settings.device_id,
+                    title="Sessão automática",
+                )
+                self.active_session_id = sid
+                logger.info("class_session_auto_started", session_id=sid)
+        except Exception as e:
+            logger.warning("class_session_init_failed", error=str(e))
+
         for cam_config in self.settings.cameras:
             camera_id = cam_config.camera_id
             room_id = cam_config.room_id
@@ -236,6 +278,7 @@ class PipelineOrchestrator:
                 school_id=self.settings.school_id,
                 face_pipeline=self.face_pipeline,
             )
+            presence_pipeline.set_session_id(self.active_session_id)
             self.presence_pipelines[camera_id] = presence_pipeline
 
             window_sec = int(
@@ -251,6 +294,28 @@ class PipelineOrchestrator:
                 window_seconds=window_sec,
             )
             self.engagement_analytics[camera_id] = engagement
+
+            climate = ClimateAnalytics(
+                event_repo=event_repo,
+                camera_id=camera_id,
+                room_id=room_id,
+                device_id=self.settings.device_id,
+                school_id=self.settings.school_id,
+                session_id=self.active_session_id,
+                window_seconds=int(getattr(self.settings, "climate_window_seconds", 15) or 15),
+            )
+            self.climate_analytics[camera_id] = climate
+
+            if getattr(self.settings, "behavioral_signals_enabled", True):
+                self.behavioral_pipelines[camera_id] = BehavioralSignalsPipeline(
+                    event_repo=event_repo,
+                    behavioral_repo=behavioral_repo,
+                    camera_id=camera_id,
+                    room_id=room_id,
+                    device_id=self.settings.device_id,
+                    school_id=self.settings.school_id,
+                    session_id=self.active_session_id,
+                )
 
         try:
             n = student_cache.load_all(school_id=self.settings.school_id)
@@ -306,6 +371,39 @@ class PipelineOrchestrator:
             "room_id": room_id,
             "per_face_engagement": self.get_overlay_engagement(camera_id),
         }
+
+    def publish_live_debug(self, camera_id: str) -> None:
+        """Atualiza /debug/vision sem embeddings, RTSP ou frames."""
+        try:
+            from app.api.v1 import update_live_debug_state
+
+            matches = self.get_overlay_matches(camera_id)
+            safe_tracks = [
+                {
+                    "student_id": m.get("student_id"),
+                    "confidence": m.get("confidence"),
+                    "bbox": m.get("bbox") or m.get("box"),
+                }
+                for m in matches
+            ]
+            update_live_debug_state(
+                camera_id=camera_id,
+                tracks=safe_tracks,
+                signals=self._overlay_signals.get(camera_id) or [],
+                phones=[
+                    {"bbox": list(p[:4]), "conf": p[4] if len(p) > 4 else None}
+                    for p in (self._overlay_phones.get(camera_id) or [])
+                ],
+                visible_people=len(safe_tracks),
+                recognized_people=sum(1 for m in matches if m.get("student_id")),
+                latencies_ms={"note": "presence_isolated"},
+                module_modes={
+                    "expression": getattr(self.settings, "module_expression_mode", "disabled"),
+                    "phone": getattr(self.settings, "module_phone_mode", "disabled"),
+                },
+            )
+        except Exception:
+            pass
 
     def get_overlay_source_size(self, camera_id: str) -> Optional[tuple]:
         return self._overlay_source_size.get(camera_id)
@@ -412,6 +510,7 @@ class PipelineOrchestrator:
                 self._overlay_boxes[camera_id] = [
                     tuple(m["bbox"]) for m in enriched if m.get("bbox")
                 ]
+                self.publish_live_debug(camera_id)
                 return
             if self.face_pipeline:
                 boxes = self.face_pipeline.detect_only(frame)
@@ -420,6 +519,7 @@ class PipelineOrchestrator:
                 prev = self._overlay_matches.get(camera_id) or []
                 if boxes:
                     self._overlay_matches[camera_id] = _merge_overlay_boxes_with_prev(boxes, prev)
+            self.publish_live_debug(camera_id)
         except Exception as e:
             logger.warning("detect_only_error", camera_id=camera_id, error=str(e))
 
@@ -445,6 +545,7 @@ class PipelineOrchestrator:
                     emotion_raw = None
                     emotion_conf = None
                     pose_dbg = {}
+                    label_pt_txt = "Atenção não conclusiva"
                     backend = (
                         getattr(self.settings, "vision_engagement_backend", None) or "head_pose"
                     ).strip().lower()
@@ -454,36 +555,49 @@ class PipelineOrchestrator:
 
                             emotion_raw, emotion_conf, state, _, emotion_src = predict_emotion_detail(roi)
                         else:
-                            from app.vision.head_pose_engagement import calculate_head_pose_engagement
+                            from app.vision.facial_signals import analyze_face_roi
+                            from app.vision.behavioral_taxonomy import LEGACY_STATE_TO_OBSERVABLE, label_pt
 
-                            state, label_pt, pose_dbg = calculate_head_pose_engagement(roi, (x1, y1, w, h))
-                            emotion_src = pose_dbg.get("backend", "head_pose")
+                            sample = analyze_face_roi(roi)
+                            if sample:
+                                state = {
+                                    "orientation_forward": "attentive",
+                                    "orientation_away": "distracted",
+                                    "eyes_closed_persistent": "distracted",
+                                }.get(sample.orientation, "neutral")
+                                label_pt_txt = sample.label_pt
+                                pose_dbg = {"yaw": sample.yaw, "backend": "facial_signals"}
+                                emotion_src = "facial_signals"
+                            else:
+                                from app.vision.head_pose_engagement import calculate_head_pose_engagement
+
+                                state, label_pt_txt, pose_dbg = calculate_head_pose_engagement(roi, (x1, y1, w, h))
+                                # Relabel ético
+                                from app.vision.behavioral_taxonomy import LEGACY_STATE_TO_OBSERVABLE, label_pt as lp
+
+                                code = LEGACY_STATE_TO_OBSERVABLE.get(state, state)
+                                label_pt_txt = lp(code)
+                                emotion_src = pose_dbg.get("backend", "head_pose")
                     except Exception:
                         emotion_src = None
                         state = calc(roi, (x1, y1, w, h))
-                        label_pt = {
-                            "attentive": "Engajado",
-                            "neutral": "Neutro",
-                            "distracted": "Distraido",
-                        }.get(state, state)
-                    if backend != "emotion":
-                        pass  # label_pt já veio do head_pose
-                    else:
-                        label_pt = {
-                            "attentive": "Engajado",
-                            "neutral": "Neutro",
-                            "distracted": "Distraido",
-                        }.get(state, state)
+                        from app.vision.behavioral_taxonomy import LEGACY_STATE_TO_OBSERVABLE, label_pt as lp
+
+                        label_pt_txt = lp(LEGACY_STATE_TO_OBSERVABLE.get(state, state))
+                    if backend == "emotion":
+                        from app.vision.behavioral_taxonomy import LEGACY_STATE_TO_OBSERVABLE, label_pt as lp
+
+                        label_pt_txt = lp(LEGACY_STATE_TO_OBSERVABLE.get(state, state))
                         if emotion_src == "smile":
-                            label_pt = f"{label_pt} (sorriso)"
+                            label_pt_txt = f"{label_pt_txt} (sorriso aparente)"
                         elif emotion_raw:
-                            label_pt = f"{label_pt} ({emotion_raw})"
+                            label_pt_txt = f"{label_pt_txt} (expressão aparente: {emotion_raw})"
                     if pose_dbg and pose_dbg.get("yaw") is not None:
-                        label_pt = f"{label_pt} [olhar]"
+                        label_pt_txt = f"{label_pt_txt}"
                     per_face.append({
                         "bbox": [x1, y1, w, h],
                         "state": state,
-                        "label_pt": label_pt,
+                        "label_pt": label_pt_txt,
                         "emotion": emotion_raw,
                         "emotion_conf": emotion_conf,
                     })
@@ -504,6 +618,61 @@ class PipelineOrchestrator:
                 )
             except Exception as e:
                 logger.warning("engagement_error", camera_id=camera_id, error=str(e))
+
+        # Sinais comportamentais + clima
+        try:
+            beh = self.behavioral_pipelines.get(camera_id)
+            if beh and getattr(self.settings, "behavioral_signals_enabled", True):
+                signals = beh.process_frame(frame, bboxes or [])
+                self._overlay_signals[camera_id] = signals
+        except Exception as e:
+            logger.debug("behavioral_error", camera_id=camera_id, error=str(e))
+
+        try:
+            climate = self.climate_analytics.get(camera_id)
+            if climate:
+                ev = climate.process_frame(frame, face_bboxes=bboxes if bboxes else None)
+                if ev:
+                    self._latest_climate[camera_id] = ev
+        except Exception as e:
+            logger.debug("climate_error", camera_id=camera_id, error=str(e))
+
+        # Phone YOLO (opcional)
+        try:
+            if getattr(self.settings, "phone_yolo_enabled", False):
+                from app.vision.phone_yolo import detect_phones, phone_near_face
+                import time as _t
+
+                phones = detect_phones(frame)
+                self._overlay_phones[camera_id] = phones
+                now = _t.time()
+                if phones:
+                    if self._phone_visible_since.get(camera_id) is None:
+                        self._phone_visible_since[camera_id] = now
+                    elif now - (self._phone_visible_since[camera_id] or now) >= 30 and phone_near_face(phones, bboxes or []):
+                        # Emite behavioral via pipeline se disponível
+                        beh = self.behavioral_pipelines.get(camera_id)
+                        if beh:
+                            from app.pipeline.temporal_aggregator import BehavioralEventDraft
+                            from app.vision.behavioral_taxonomy import ObservableSignal, label_pt
+
+                            draft = BehavioralEventDraft(
+                                event_type=ObservableSignal.POSSIBLE_PHONE_INTERACTION.value,
+                                anonymous_track_id="zone",
+                                started_at=self._phone_visible_since[camera_id] or now,
+                                ended_at=now,
+                                duration_seconds=now - (self._phone_visible_since[camera_id] or now),
+                                confidence=0.6,
+                                observation_quality="fair",
+                                label_pt=label_pt(ObservableSignal.POSSIBLE_PHONE_INTERACTION.value),
+                                metadata={"requires_human_review": True, "phones": len(phones)},
+                            )
+                            beh._persist(draft)
+                        self._phone_visible_since[camera_id] = now
+                else:
+                    self._phone_visible_since[camera_id] = None
+        except Exception as e:
+            logger.debug("phone_yolo_error", camera_id=camera_id, error=str(e))
 
     async def start(self) -> None:
         self.running = True

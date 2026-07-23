@@ -73,6 +73,8 @@ class PresencePipeline:
         self.room_id = room_id
         self.device_id = device_id
         self.school_id = school_id
+        self.session_id: Optional[str] = None
+        self._excluded_student_ids: set = set()
         
         settings = get_settings()
         self.threshold = settings.presence_threshold
@@ -81,6 +83,7 @@ class PresencePipeline:
         self.th_off = getattr(settings, "presence_th_off", 0.66)
         self.min_face_size = settings.face_min_size
         self.dedup_mode = settings.presence_dedup_mode
+        self.periodic_enabled = bool(getattr(settings, "presence_periodic_enabled", True))
         self.active_windows = parse_active_windows(settings.presence_active_windows)
         track_ttl = getattr(settings, "track_ttl_seconds", 2.5)
         self.tracker = BboxTracker(ttl_seconds=track_ttl, iou_threshold=0.35, max_tracks=16)
@@ -98,6 +101,61 @@ class PresencePipeline:
         except Exception as e:
             self.face_mesh_refiner = None
             logger.warning("face_mesh_refiner_disabled", error=str(e))
+
+    def set_session_id(self, session_id: Optional[str]) -> None:
+        self.session_id = session_id
+
+    def set_excluded_students(self, ids) -> None:
+        self._excluded_student_ids = set(ids or [])
+
+    def _attendance_key(self) -> str:
+        """Chave de dedup: sessão ativa ou dia."""
+        if self.periodic_enabled and self.session_id:
+            return f"session:{self.session_id}"
+        return get_date_key()
+
+    def _handle_attendance(self, student_id: str, confidence: float, quality_label: str) -> Optional[dict]:
+        """Check-in na sessão/dia + atualização periódica (sightings)."""
+        if student_id in self._excluded_student_ids:
+            logger.info("attendance_skipped_no_consent", student_id=student_id)
+            return None
+        date_key = self._attendance_key()
+        has_attendance = self.attendance_repo.has_attendance_today(student_id, self.room_id, date_key)
+        if has_attendance:
+            self.attendance_repo.update_last_seen(student_id, self.room_id, date_key)
+            logger.info(
+                "attendance_periodic_sighting",
+                student_id=student_id,
+                room_id=self.room_id,
+                date_key=date_key,
+            )
+            return None
+
+        self.attendance_repo.create_attendance(
+            student_id=student_id,
+            room_id=self.room_id,
+            confidence=confidence,
+            device_id=self.device_id,
+            date_key=date_key,
+            session_id=self.session_id,
+        )
+        event = self._create_checkin_event(student_id, confidence, quality_label)
+        event["session_id"] = self.session_id
+        event["date_key"] = date_key
+        event_json = json.dumps(event)
+        self.event_repo.create_event(
+            event_id=event["event_id"], event_type="attendance_checkin", payload_json=event_json
+        )
+        logger.info(
+            "attendance_checkin",
+            student_id=student_id,
+            room_id=self.room_id,
+            confidence=confidence,
+            event_id=event["event_id"],
+            session_id=self.session_id,
+        )
+        return event
+
 
         self.face_mesh_refine_min_dim_factor = 2.0
 
@@ -262,22 +320,7 @@ class PresencePipeline:
                         camera_id=self.camera_id, student_id=student_id, confidence=confidence,
                         threshold=self.threshold)
 
-            has_attendance = self.attendance_repo.has_attendance_today(student_id, self.room_id, date_key)
-            logger.info("attendance_dedup_check", student_id=student_id, room_id=self.room_id,
-                       date_key=date_key, has_attendance=has_attendance)
-            if has_attendance:
-                logger.info("attendance_duplicate", student_id=student_id, room_id=self.room_id, date_key=date_key)
-                continue
-
-            self.attendance_repo.create_attendance(
-                student_id=student_id, room_id=self.room_id, confidence=confidence,
-                device_id=self.device_id, date_key=date_key
-            )
-            event = self._create_checkin_event(student_id, confidence, quality_label)
-            event_json = json.dumps(event)
-            self.event_repo.create_event(event_id=event["event_id"], event_type="attendance_checkin", payload_json=event_json)
-            logger.info("attendance_checkin", student_id=student_id, room_id=self.room_id,
-                        confidence=confidence, event_id=event["event_id"])
+            self._handle_attendance(student_id, confidence, quality_label)
         
         if matches:
             return {"matches": matches}
@@ -394,30 +437,7 @@ class PresencePipeline:
             threshold=self.threshold,
         )
 
-        has_attendance = self.attendance_repo.has_attendance_today(student_id, self.room_id, date_key)
-        if has_attendance:
-            logger.info("attendance_duplicate", student_id=student_id, room_id=self.room_id, date_key=date_key)
-            return
-
-        self.attendance_repo.create_attendance(
-            student_id=student_id,
-            room_id=self.room_id,
-            confidence=confidence,
-            device_id=self.device_id,
-            date_key=date_key,
-        )
-        event = self._create_checkin_event(student_id, confidence, quality_label)
-        event_json = json.dumps(event)
-        self.event_repo.create_event(
-            event_id=event["event_id"], event_type="attendance_checkin", payload_json=event_json
-        )
-        logger.info(
-            "attendance_checkin",
-            student_id=student_id,
-            room_id=self.room_id,
-            confidence=confidence,
-            event_id=event["event_id"],
-        )
+        self._handle_attendance(student_id, confidence, quality_label)
 
     def recognize_frame_for_overlay(self, frame: np.ndarray, use_margin: bool = False) -> list:
         """

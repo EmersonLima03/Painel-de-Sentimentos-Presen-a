@@ -75,6 +75,17 @@ vision:
     model_version: eng-v2-headpose
     # head_pose = MediaPipe landmarks (adequado sala). emotion = Mini-XCEPTION (legado)
 
+  climate:
+    use_fer: false           # FER só agregado opcional; nunca nota individual
+    window_seconds: 15
+
+  behavioral:
+    enabled: true            # sinais observáveis + agregador temporal
+
+  phone_yolo:
+    enabled: false           # expansão; requer ultralytics + pesos
+    model_path: ""
+
 # Cadastro por webcam: mais frames = mais precisão (média de embeddings)
 enrollment:
   num_frames: 20           # Frames a capturar (ex.: 15–20 para máxima precisão)
@@ -94,3 +105,28 @@ backup:
 logging:
   level: INFO
   format: json
+
+# Modos: disabled | debug | shadow | production (nunca pular spike → production)
+modules:
+  expression: { mode: disabled }
+  face_landmarks: { mode: disabled }
+  person_tracking: { mode: disabled }
+  phone: { mode: disabled }
+  pose: { mode: disabled }
+  temporal_fusion: { mode: disabled }
+  educational_dashboard: { mode: disabled }
+  lxp: { mode: disabled }
+
+expression:
+  provider: none   # escolhido após spike; candidatos: mock|fer_legacy|hsemotion|deepface
+
+provenance:
+  rule_engine_version: rules-v0-baseline
+  threshold_profile: presence-yaml-2026-07-23
+  camera_calibration_version: cam-vip-5440-01-uncalibrated
+
+privacy:
+  store_raw_video: false
+  store_review_evidence: false
+  evidence_retention_hours: 24
+  blur_non_target_faces: true

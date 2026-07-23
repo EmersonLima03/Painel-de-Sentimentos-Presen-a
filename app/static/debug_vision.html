@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Debug Vision — técnico</title>
+  <style>
+    :root { --bg:#0f1419; --panel:#1a2332; --text:#e7ecf3; --muted:#8b9bb4; --ok:#3d9a6a; --warn:#c9a227; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:12px 20px; border-bottom:1px solid #2a3548; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+    h1 { font-size:1.1rem; margin:0; font-weight:600; }
+    .badge { font-size:0.75rem; color:var(--muted); }
+    main { display:grid; grid-template-columns: 1.2fr 1fr; gap:12px; padding:12px; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    .panel { background:var(--panel); border-radius:8px; padding:12px; min-height:120px; }
+    .panel h2 { margin:0 0 8px; font-size:0.9rem; color:var(--muted); font-weight:600; }
+    img#preview { width:100%; max-height:420px; object-fit:contain; background:#000; border-radius:6px; }
+    pre { font-size:0.75rem; overflow:auto; max-height:360px; margin:0; white-space:pre-wrap; }
+    .warn { color:var(--warn); font-size:0.8rem; }
+    .ok { color:var(--ok); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>/debug/vision</h1>
+    <span class="badge">localhost · sem embeddings · sem RTSP completo · sem persistência de frames</span>
+    <span id="status" class="badge">…</span>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Preview (MJPEG existente)</h2>
+      <img id="preview" alt="preview" src="/debug/mjpeg" />
+      <p class="warn">Overlays emocionais por rosto desativados neste painel.</p>
+    </section>
+    <section class="panel">
+      <h2>Tracks / qualidade / latências / sinais</h2>
+      <pre id="payload">Carregando…</pre>
+    </section>
+  </main>
+  <script>
+    const token = localStorage.getItem("api_token") || "";
+    async function refresh() {
+      try {
+        const headers = {};
+        if (token) headers["X-API-Token"] = token;
+        const r = await fetch("/api/v1/live/debug-snapshot", { headers });
+        if (r.status === 401) {
+          document.getElementById("status").textContent = "401 — autenticação necessária";
+          return;
+        }
+        const data = await r.json();
+        document.getElementById("status").textContent = "ok · " + new Date().toLocaleTimeString();
+        document.getElementById("payload").textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        document.getElementById("status").textContent = "erro: " + e;
+      }
+    }
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

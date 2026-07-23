@@ -117,6 +117,33 @@ class Settings(BaseSettings):
     vision_engagement_model_version: str = Field(default="eng-v2-headpose", env="VISION_ENGAGEMENT_MODEL_VERSION")
     vision_engagement_window_seconds: int = Field(default=10, env="VISION_ENGAGEMENT_WINDOW_SECONDS")
 
+    # Módulo emoções / clima / sessão
+    climate_use_fer: bool = Field(default=False, env="CLIMATE_USE_FER")
+    climate_window_seconds: int = Field(default=15, env="CLIMATE_WINDOW_SECONDS")
+    behavioral_signals_enabled: bool = Field(default=True, env="BEHAVIORAL_SIGNALS_ENABLED")
+    presence_periodic_enabled: bool = Field(default=True, env="PRESENCE_PERIODIC_ENABLED")
+    require_consent: bool = Field(default=False, env="REQUIRE_CONSENT")
+    api_auth_token: str = Field(default="", env="API_AUTH_TOKEN")
+    data_retention_days: int = Field(default=90, env="DATA_RETENTION_DAYS")
+    phone_yolo_enabled: bool = Field(default=False, env="PHONE_YOLO_ENABLED")
+    phone_yolo_model_path: str = Field(default="", env="PHONE_YOLO_MODEL_PATH")
+
+    # Módulos multimodais (disabled|debug|shadow|production)
+    module_expression_mode: str = Field(default="disabled", env="MODULE_EXPRESSION_MODE")
+    module_face_landmarks_mode: str = Field(default="disabled", env="MODULE_FACE_LANDMARKS_MODE")
+    module_person_tracking_mode: str = Field(default="disabled", env="MODULE_PERSON_TRACKING_MODE")
+    module_phone_mode: str = Field(default="disabled", env="MODULE_PHONE_MODE")
+    module_pose_mode: str = Field(default="disabled", env="MODULE_POSE_MODE")
+    module_temporal_fusion_mode: str = Field(default="disabled", env="MODULE_TEMPORAL_FUSION_MODE")
+    module_lxp_mode: str = Field(default="disabled", env="MODULE_LXP_MODE")
+    expression_provider: str = Field(default="none", env="EXPRESSION_PROVIDER")
+    debug_vision_allow_remote: bool = Field(default=False, env="DEBUG_VISION_ALLOW_REMOTE")
+    rule_engine_version: str = Field(default="rules-v0-baseline", env="RULE_ENGINE_VERSION")
+    threshold_profile: str = Field(default="presence-yaml-2026-07-23", env="THRESHOLD_PROFILE")
+    camera_calibration_version: str = Field(
+        default="cam-vip-5440-01-uncalibrated", env="CAMERA_CALIBRATION_VERSION"
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -236,6 +263,22 @@ class Settings(BaseSettings):
                     object.__setattr__(self, "vision_engagement_backend", str(eng["backend"]))
                 if "model_version" in eng:
                     object.__setattr__(self, "vision_engagement_model_version", str(eng["model_version"]))
+            if "climate" in vision:
+                cl = vision["climate"]
+                if "use_fer" in cl:
+                    object.__setattr__(self, "climate_use_fer", bool(cl["use_fer"]))
+                if "window_seconds" in cl:
+                    object.__setattr__(self, "climate_window_seconds", int(cl["window_seconds"]))
+            if "behavioral" in vision:
+                beh = vision["behavioral"]
+                if "enabled" in beh:
+                    object.__setattr__(self, "behavioral_signals_enabled", bool(beh["enabled"]))
+            if "phone_yolo" in vision:
+                py = vision["phone_yolo"]
+                if "enabled" in py:
+                    object.__setattr__(self, "phone_yolo_enabled", bool(py["enabled"]))
+                if "model_path" in py:
+                    object.__setattr__(self, "phone_yolo_model_path", str(py["model_path"]))
         
         # Enrollment config
         if "enrollment" in config:
@@ -261,6 +304,41 @@ class Settings(BaseSettings):
             bk = config["backup"]
             if "dir" in bk:
                 object.__setattr__(self, "backup_dir", str(bk["dir"]))
+
+        # Módulos (modos) + provenance
+        if "modules" in config:
+            mods = config["modules"] or {}
+            mapping = {
+                "expression": "module_expression_mode",
+                "face_landmarks": "module_face_landmarks_mode",
+                "person_tracking": "module_person_tracking_mode",
+                "phone": "module_phone_mode",
+                "pose": "module_pose_mode",
+                "temporal_fusion": "module_temporal_fusion_mode",
+                "lxp": "module_lxp_mode",
+            }
+            for key, attr in mapping.items():
+                block = mods.get(key)
+                if isinstance(block, dict) and "mode" in block:
+                    object.__setattr__(self, attr, str(block["mode"]).lower())
+                elif isinstance(block, str):
+                    object.__setattr__(self, attr, block.lower())
+        if "expression" in config and isinstance(config["expression"], dict):
+            ex = config["expression"]
+            if "provider" in ex:
+                object.__setattr__(self, "expression_provider", str(ex["provider"]))
+        if "provenance" in config and isinstance(config["provenance"], dict):
+            pr = config["provenance"]
+            for k, attr in (
+                ("rule_engine_version", "rule_engine_version"),
+                ("threshold_profile", "threshold_profile"),
+                ("camera_calibration_version", "camera_calibration_version"),
+            ):
+                if k in pr:
+                    object.__setattr__(self, attr, str(pr[k]))
+        if "privacy" in config and isinstance(config["privacy"], dict):
+            # reserved for future evidence flags
+            pass
 
 
 # Singleton global
