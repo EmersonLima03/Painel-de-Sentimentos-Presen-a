@@ -1,0 +1,10 @@
+# Spike — DeepFace (venv isolado)
+
+Instalar apenas em `.venv-deepface`. Usar somente `actions=["emotion"]` no código.
+
+```text
+# deepface
+# tensorflow ou tf-keras conforme plataforma
+```
+
+Não misturar com o `venv` core até a decisão do spike.

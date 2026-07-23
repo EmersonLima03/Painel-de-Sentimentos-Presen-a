@@ -30,7 +30,17 @@ wheels/
 # Database
 *.db
 *.db-journal
-data/
+
+# Runtime / spike data (allow only README under data/spike)
+data/**
+!data/spike/
+!data/spike/README.md
+validation_dataset/**
+!validation_dataset/README.md
+
+# Isolated spike venvs (never commit)
+.venv-hsemotion/
+.venv-deepface/
 
 # IDE
 .vscode/

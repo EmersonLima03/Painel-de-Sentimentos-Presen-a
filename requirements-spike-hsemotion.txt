@@ -1,0 +1,11 @@
+# Spike — HSEmotion (venv isolado)
+
+Instalar apenas em `.venv-hsemotion`, nunca no `venv` core antes da decisão do spike.
+
+```text
+# Preencher após validar install no Windows/CPU:
+# hsemotion
+# torch  # se necessário alinhado ao core
+```
+
+Manter `numpy==1.26.4` se possível para compatibilidade com OpenCV do projeto.
