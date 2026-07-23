@@ -165,6 +165,10 @@ class PipelineOrchestrator:
         self._engagement_model_version: str = "eng-v0"
         self._executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="edge-vision")
         self._presence_busy: Dict[str, bool] = {}
+        self._analytics_engine = None
+        self._analytics_tracks: Dict[str, List[dict]] = {}
+        self.last_analytics_sample: Dict[str, float] = {}
+        self._analytics_counts: Dict[str, dict] = {}
 
     def initialize(self) -> None:
         logger.info("orchestrator_initializing")
@@ -190,8 +194,10 @@ class PipelineOrchestrator:
             self.last_behavioral_sample[cam_config.camera_id] = 0.0
             self.last_climate_sample[cam_config.camera_id] = 0.0
             self.last_phone_sample[cam_config.camera_id] = 0.0
+            self.last_analytics_sample[cam_config.camera_id] = 0.0
             self._phone_visible_since[cam_config.camera_id] = None
             self._presence_busy[cam_config.camera_id] = False
+            self._analytics_tracks[cam_config.camera_id] = []
 
         self.watchdog = RTSPWatchdog(self.readers) if self.readers else None
 
@@ -377,33 +383,121 @@ class PipelineOrchestrator:
         try:
             from app.api.v1 import update_live_debug_state
 
+            analytics_tracks = list(self._analytics_tracks.get(camera_id) or [])
             matches = self.get_overlay_matches(camera_id)
-            safe_tracks = [
-                {
-                    "student_id": m.get("student_id"),
-                    "confidence": m.get("confidence"),
-                    "bbox": m.get("bbox") or m.get("box"),
-                }
-                for m in matches
-            ]
+            if not analytics_tracks:
+                # fallback mínimo (só presença) até o primeiro ciclo analytics
+                analytics_tracks = [
+                    {
+                        "student_id": m.get("student_id"),
+                        "identity_confidence": m.get("confidence"),
+                        "confidence": m.get("confidence"),
+                        "bbox": m.get("bbox") or m.get("box"),
+                        "observation_quality": {"status": "sem_dado"},
+                        "facial_features": {"status": "sem_dado"},
+                        "latencies_ms": {},
+                        "expression": {"status": "not_implemented"},
+                        "visual_attention": {"status": "not_implemented"},
+                        "drowsiness": {"status": "not_implemented"},
+                        "phone": {"status": "disabled"},
+                    }
+                    for m in matches
+                ]
+            counts = self._analytics_counts.get(camera_id) or {}
+            lat_agg = {}
+            for t in analytics_tracks:
+                for k, v in (t.get("latencies_ms") or {}).items():
+                    if isinstance(v, (int, float)):
+                        lat_agg.setdefault(k, []).append(float(v))
+            latencies_ms = {
+                k: round(sum(vs) / len(vs), 2) for k, vs in lat_agg.items() if vs
+            }
             update_live_debug_state(
                 camera_id=camera_id,
-                tracks=safe_tracks,
+                tracks=analytics_tracks,
+                bindings=[],
                 signals=self._overlay_signals.get(camera_id) or [],
                 phones=[
                     {"bbox": list(p[:4]), "conf": p[4] if len(p) > 4 else None}
                     for p in (self._overlay_phones.get(camera_id) or [])
                 ],
-                visible_people=len(safe_tracks),
-                recognized_people=sum(1 for m in matches if m.get("student_id")),
-                latencies_ms={"note": "presence_isolated"},
+                visible_people=counts.get("visible", len(analytics_tracks)),
+                recognized_people=counts.get("present", sum(1 for m in matches if m.get("student_id"))),
+                observable_people=counts.get("observable"),
+                inconclusive_people=counts.get("inconclusive"),
+                attention_index=counts.get("attention_index"),
+                apparent_climate=counts.get("climate"),
+                observation_quality={
+                    "note": "per_track_in_tracks[].observation_quality",
+                    "aggregate_observable": counts.get("observable"),
+                    "aggregate_inconclusive": counts.get("inconclusive"),
+                },
+                latencies_ms=latencies_ms or {"quality": None, "landmarks": None, "total_analytics": None},
                 module_modes={
                     "expression": getattr(self.settings, "module_expression_mode", "disabled"),
+                    "face_landmarks": getattr(self.settings, "module_face_landmarks_mode", "disabled"),
                     "phone": getattr(self.settings, "module_phone_mode", "disabled"),
+                    "pose": getattr(self.settings, "module_pose_mode", "disabled"),
+                    "temporal_fusion": getattr(self.settings, "module_temporal_fusion_mode", "disabled"),
                 },
+                camera_status="webcam_or_rtsp",
+                is_simulated=False,
+                runtime_mode="rtsp",
+                classroom_counts=counts,
             )
         except Exception:
             pass
+
+    def _ensure_analytics_engine(self):
+        if self._analytics_engine is None:
+            from app.pipeline.analytics_track import RealtimeAnalyticsEngine
+
+            self._analytics_engine = RealtimeAnalyticsEngine(self.settings)
+        return self._analytics_engine
+
+    def _run_analytics_sync(self, camera_id: str, frame: np.ndarray) -> None:
+        """Qualidade + landmarks (+ expressão/atenção/celular conforme módulos). Não altera presença."""
+        try:
+            eng = self._ensure_analytics_engine()
+            matches = self.get_overlay_matches(camera_id)
+            boxes = self.get_overlay_boxes(camera_id)
+            tracks = eng.process_camera(
+                camera_id=camera_id,
+                frame=frame,
+                matches=matches,
+                boxes=boxes,
+            )
+            present = sum(1 for m in matches if m.get("student_id"))
+            self._analytics_tracks[camera_id] = tracks
+            self._analytics_counts[camera_id] = eng.classroom_counts(tracks, present)
+            # sync engagement overlay labels from attention (ASCII for putText)
+            from app.pipeline.analytics_track import ascii_overlay_label
+
+            per_face = []
+            for t in tracks:
+                va = t.get("visual_attention") or {}
+                state = va.get("state") or "inconclusive"
+                label = {
+                    "high": "Atencao visual alta",
+                    "moderate": "Atencao visual moderada",
+                    "low": "Atencao visual baixa",
+                    "inconclusive": "Atencao nao conclusiva",
+                }.get(state, "Atencao nao conclusiva")
+                q = t.get("observation_quality") or {}
+                if q.get("status") in ("inconclusive", "low_quality", "error", "sem_dado"):
+                    label = "Observacao inconclusiva"
+                per_face.append(
+                    {
+                        "bbox": t.get("bbox"),
+                        "state": state,
+                        "label_pt": ascii_overlay_label(label),
+                        "emotion": (t.get("expression") or {}).get("normalized_state"),
+                    }
+                )
+            self._overlay_engagement[camera_id] = per_face
+            self.publish_live_debug(camera_id)
+        except Exception as e:
+            logger.warning("analytics_sync_error", camera_id=camera_id, error=str(e))
 
     def get_overlay_source_size(self, camera_id: str) -> Optional[tuple]:
         return self._overlay_source_size.get(camera_id)
@@ -550,50 +644,54 @@ class PipelineOrchestrator:
                         getattr(self.settings, "vision_engagement_backend", None) or "head_pose"
                     ).strip().lower()
                     try:
-                        if backend == "emotion":
-                            from app.vision.emotion_engagement import predict_emotion_detail
+                        # Pose / sinais faciais (atenção visual estimada)
+                        from app.vision.facial_signals import analyze_face_roi
+                        from app.vision.behavioral_taxonomy import LEGACY_STATE_TO_OBSERVABLE, label_pt as lp
 
-                            emotion_raw, emotion_conf, state, _, emotion_src = predict_emotion_detail(roi)
+                        sample = analyze_face_roi(roi)
+                        if sample:
+                            state = {
+                                "orientation_forward": "attentive",
+                                "orientation_away": "distracted",
+                                "eyes_closed_persistent": "distracted",
+                            }.get(sample.orientation, "neutral")
+                            label_pt_txt = sample.label_pt
+                            pose_dbg = {"yaw": sample.yaw, "backend": "facial_signals"}
+                            emotion_src = "facial_signals"
                         else:
-                            from app.vision.facial_signals import analyze_face_roi
-                            from app.vision.behavioral_taxonomy import LEGACY_STATE_TO_OBSERVABLE, label_pt
+                            from app.vision.head_pose_engagement import calculate_head_pose_engagement
 
-                            sample = analyze_face_roi(roi)
-                            if sample:
-                                state = {
-                                    "orientation_forward": "attentive",
-                                    "orientation_away": "distracted",
-                                    "eyes_closed_persistent": "distracted",
-                                }.get(sample.orientation, "neutral")
-                                label_pt_txt = sample.label_pt
-                                pose_dbg = {"yaw": sample.yaw, "backend": "facial_signals"}
-                                emotion_src = "facial_signals"
-                            else:
-                                from app.vision.head_pose_engagement import calculate_head_pose_engagement
+                            state, label_pt_txt, pose_dbg = calculate_head_pose_engagement(roi, (x1, y1, w, h))
+                            code = LEGACY_STATE_TO_OBSERVABLE.get(state, state)
+                            label_pt_txt = lp(code)
+                            emotion_src = pose_dbg.get("backend", "head_pose")
 
-                                state, label_pt_txt, pose_dbg = calculate_head_pose_engagement(roi, (x1, y1, w, h))
-                                # Relabel ético
-                                from app.vision.behavioral_taxonomy import LEGACY_STATE_TO_OBSERVABLE, label_pt as lp
+                        # Expressão aparente (emotion | hybrid) — nunca diagnóstico
+                        if backend in ("emotion", "hybrid"):
+                            try:
+                                from app.vision.emotion_engagement import predict_emotion_detail
+                                from app.vision.expressions.normalization import (
+                                    normalize_expression_label,
+                                    display_expression_pt,
+                                )
 
-                                code = LEGACY_STATE_TO_OBSERVABLE.get(state, state)
-                                label_pt_txt = lp(code)
-                                emotion_src = pose_dbg.get("backend", "head_pose")
+                                emotion_raw, emotion_conf, _st, _, emotion_src = predict_emotion_detail(roi)
+                                if emotion_raw:
+                                    label_pt_txt = (
+                                        f"{label_pt_txt} · {display_expression_pt(emotion_raw)}"
+                                    )
+                                    emotion_raw = normalize_expression_label(emotion_raw)
+                            except Exception:
+                                pass
+                        if backend == "emotion" and emotion_raw is None:
+                            # fallback já preenchido por pose acima
+                            pass
                     except Exception:
                         emotion_src = None
                         state = calc(roi, (x1, y1, w, h))
                         from app.vision.behavioral_taxonomy import LEGACY_STATE_TO_OBSERVABLE, label_pt as lp
 
                         label_pt_txt = lp(LEGACY_STATE_TO_OBSERVABLE.get(state, state))
-                    if backend == "emotion":
-                        from app.vision.behavioral_taxonomy import LEGACY_STATE_TO_OBSERVABLE, label_pt as lp
-
-                        label_pt_txt = lp(LEGACY_STATE_TO_OBSERVABLE.get(state, state))
-                        if emotion_src == "smile":
-                            label_pt_txt = f"{label_pt_txt} (sorriso aparente)"
-                        elif emotion_raw:
-                            label_pt_txt = f"{label_pt_txt} (expressão aparente: {emotion_raw})"
-                    if pose_dbg and pose_dbg.get("yaw") is not None:
-                        label_pt_txt = f"{label_pt_txt}"
                     per_face.append({
                         "bbox": [x1, y1, w, h],
                         "state": state,
@@ -619,12 +717,17 @@ class PipelineOrchestrator:
             except Exception as e:
                 logger.warning("engagement_error", camera_id=camera_id, error=str(e))
 
-        # Sinais comportamentais + clima
+        # Sinais comportamentais legado: desativado quando RealtimeAnalyticsEngine está ativo
+        # (motor temporal único — evita eventos equivalentes em paralelo)
         try:
-            beh = self.behavioral_pipelines.get(camera_id)
-            if beh and getattr(self.settings, "behavioral_signals_enabled", True):
-                signals = beh.process_frame(frame, bboxes or [])
-                self._overlay_signals[camera_id] = signals
+            if (
+                getattr(self.settings, "behavioral_signals_enabled", True)
+                and self._analytics_engine is None
+            ):
+                beh = self.behavioral_pipelines.get(camera_id)
+                if beh:
+                    signals = beh.process_frame(frame, bboxes or [])
+                    self._overlay_signals[camera_id] = signals
         except Exception as e:
             logger.debug("behavioral_error", camera_id=camera_id, error=str(e))
 
@@ -741,6 +844,18 @@ class PipelineOrchestrator:
                         loop.run_in_executor(
                             self._executor,
                             self._run_engagement_sync,
+                            camera_id,
+                            latest.copy(),
+                        )
+
+                    analytics_iv = float(
+                        getattr(self.settings, "analytics_quality_interval_seconds", 0.5) or 0.5
+                    )
+                    if now - self.last_analytics_sample.get(camera_id, 0) >= analytics_iv:
+                        self.last_analytics_sample[camera_id] = now
+                        loop.run_in_executor(
+                            self._executor,
+                            self._run_analytics_sync,
                             camera_id,
                             latest.copy(),
                         )

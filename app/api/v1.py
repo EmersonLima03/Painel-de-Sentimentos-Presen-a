@@ -1,21 +1,24 @@
-"""API v1 + estado live para debug vision / WS."""
+"""API v1 — live, sessions, review, system, demo control, WebSocket."""
 
 from __future__ import annotations
 
+import asyncio
+import csv
+import io
+import json
 import time
 from typing import Any, Dict, List, Optional, Set
 
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, Query
+from fastapi.responses import JSONResponse, StreamingResponse, PlainTextResponse
+from pydantic import BaseModel, Field
 
 from app.auth import require_api_token
 from app.config import get_settings
-from app.module_modes import ModuleMode, parse_module_mode
+from app.runtime_mode import DISCLAIMER, DEMO_BANNER, get_runtime_mode, is_demo
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
-# Estado em memória (sem embeddings / sem frames)
 _live_state: Dict[str, Any] = {
     "updated_at": 0.0,
     "tracks": [],
@@ -31,10 +34,25 @@ _live_state: Dict[str, Any] = {
 def update_live_debug_state(**kwargs) -> None:
     _live_state.update(kwargs)
     _live_state["updated_at"] = time.time()
-    # Sanitizar
-    _live_state.pop("embeddings", None)
-    _live_state.pop("rtsp_url", None)
-    _live_state.pop("frame", None)
+    for k in ("embeddings", "rtsp_url", "frame", "credentials"):
+        _live_state.pop(k, None)
+
+
+def _demo_snap() -> Dict[str, Any]:
+    from app.demo.engine import get_demo_engine
+
+    return get_demo_engine().snapshot()
+
+
+def _enrich(payload: Dict[str, Any]) -> Dict[str, Any]:
+    mode = get_runtime_mode().value
+    payload = dict(payload)
+    payload["runtime_mode"] = mode
+    payload["is_simulated"] = mode == "demo"
+    payload["disclaimer"] = DISCLAIMER
+    if mode == "demo":
+        payload["banner"] = DEMO_BANNER
+    return payload
 
 
 class ReviewPatch(BaseModel):
@@ -42,154 +60,401 @@ class ReviewPatch(BaseModel):
     notes: Optional[str] = None
 
 
+class DemoControlBody(BaseModel):
+    playing: Optional[bool] = None
+    speed: Optional[float] = None
+    reset: bool = False
+
+
 def _client_is_localhost(request: Request) -> bool:
     client = request.client.host if request.client else ""
-    return client in ("127.0.0.1", "::1", "localhost")
+    return client in ("127.0.0.1", "::1", "localhost", "testclient")
 
 
 @router.get("/live/status")
 async def live_status(_: None = Depends(require_api_token)):
     settings = get_settings()
-    return {
-        "ok": True,
-        "device_id": settings.device_id,
-        "updated_at": _live_state.get("updated_at"),
-        "modules": {
-            "expression": getattr(settings, "module_expression_mode", "disabled"),
-            "face_landmarks": getattr(settings, "module_face_landmarks_mode", "disabled"),
-            "person_tracking": getattr(settings, "module_person_tracking_mode", "disabled"),
-            "phone": getattr(settings, "module_phone_mode", "disabled"),
-            "pose": getattr(settings, "module_pose_mode", "disabled"),
-            "temporal_fusion": getattr(settings, "module_temporal_fusion_mode", "disabled"),
-            "lxp": getattr(settings, "module_lxp_mode", "disabled"),
-        },
-        "disclaimer": "Indicadores estimados a partir de sinais visuais. Não constituem diagnóstico.",
-    }
-
-
-@router.get("/live/tracks")
-async def live_tracks(_: None = Depends(require_api_token)):
-    return {
-        "tracks": _live_state.get("tracks", []),
-        "bindings": _live_state.get("bindings", []),
-        "updated_at": _live_state.get("updated_at"),
-    }
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich(
+            {
+                "ok": True,
+                "device_id": settings.device_id,
+                "updated_at": snap["updated_at"],
+                "modules": snap["module_modes"],
+                "session": snap["session"],
+                "kpis": snap["kpis"],
+                "camera_status": "demo_source",
+            }
+        )
+    return _enrich(
+        {
+            "ok": True,
+            "device_id": settings.device_id,
+            "updated_at": _live_state.get("updated_at"),
+            "modules": {
+                "expression": getattr(settings, "module_expression_mode", "disabled"),
+                "face_landmarks": getattr(settings, "module_face_landmarks_mode", "disabled"),
+                "person_tracking": getattr(settings, "module_person_tracking_mode", "disabled"),
+                "phone": getattr(settings, "module_phone_mode", "disabled"),
+                "pose": getattr(settings, "module_pose_mode", "disabled"),
+                "temporal_fusion": getattr(settings, "module_temporal_fusion_mode", "disabled"),
+                "lxp": getattr(settings, "module_lxp_mode", "disabled"),
+            },
+            "camera_status": "rtsp_or_offline",
+        }
+    )
 
 
 @router.get("/live/classroom-summary")
 async def classroom_summary(_: None = Depends(require_api_token)):
-    return {
-        "visible_people": _live_state.get("visible_people", 0),
-        "recognized_people": _live_state.get("recognized_people", 0),
-        "observable_people": _live_state.get("observable_people", 0),
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich(
+            {
+                "visible_people": snap["kpis"]["visible"],
+                "recognized_people": snap["kpis"]["present"],
+                "observable_people": snap["kpis"]["observable"],
+                "inconclusive_people": snap["kpis"]["inconclusive"],
+                "attention_index": snap["kpis"]["attention_index"],
+                "apparent_climate": snap["kpis"]["climate"],
+                "phones": snap["phones"],
+                "active_behavioral_signals": snap["kpis"]["active_events"],
+                "updated_at": snap["updated_at"],
+            }
+        )
+    # Runtime real: usa snapshot publicado pelo orchestrator
+    counts = {
+        "visible_people": _live_state.get("visible_people"),
+        "recognized_people": _live_state.get("recognized_people"),
+        "observable_people": _live_state.get("observable_people"),
+        "inconclusive_people": _live_state.get("inconclusive_people"),
+        "attention_index": _live_state.get("attention_index"),
+        "apparent_climate": _live_state.get("apparent_climate"),
         "phones": _live_state.get("phones", []),
         "updated_at": _live_state.get("updated_at"),
-        "disclaimer": "Estimativa visual observável — não diagnóstico.",
+        "tracks": _live_state.get("tracks", []),
     }
+    # null quando sem dado (não forçar 0)
+    for k in ("observable_people", "inconclusive_people", "attention_index", "apparent_climate"):
+        if k not in _live_state:
+            counts[k] = None
+    return _enrich(counts)
+
+
+@router.get("/live/tracks")
+async def live_tracks(_: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich(
+            {
+                "tracks": snap["tracks"],
+                "bindings": snap["bindings"],
+                "updated_at": snap["updated_at"],
+            }
+        )
+    return _enrich(
+        {
+            "tracks": _live_state.get("tracks", []),
+            "bindings": _live_state.get("bindings", []),
+            "updated_at": _live_state.get("updated_at"),
+            "latencies_ms": _live_state.get("latencies_ms", {}),
+            "observation_quality": _live_state.get("observation_quality", {}),
+            "classroom_counts": _live_state.get("classroom_counts", {}),
+        }
+    )
 
 
 @router.get("/live/debug-snapshot")
 async def debug_snapshot(request: Request, _: None = Depends(require_api_token)):
-    """Somente localhost por padrão (além de auth quando configurada)."""
     settings = get_settings()
     allow_remote = getattr(settings, "debug_vision_allow_remote", False)
     if not allow_remote and not _client_is_localhost(request):
         return JSONResponse({"detail": "debug vision restricted to localhost"}, status_code=403)
-    # Payload sanitizado
-    safe = {
-        k: v
-        for k, v in _live_state.items()
-        if k not in ("embeddings", "rtsp_url", "frame", "credentials")
-    }
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich(
+            {
+                **{k: snap[k] for k in snap if k not in ("embeddings",)},
+                "frame_source": "DemoFrameSource",
+                "security": {
+                    "localhost_only": not allow_remote,
+                    "stores_frames": False,
+                    "exposes_embeddings": False,
+                    "exposes_rtsp": False,
+                },
+            }
+        )
+    safe = {k: v for k, v in _live_state.items() if k not in ("embeddings", "rtsp_url", "frame", "credentials")}
     safe["security"] = {
         "localhost_only": not allow_remote,
         "stores_frames": False,
         "exposes_embeddings": False,
         "exposes_rtsp": False,
     }
-    return safe
+    return _enrich(safe)
+
+
+@router.get("/sessions")
+async def list_sessions(_: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich({"sessions": [snap["session"]]})
+    return _enrich({"sessions": []})
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(session_id: str, _: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        if snap["session"]["session_id"] != session_id:
+            return JSONResponse({"detail": "session not found"}, status_code=404)
+        return _enrich(snap["session"])
+    return JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@router.get("/sessions/{session_id}/summary")
+async def session_summary(session_id: str, _: None = Depends(require_api_token)):
+    if is_demo():
+        from app.demo.engine import get_demo_engine
+
+        return _enrich(get_demo_engine().report())
+    return _enrich({"session_id": session_id, "summary": None})
+
+
+@router.get("/sessions/{session_id}/timeline")
+async def session_timeline(session_id: str, _: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich({"session_id": session_id, "timeline": snap["timeline"]})
+    return _enrich({"session_id": session_id, "timeline": []})
+
+
+@router.get("/sessions/{session_id}/students")
+async def session_students(session_id: str, _: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich({"session_id": session_id, "students": snap["attendance"]})
+    return _enrich({"session_id": session_id, "students": []})
+
+
+@router.get("/sessions/{session_id}/engagement")
+async def session_engagement(session_id: str, _: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich(
+            {
+                "session_id": session_id,
+                "attention_index": snap["kpis"]["attention_index"],
+                "tracks": [
+                    {
+                        "student_id": t["student_id"],
+                        "visual_attention_score": t["visual_attention_score"],
+                        "state": t["attention_state"],
+                    }
+                    for t in snap["tracks"]
+                ],
+            }
+        )
+    return _enrich({"session_id": session_id, "engagement": []})
+
+
+@router.get("/sessions/{session_id}/climate")
+async def session_climate(session_id: str, _: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich({"session_id": session_id, "dominant_state": snap["kpis"]["climate"]})
+    return _enrich({"session_id": session_id, "climate": None})
+
+
+@router.get("/sessions/{session_id}/behavioral-events")
+async def session_behavioral(session_id: str, _: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich({"session_id": session_id, "events": snap["events"]})
+    return _enrich({"session_id": session_id, "events": []})
+
+
+@router.get("/review/events")
+async def review_events(
+    status: Optional[str] = Query(default=None),
+    _: None = Depends(require_api_token),
+):
+    if is_demo():
+        snap = _demo_snap()
+        events = snap["events"]
+        if status:
+            events = [e for e in events if e.get("review_status") == status]
+        return _enrich({"events": events})
+    from app.db.init_db import get_session, close_session
+    from app.db.repo import BehavioralEventRepository
+
+    session = get_session()
+    try:
+        rows = BehavioralEventRepository(session).list_events(status=status, limit=100)
+        return _enrich(
+            {
+                "events": [
+                    {
+                        "event_id": r.event_id,
+                        "event_type": r.event_type,
+                        "status": r.status,
+                        "confidence": r.confidence,
+                    }
+                    for r in rows
+                ]
+            }
+        )
+    finally:
+        close_session(session)
+
+
+@router.get("/review/events/{event_id}")
+async def review_event_get(event_id: str, _: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        for e in snap["events"]:
+            if e["event_id"] == event_id:
+                return _enrich(e)
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@router.patch("/review/events/{event_id}")
+async def review_patch(event_id: str, body: ReviewPatch, _: None = Depends(require_api_token)):
+    if body.status not in ("confirmed", "rejected", "inconclusive", "pending"):
+        return JSONResponse({"detail": "invalid status"}, status_code=400)
+    if is_demo():
+        from app.demo.engine import get_demo_engine
+
+        ev = get_demo_engine().review_event(event_id, body.status, body.notes or "")
+        if not ev:
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        await live_hub.broadcast({"type": "review_queue_update", "payload": {"event_id": event_id, "status": body.status}})
+        return _enrich({"ok": True, "event": ev})
+    from app.db.init_db import get_session, close_session
+    from app.db.repo import BehavioralEventRepository
+
+    session = get_session()
+    try:
+        ok = BehavioralEventRepository(session).review(event_id, body.status, reviewed_by="api_v1")
+        return _enrich({"ok": bool(ok), "event_id": event_id, "status": body.status})
+    finally:
+        close_session(session)
 
 
 @router.get("/system/health")
 async def system_health(_: None = Depends(require_api_token)):
-    return {"status": "ok", "ts": time.time()}
+    return _enrich({"status": "ok", "ts": time.time()})
 
 
 @router.get("/system/models")
 async def system_models(_: None = Depends(require_api_token)):
     settings = get_settings()
-    return {
-        "detector": getattr(settings, "vision_detector_backend", "yunet"),
-        "embedder": getattr(settings, "vision_embedder_backend", "facenet"),
-        "expression_provider": getattr(settings, "expression_provider", "none"),
-        "expression_mode": getattr(settings, "module_expression_mode", "disabled"),
-        "note": "No secrets or RTSP URLs",
-    }
+    return _enrich(
+        {
+            "detector": getattr(settings, "vision_detector_backend", "yunet"),
+            "embedder": getattr(settings, "vision_embedder_backend", "facenet"),
+            "expression_provider": "demo_mock" if is_demo() else getattr(settings, "expression_provider", "none"),
+            "note": "No secrets or RTSP URLs",
+        }
+    )
+
+
+@router.get("/system/performance")
+async def system_performance(_: None = Depends(require_api_token)):
+    if is_demo():
+        snap = _demo_snap()
+        return _enrich({"performance": snap["performance"], "latencies_ms": snap["latencies_ms"]})
+    return _enrich({"performance": {}, "latencies_ms": _live_state.get("latencies_ms", {})})
 
 
 @router.get("/system/configuration")
 async def system_configuration(_: None = Depends(require_api_token)):
     settings = get_settings()
-    return {
-        "device_id": settings.device_id,
-        "school_id": settings.school_id,
-        "rule_engine_version": getattr(settings, "rule_engine_version", "rules-v0-baseline"),
-        "threshold_profile": getattr(settings, "threshold_profile", "presence-yaml-2026-07-23"),
-        "camera_calibration_version": getattr(
-            settings, "camera_calibration_version", "cam-vip-5440-01-uncalibrated"
-        ),
-        "modules": {
-            "expression": getattr(settings, "module_expression_mode", "disabled"),
-            "phone": getattr(settings, "module_phone_mode", "disabled"),
-        },
-    }
-
-
-@router.get("/review/events")
-async def review_events(_: None = Depends(require_api_token)):
-    from app.db.init_db import get_session
-    from app.db.repo import BehavioralEventRepository
-
-    session = get_session()
-    try:
-        repo = BehavioralEventRepository(session)
-        rows = repo.list_events(limit=100)
-        return {
-            "events": [
-                {
-                    "event_id": r.event_id,
-                    "event_type": r.event_type,
-                    "status": r.status,
-                    "confidence": r.confidence,
-                    "started_at": str(r.started_at),
-                    "ended_at": str(r.ended_at) if r.ended_at else None,
-                }
-                for r in rows
-            ]
+    return _enrich(
+        {
+            "device_id": settings.device_id,
+            "school_id": settings.school_id,
+            "runtime_mode": get_runtime_mode().value,
+            "rule_engine_version": getattr(settings, "rule_engine_version", "rules-v0-baseline"),
+            "threshold_profile": getattr(settings, "threshold_profile", "presence-yaml-2026-07-23"),
+            "camera_calibration_version": getattr(
+                settings, "camera_calibration_version", "cam-vip-5440-01-uncalibrated"
+            ),
         }
-    finally:
-        session.close()
+    )
 
 
-@router.patch("/review/events/{event_id}")
-async def review_patch(event_id: str, body: ReviewPatch, _: None = Depends(require_api_token)):
-    from app.db.init_db import get_session
-    from app.db.repo import BehavioralEventRepository
+@router.post("/demo/control")
+async def demo_control(body: DemoControlBody, _: None = Depends(require_api_token)):
+    if not is_demo():
+        return JSONResponse({"detail": "not in demo mode"}, status_code=400)
+    from app.demo.engine import get_demo_engine
 
-    if body.status not in ("confirmed", "rejected", "inconclusive", "pending"):
-        return JSONResponse({"detail": "invalid status"}, status_code=400)
-    session = get_session()
-    try:
-        repo = BehavioralEventRepository(session)
-        ok = repo.review(event_id, body.status, reviewed_by="api_v1")
-        return {"ok": bool(ok), "event_id": event_id, "status": body.status}
-    finally:
-        session.close()
+    ctrl = get_demo_engine().control_update(playing=body.playing, speed=body.speed, reset=body.reset)
+    return _enrich(
+        {
+            "playing": ctrl.playing,
+            "speed": ctrl.speed,
+            "t_seconds": ctrl.t_seconds,
+            "session_id": ctrl.session_id,
+        }
+    )
+
+
+@router.get("/demo/report")
+async def demo_report(_: None = Depends(require_api_token)):
+    if not is_demo():
+        return JSONResponse({"detail": "not in demo mode"}, status_code=400)
+    from app.demo.engine import get_demo_engine
+
+    return _enrich(get_demo_engine().report())
+
+
+@router.get("/demo/report.csv")
+async def demo_report_csv(_: None = Depends(require_api_token)):
+    if not is_demo():
+        return JSONResponse({"detail": "not in demo mode"}, status_code=400)
+    from app.demo.engine import get_demo_engine
+
+    snap = get_demo_engine().snapshot()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["student_id", "full_name", "present", "attention_state", "expression", "is_simulated"])
+    by_id = {t["student_id"]: t for t in snap["tracks"]}
+    for a in snap["attendance"]:
+        tr = by_id.get(a["student_id"], {})
+        w.writerow(
+            [
+                a["student_id"],
+                a["full_name"],
+                a["present"],
+                tr.get("attention_state", ""),
+                tr.get("expression_window", ""),
+                True,
+            ]
+        )
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=demo_report.csv"},
+    )
+
+
+@router.post("/demo/lxp/flush")
+async def demo_lxp_flush(_: None = Depends(require_api_token)):
+    if not is_demo():
+        return JSONResponse({"detail": "not in demo mode"}, status_code=400)
+    from app.demo.engine import get_demo_engine
+
+    return _enrich(get_demo_engine().process_lxp_outbox())
 
 
 class LiveHub:
     def __init__(self):
         self.clients: Set[WebSocket] = set()
+        self._task: Optional[asyncio.Task] = None
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
@@ -208,6 +473,19 @@ class LiveHub:
         for ws in dead:
             self.disconnect(ws)
 
+    async def demo_ticker(self):
+        while True:
+            await asyncio.sleep(1.0)
+            if not is_demo() or not self.clients:
+                continue
+            try:
+                snap = _demo_snap()
+                await self.broadcast({"type": "classroom_summary", "payload": snap["kpis"], "is_simulated": True})
+                await self.broadcast({"type": "live_tracks", "payload": {"tracks": snap["tracks"]}, "is_simulated": True})
+                await self.broadcast({"type": "heartbeat", "ts": time.time(), "is_simulated": True})
+            except Exception:
+                continue
+
 
 live_hub = LiveHub()
 
@@ -215,7 +493,6 @@ live_hub = LiveHub()
 @router.websocket("/ws/live")
 async def ws_live(websocket: WebSocket):
     settings = get_settings()
-    # Auth via query api_token se configurado
     expected = (settings.api_auth_token or "").strip()
     if expected:
         token = websocket.query_params.get("api_token")
@@ -224,13 +501,16 @@ async def ws_live(websocket: WebSocket):
             return
     await live_hub.connect(websocket)
     try:
-        await websocket.send_json({"type": "system_status", "payload": {"ok": True}})
+        await websocket.send_json(
+            _enrich({"type": "system_status", "payload": {"ok": True, "runtime_mode": get_runtime_mode().value}})
+        )
         while True:
-            # heartbeat / client ping
             try:
-                data = await websocket.receive_text()
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                 if data == "ping":
-                    await websocket.send_json({"type": "heartbeat", "ts": time.time()})
+                    await websocket.send_json({"type": "heartbeat", "ts": time.time(), "is_simulated": is_demo()})
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "heartbeat", "ts": time.time(), "is_simulated": is_demo()})
             except WebSocketDisconnect:
                 break
     finally:

@@ -36,6 +36,18 @@ def normalize_expression_label(raw: str | None) -> str:
     return _MAP.get(key, "inconclusive")
 
 
+def display_expression_pt(raw_or_normalized: str | None) -> str:
+    """Texto seguro para UI — nunca diagnóstico emocional."""
+    n = normalize_expression_label(raw_or_normalized)
+    return {
+        "positive": "expressão predominantemente positiva",
+        "neutral": "expressão predominantemente neutra",
+        "negative": "expressão predominantemente negativa",
+        "surprise": "expressão de surpresa aparente",
+        "inconclusive": "inconclusivo",
+    }.get(n, "inconclusivo")
+
+
 def normalize_probabilities(raw_probs: Dict[str, float]) -> Dict[str, float]:
     out = {k: 0.0 for k in NORMALIZED if k != "inconclusive"}
     for raw, p in (raw_probs or {}).items():

@@ -1,5 +1,5 @@
 # Monitor de presença - script robusto para last_presence_match (lista ou objeto único)
-# Uso: .\monitor_presence.ps1
+# Uso: .\scripts\monitor_presence.ps1
 
 while ($true) {
   try {

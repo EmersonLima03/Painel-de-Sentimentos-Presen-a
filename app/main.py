@@ -42,7 +42,8 @@ from app.enroll.service import EnrollmentService
 from app.backup import export_backup, import_backup, BackupResult
 from app.auth import require_api_token
 from app import __version__
-from app.api.v1 import router as api_v1_router
+from app.api.v1 import router as api_v1_router, live_hub
+from app.runtime_mode import get_runtime_mode, is_demo, RuntimeMode, DEMO_BANNER
 
 # Configurar logging
 configure_logging()
@@ -51,6 +52,7 @@ logger = get_logger(__name__)
 # Globals
 orchestrator: PipelineOrchestrator = None
 sync_worker: SyncWorker = None
+demo_engine = None
 start_time = time.time()
 _debug_last_frame: Dict[str, Any] = {}  # camera_id -> frame (último frame para viewer fluido)
 _DEBUG_SNAPSHOT_MAX_WIDTH = 960
@@ -72,53 +74,71 @@ def _debug_placeholder_jpeg(text: str = "Aguardando frames...", width: int = 640
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle do FastAPI."""
-    global orchestrator, sync_worker
-    
-    # Startup
-    logger.info("app_starting", version=__version__)
-    
+    global orchestrator, sync_worker, demo_engine
+
+    mode = get_runtime_mode()
+    logger.info("app_starting", version=__version__, runtime_mode=mode.value)
+
     try:
-        # Inicializar banco
+        # Banco de produção (presença) — nunca recebe dados demo
         init_database()
         logger.info("database_initialized")
-        
-        # Inicializar sync worker (leve)
+
         sync_worker = SyncWorker()
         asyncio.create_task(sync_worker.start())
 
-        # Orchestrator visível já no startup (câmera antes dos modelos pesados)
-        _orchestrator = PipelineOrchestrator()
-        orchestrator = _orchestrator
+        if mode == RuntimeMode.DEMO:
+            from app.demo.engine import get_demo_engine
+            from app.config import get_settings as _gs
 
-        async def init_and_start_orchestrator():
-            try:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, _orchestrator.initialize)
-                logger.info("orchestrator_initialized")
-                await _orchestrator.start()
-            except Exception as e:
-                logger.warning("orchestrator_init_failed", error=str(e), exc_info=True)
+            settings = _gs()
+            demo_engine = get_demo_engine()
+            # Garante path demo isolado
+            demo_engine.demo_db_path = getattr(settings, "demo_db_path", "./data/demo/dulino_edge_demo.db")
+            demo_engine.start()
+            asyncio.create_task(live_hub.demo_ticker())
+            logger.info("demo_engine_started", banner=DEMO_BANNER, demo_db=demo_engine.demo_db_path)
+            # Orchestrator RTSP não sobe em demo (evita misturar fontes)
+            orchestrator = None
+        else:
+            _orchestrator = PipelineOrchestrator()
+            orchestrator = _orchestrator
 
-        asyncio.create_task(init_and_start_orchestrator())
+            async def init_and_start_orchestrator():
+                try:
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, _orchestrator.initialize)
+                    logger.info("orchestrator_initialized")
+                    await _orchestrator.start()
+                except Exception as e:
+                    # RTSP inválido não derruba a aplicação
+                    logger.warning(
+                        "orchestrator_init_failed",
+                        error=str(e),
+                        camera_status="connection_failed_or_init_error",
+                        exc_info=True,
+                    )
+
+            asyncio.create_task(init_and_start_orchestrator())
+
         logger.info("app_started")
-        
+
     except Exception as e:
         logger.error("startup_error", error=str(e))
-        # Continuar mesmo com erro - servidor deve estar acessível
-    
+
     yield
-    
-    # Shutdown
+
     logger.info("app_stopping")
-    
     try:
+        if demo_engine:
+            demo_engine.stop()
         if orchestrator:
             orchestrator.stop()
         if sync_worker:
             sync_worker.stop()
     except Exception as e:
         logger.warning("shutdown_error", error=str(e))
-    
+
     logger.info("app_stopped")
 
 
@@ -141,6 +161,14 @@ if static_dir.exists():
     except Exception as e:
         logger.warning("static_files_mount_failed", error=str(e))
 
+# Assets do dashboard React (Vite → frontend/dist/assets)
+_frontend_assets = Path(__file__).parent.parent / "frontend" / "dist" / "assets"
+if _frontend_assets.exists():
+    try:
+        app.mount("/assets", StaticFiles(directory=str(_frontend_assets)), name="frontend_assets")
+    except Exception as e:
+        logger.warning("frontend_assets_mount_failed", error=str(e))
+
 
 # --- Dashboard unificado (Módulo Emoções 40%) ---
 
@@ -161,12 +189,31 @@ class SessionBody(BaseModel):
     title: Optional[str] = None
 
 
+_FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+_LEGACY_DASHBOARD = Path(__file__).parent / "static" / "dashboard.html"
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/dashboard/", response_class=HTMLResponse)
 async def dashboard_page():
-    path = Path(__file__).parent / "static" / "dashboard.html"
-    if not path.exists():
+    """Dashboard educacional React (build em frontend/dist). Fallback: legado."""
+    index = _FRONTEND_DIST / "index.html"
+    if index.exists():
+        html = index.read_text(encoding="utf-8")
+        if is_demo():
+            # Injeta banner se o HTML estático ainda não tiver (React também exibe)
+            pass
+        return HTMLResponse(html)
+    if _LEGACY_DASHBOARD.exists():
+        return HTMLResponse(_LEGACY_DASHBOARD.read_text(encoding="utf-8"))
+    raise HTTPException(404, "dashboard build missing — run: cd frontend && npm run build")
+
+
+@app.get("/dashboard-legacy", response_class=HTMLResponse)
+async def dashboard_legacy_page():
+    if not _LEGACY_DASHBOARD.exists():
         raise HTTPException(404, "dashboard.html missing")
-    return HTMLResponse(path.read_text(encoding="utf-8"))
+    return HTMLResponse(_LEGACY_DASHBOARD.read_text(encoding="utf-8"))
 
 
 @app.get("/debug/vision", response_class=HTMLResponse)
@@ -180,7 +227,13 @@ async def debug_vision_page(request: Request, _: None = Depends(require_api_toke
     path = Path(__file__).parent / "static" / "debug_vision.html"
     if not path.exists():
         raise HTTPException(404, "debug_vision.html missing")
-    return HTMLResponse(path.read_text(encoding="utf-8"))
+    html = path.read_text(encoding="utf-8")
+    if is_demo():
+        html = html.replace(
+            "<h1>/debug/vision</h1>",
+            f"<h1>/debug/vision</h1><span class=\"warn\">{DEMO_BANNER}</span>",
+        )
+    return HTMLResponse(html)
 
 
 @app.get("/dashboard/api/overview")
@@ -980,12 +1033,15 @@ def _draw_overlay_from_cache(frame: np.ndarray, camera_id: str) -> int:
         cv2.putText(frame, label, (x, max(y - 5, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
         eng_label = m.get("engagement_label")
         if eng_label:
+            from app.pipeline.analytics_track import ascii_overlay_label
+
+            eng_label = ascii_overlay_label(str(eng_label))
             eng_state = m.get("engagement_state") or ""
             eng_color = (0, 255, 0) if eng_state == "attentive" else (
                 (0, 200, 255) if eng_state == "neutral" else (0, 80, 255)
             )
             cv2.putText(
-                frame, str(eng_label), (x, min(y + h + 18, fh - 5)),
+                frame, eng_label, (x, min(y + h + 18, fh - 5)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, eng_color, 2,
             )
     count = n if n else len(boxes)
@@ -1082,8 +1138,59 @@ async def debug_mjpeg(
     def mjpeg_frames():
         boundary = b"--frame\r\n"
         ct = b"Content-Type: image/jpeg\r\n\r\n"
+        demo_src = None
+        if is_demo():
+            from app.vision.frame_source import DemoFrameSource
+
+            demo_src = DemoFrameSource(camera_id="demo-cam", fps=max(fps, 5.0))
+            demo_src.open()
         while True:
-            if not orchestrator or camera_id not in (orchestrator.readers or {}):
+            if is_demo() and demo_src is not None:
+                pkt = demo_src.read()
+                if pkt is None:
+                    time.sleep(0.05)
+                    continue
+                frame = pkt.frame.copy()
+                cv2.putText(
+                    frame,
+                    "DEMO — NAO E SUA WEBCAM",
+                    (24, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    (0, 200, 255),
+                    2,
+                )
+                cv2.putText(
+                    frame,
+                    "RUNTIME_MODE=demo (dados simulados)",
+                    (24, 80),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (180, 180, 180),
+                    2,
+                )
+                # Desenha “alunos” fictícios do snapshot se disponível
+                try:
+                    from app.demo.engine import get_demo_engine
+
+                    for tr in get_demo_engine().snapshot().get("tracks", []):
+                        x, y, w, h = tr.get("bbox") or [0, 0, 80, 100]
+                        cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), (42, 157, 143), 2)
+                        name = (tr.get("full_name") or "")[:18]
+                        cv2.putText(
+                            frame,
+                            name,
+                            (int(x), max(20, int(y) - 8)),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.45,
+                            (231, 236, 243),
+                            1,
+                        )
+                except Exception:
+                    pass
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _DEBUG_SNAPSHOT_JPEG_QUALITY])
+                chunk = buf.tobytes() if ok else _debug_placeholder_jpeg("demo encode error")
+            elif not orchestrator or camera_id not in (orchestrator.readers or {}):
                 chunk = _debug_placeholder_jpeg("Aguardando camera ou modelos...")
             else:
                 try:

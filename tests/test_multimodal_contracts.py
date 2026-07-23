@@ -77,10 +77,16 @@ def test_phone_never_confirmed():
     s1 = assoc.update(now=0.0, person_tracks=people, phone_boxes=phones)[0]
     s2 = assoc.update(now=2.0, person_tracks=people, phone_boxes=phones)[0]
     s3 = assoc.update(now=5.0, person_tracks=people, phone_boxes=phones)[0]
-    assert s2.interaction_level in ("none", "possible", "probable")
-    assert s3.interaction_level in ("possible", "probable")
-    assert s1.interaction_level != "confirmed"
-    assert s3.interaction_level != "confirmed"
+    assert s2.interaction_level in (
+        "none",
+        "phone_visible",
+        "phone_near_person",
+        "possible_phone_interaction",
+        "probable_phone_interaction",
+    )
+    assert s3.interaction_level in ("possible_phone_interaction", "probable_phone_interaction", "phone_near_person")
+    assert "confirmed" not in s1.interaction_level
+    assert "confirmed" not in s3.interaction_level
 
 
 def test_low_quality_not_low_engagement():
@@ -99,7 +105,7 @@ def test_observation_quality_empty():
 
 def test_fusion_phone_and_provenance():
     eng = FusionEngine(Provenance(provider="test", model_name="m", model_version="1"))
-    ev = eng.interpret_phone("probable", 0.8, 0.7, "t1")
+    ev = eng.interpret_phone("probable_phone_interaction", 0.8, 0.7, "t1")
     assert ev is not None
     assert ev.severity == "probable"
     d = eng.to_shadow_dict(ev)

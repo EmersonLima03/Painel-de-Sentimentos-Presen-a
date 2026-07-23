@@ -13,7 +13,9 @@ class PhoneAssociationState:
     person_track_id: str
     phone_visible: bool = False
     phone_near_person: bool = False
-    interaction_level: str = "none"  # none | possible | probable
+    # Automáticos: phone_visible | phone_near_person | possible_phone_interaction | probable_phone_interaction | none
+    # Nunca: confirmed_phone_interaction
+    interaction_level: str = "none"
     duration_seconds: float = 0.0
     confidence: float = 0.0
     reasons: List[str] = field(default_factory=list)
@@ -59,8 +61,9 @@ class PersonPhoneAssociator:
         phone_boxes: List[Tuple[float, float, float, float, float]],
     ) -> List[PhoneAssociationState]:
         """
-        interaction_level: none | possible | probable
-        Nunca retorna 'confirmed' — confirmação é review_status.
+        interaction_level:
+          none | phone_visible | phone_near_person | possible_phone_interaction | probable_phone_interaction
+        Nunca retorna confirmed_phone_interaction — confirmação é review_status.
         """
         out: List[PhoneAssociationState] = []
         active_near = set()
@@ -82,14 +85,14 @@ class PersonPhoneAssociator:
                     self._near_since[pid] = now
                 dur = now - self._near_since[pid]
                 reasons.append(f"near_dist_norm={best:.2f}")
-                level = "none"
-                conf = 0.3
+                level = "phone_near_person"
+                conf = 0.35
                 if dur >= self.probable_seconds:
-                    level = "probable"
+                    level = "probable_phone_interaction"
                     conf = 0.75
                     reasons.append("persistent_near_phone")
                 elif dur >= self.minimum_interaction_seconds:
-                    level = "possible"
+                    level = "possible_phone_interaction"
                     conf = 0.55
                     reasons.append("min_interaction_duration")
                 out.append(
@@ -105,14 +108,15 @@ class PersonPhoneAssociator:
                 )
             else:
                 self._near_since.pop(pid, None)
+                level = "phone_visible" if phone_visible else "none"
                 out.append(
                     PhoneAssociationState(
                         person_track_id=pid,
                         phone_visible=phone_visible,
                         phone_near_person=False,
-                        interaction_level="none",
+                        interaction_level=level,
                         duration_seconds=0.0,
-                        confidence=0.2 if phone_visible else 0.0,
+                        confidence=0.25 if phone_visible else 0.0,
                         reasons=["phone_visible_only"] if phone_visible else [],
                     )
                 )

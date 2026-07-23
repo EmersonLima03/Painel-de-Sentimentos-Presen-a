@@ -128,6 +128,12 @@ class Settings(BaseSettings):
     phone_yolo_enabled: bool = Field(default=False, env="PHONE_YOLO_ENABLED")
     phone_yolo_model_path: str = Field(default="", env="PHONE_YOLO_MODEL_PATH")
 
+    # Runtime: demo | offline | rtsp
+    runtime_mode: str = Field(default="demo", env="RUNTIME_MODE")
+    demo_db_path: str = Field(default="./data/demo/dulino_edge_demo.db", env="DEMO_DB_PATH")
+    experimental_sqlite_005_enabled: bool = Field(default=False, env="EXPERIMENTAL_SQLITE_005")
+    longitudinal_approval_recorded: bool = Field(default=False, env="LONGITUDINAL_APPROVAL_RECORDED")
+
     # Módulos multimodais (disabled|debug|shadow|production)
     module_expression_mode: str = Field(default="disabled", env="MODULE_EXPRESSION_MODE")
     module_face_landmarks_mode: str = Field(default="disabled", env="MODULE_FACE_LANDMARKS_MODE")
@@ -135,6 +141,9 @@ class Settings(BaseSettings):
     module_phone_mode: str = Field(default="disabled", env="MODULE_PHONE_MODE")
     module_pose_mode: str = Field(default="disabled", env="MODULE_POSE_MODE")
     module_temporal_fusion_mode: str = Field(default="disabled", env="MODULE_TEMPORAL_FUSION_MODE")
+    module_educational_dashboard_mode: str = Field(
+        default="production", env="MODULE_EDUCATIONAL_DASHBOARD_MODE"
+    )
     module_lxp_mode: str = Field(default="disabled", env="MODULE_LXP_MODE")
     expression_provider: str = Field(default="none", env="EXPRESSION_PROVIDER")
     debug_vision_allow_remote: bool = Field(default=False, env="DEBUG_VISION_ALLOW_REMOTE")
@@ -143,6 +152,22 @@ class Settings(BaseSettings):
     camera_calibration_version: str = Field(
         default="cam-vip-5440-01-uncalibrated", env="CAMERA_CALIBRATION_VERSION"
     )
+
+    # Analytics intervals / thresholds (runtime real)
+    analytics_quality_interval_seconds: float = Field(default=0.5, env="ANALYTICS_QUALITY_INTERVAL")
+    analytics_landmarks_interval_seconds: float = Field(default=0.5, env="ANALYTICS_LANDMARKS_INTERVAL")
+    expression_interval_seconds: float = Field(default=1.0, env="EXPRESSION_INTERVAL")
+    expression_window_seconds: float = Field(default=8.0, env="EXPRESSION_WINDOW")
+    expression_minimum_samples: int = Field(default=4, env="EXPRESSION_MIN_SAMPLES")
+    expression_minimum_confidence: float = Field(default=0.60, env="EXPRESSION_MIN_CONF")
+    expression_minimum_observation_quality: float = Field(default=0.55, env="EXPRESSION_MIN_QUALITY")
+    visual_attention_interval_seconds: float = Field(default=0.5, env="ATTENTION_INTERVAL")
+    visual_attention_window_seconds: float = Field(default=10.0, env="ATTENTION_WINDOW")
+    visual_attention_minimum_observation_quality: float = Field(default=0.55, env="ATTENTION_MIN_QUALITY")
+    drowsiness_possible_after_seconds: float = Field(default=6.0, env="DROWSINESS_POSSIBLE_AFTER")
+    drowsiness_probable_after_seconds: float = Field(default=10.0, env="DROWSINESS_PROBABLE_AFTER")
+    drowsiness_minimum_observation_quality: float = Field(default=0.60, env="DROWSINESS_MIN_QUALITY")
+    drowsiness_cooldown_seconds: float = Field(default=20.0, env="DROWSINESS_COOLDOWN")
 
     class Config:
         env_file = ".env"
@@ -305,6 +330,20 @@ class Settings(BaseSettings):
             if "dir" in bk:
                 object.__setattr__(self, "backup_dir", str(bk["dir"]))
 
+        # Runtime / experimental
+        if "runtime" in config and isinstance(config["runtime"], dict):
+            rm = config["runtime"]
+            if "mode" in rm:
+                object.__setattr__(self, "runtime_mode", str(rm["mode"]).lower())
+        if "experimental" in config and isinstance(config["experimental"], dict):
+            exp = config["experimental"]
+            if "sqlite_005_enabled" in exp:
+                object.__setattr__(self, "experimental_sqlite_005_enabled", bool(exp["sqlite_005_enabled"]))
+            if "longitudinal_approval_recorded" in exp:
+                object.__setattr__(
+                    self, "longitudinal_approval_recorded", bool(exp["longitudinal_approval_recorded"])
+                )
+
         # Módulos (modos) + provenance
         if "modules" in config:
             mods = config["modules"] or {}
@@ -315,6 +354,7 @@ class Settings(BaseSettings):
                 "phone": "module_phone_mode",
                 "pose": "module_pose_mode",
                 "temporal_fusion": "module_temporal_fusion_mode",
+                "educational_dashboard": "module_educational_dashboard_mode",
                 "lxp": "module_lxp_mode",
             }
             for key, attr in mapping.items():
@@ -327,6 +367,41 @@ class Settings(BaseSettings):
             ex = config["expression"]
             if "provider" in ex:
                 object.__setattr__(self, "expression_provider", str(ex["provider"]))
+            for yk, attr in (
+                ("interval_seconds", "expression_interval_seconds"),
+                ("window_seconds", "expression_window_seconds"),
+                ("minimum_samples", "expression_minimum_samples"),
+                ("minimum_confidence", "expression_minimum_confidence"),
+                ("minimum_observation_quality", "expression_minimum_observation_quality"),
+            ):
+                if yk in ex:
+                    object.__setattr__(self, attr, type(getattr(self, attr))(ex[yk]))
+        if "analytics" in config and isinstance(config["analytics"], dict):
+            an = config["analytics"]
+            if "quality_interval_seconds" in an:
+                object.__setattr__(self, "analytics_quality_interval_seconds", float(an["quality_interval_seconds"]))
+            if "landmarks_interval_seconds" in an:
+                object.__setattr__(
+                    self, "analytics_landmarks_interval_seconds", float(an["landmarks_interval_seconds"])
+                )
+        if "visual_attention" in config and isinstance(config["visual_attention"], dict):
+            va = config["visual_attention"]
+            if "window_seconds" in va:
+                object.__setattr__(self, "visual_attention_window_seconds", float(va["window_seconds"]))
+            if "minimum_observation_quality" in va:
+                object.__setattr__(
+                    self, "visual_attention_minimum_observation_quality", float(va["minimum_observation_quality"])
+                )
+        if "drowsiness" in config and isinstance(config["drowsiness"], dict):
+            dr = config["drowsiness"]
+            for yk, attr in (
+                ("possible_after_seconds", "drowsiness_possible_after_seconds"),
+                ("probable_after_seconds", "drowsiness_probable_after_seconds"),
+                ("minimum_observation_quality", "drowsiness_minimum_observation_quality"),
+                ("cooldown_seconds", "drowsiness_cooldown_seconds"),
+            ):
+                if yk in dr:
+                    object.__setattr__(self, attr, float(dr[yk]))
         if "provenance" in config and isinstance(config["provenance"], dict):
             pr = config["provenance"]
             for k, attr in (
@@ -337,8 +412,29 @@ class Settings(BaseSettings):
                 if k in pr:
                     object.__setattr__(self, attr, str(pr[k]))
         if "privacy" in config and isinstance(config["privacy"], dict):
-            # reserved for future evidence flags
-            pass
+            priv = config["privacy"]
+            if "demo_db_path" in priv and not os.environ.get("DEMO_DB_PATH"):
+                object.__setattr__(self, "demo_db_path", str(priv["demo_db_path"]))
+
+        self._validate_inference_module_modes()
+
+    def _validate_inference_module_modes(self) -> None:
+        """Inferência real não pode ir a production sem aprovação longitudinal."""
+        from app.module_modes import parse_module_mode, ModuleMode
+
+        inference_attrs = (
+            "module_expression_mode",
+            "module_face_landmarks_mode",
+            "module_person_tracking_mode",
+            "module_phone_mode",
+            "module_pose_mode",
+            "module_temporal_fusion_mode",
+        )
+        for attr in inference_attrs:
+            mode = parse_module_mode(getattr(self, attr, "disabled"))
+            if mode == ModuleMode.PRODUCTION and not self.longitudinal_approval_recorded:
+                # Rebaixa silenciosamente para shadow (não derruba app)
+                object.__setattr__(self, attr, ModuleMode.SHADOW.value)
 
 
 # Singleton global

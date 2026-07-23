@@ -104,6 +104,13 @@ class AsyncVideoCapture:
             self._last_error = "Failed to read initial frame"
             return False
 
+        # Alguns índices Windows abrem mas entregam frame preto (IR/virtual/privacy).
+        if float(np.mean(frame)) < 3.0:
+            cap.release()
+            self._last_error = f"device {index} returned black frame"
+            logger.warning("async_capture_black_frame", device_index=index)
+            return False
+
         self._cap = cap
         self.device_index = index
         self._connected = True
@@ -122,15 +129,19 @@ class AsyncVideoCapture:
         return True
 
     def connect(self) -> bool:
-        if self._open_device(self.device_index):
-            return True
-        if self.device_index != self.default_index:
-            logger.warning(
-                "async_capture_fallback",
-                from_index=self.device_index,
-                to_index=self.default_index,
-            )
-            return self._open_device(self.default_index)
+        candidates = []
+        for i in (self.device_index, self.default_index, 0, 1, 2, 3):
+            if i not in candidates:
+                candidates.append(i)
+        for idx in candidates:
+            if self._open_device(idx):
+                if idx != self.device_index:
+                    logger.warning(
+                        "async_capture_fallback",
+                        from_index=self.device_index,
+                        to_index=idx,
+                    )
+                return True
         self._connected = False
         return False
 

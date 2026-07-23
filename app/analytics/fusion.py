@@ -31,7 +31,14 @@ class FusionEngine:
         )
 
     def interpret_phone(self, level: str, confidence: float, quality: float, track_id: str) -> Optional[InterpretedEvent]:
-        if level not in ("possible", "probable"):
+        # Aceita aliases curtos e nomes canônicos
+        norm = {
+            "possible": "possible_phone_interaction",
+            "probable": "probable_phone_interaction",
+            "possible_phone_interaction": "possible_phone_interaction",
+            "probable_phone_interaction": "probable_phone_interaction",
+        }.get(level)
+        if not norm:
             return None
         if quality < 0.45:
             return InterpretedEvent(
@@ -41,17 +48,18 @@ class FusionEngine:
                 student_id=None,
                 confidence=confidence,
                 observation_quality=quality,
-                reasons=["low_observation_quality"],
+                reasons=["insufficient_observation_quality"],
                 provenance=self.provenance,
             )
+        sev = "probable" if "probable" in norm else "possible"
         return InterpretedEvent(
-            event_type="possible_phone_interaction",
-            severity=level,
+            event_type=norm,
+            severity=sev,
             track_id=track_id,
             student_id=None,
             confidence=confidence,
             observation_quality=quality,
-            reasons=["temporal_phone_association"],
+            reasons=[f"level={level}"],
             provenance=self.provenance,
         )
 

@@ -1,5 +1,12 @@
 """
-Agregador temporal — impede que um único frame gere alertas definitivos.
+Agregador temporal legado — adapter/fallback.
+
+Motor oficial de fusão/eventos analíticos: `app.analytics.fusion.FusionEngine`
+(+ regras em `app.analytics.attention_drowsiness`).
+
+Este módulo permanece para o pipeline behavioral legado de presença/engajamento
+e NÃO deve emitir eventos equivalentes em paralelo ao FusionEngine no mesmo runtime.
+Status: deprecated-as-primary / adapter.
 """
 
 from __future__ import annotations

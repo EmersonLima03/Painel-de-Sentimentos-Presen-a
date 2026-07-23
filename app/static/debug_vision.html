@@ -4,41 +4,100 @@
   <meta charset="utf-8" />
   <title>Debug Vision — técnico</title>
   <style>
-    :root { --bg:#0f1419; --panel:#1a2332; --text:#e7ecf3; --muted:#8b9bb4; --ok:#3d9a6a; --warn:#c9a227; }
+    :root { --bg:#0f1419; --panel:#1a2332; --text:#e7ecf3; --muted:#8b9bb4; --ok:#3d9a6a; --warn:#c9a227; --err:#e76f51; --line:#2a3548; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); }
-    header { padding:12px 20px; border-bottom:1px solid #2a3548; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+    header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
     h1 { font-size:1.1rem; margin:0; font-weight:600; }
     .badge { font-size:0.75rem; color:var(--muted); }
-    main { display:grid; grid-template-columns: 1.2fr 1fr; gap:12px; padding:12px; }
-    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    main { display:grid; grid-template-columns: 1.1fr 1.2fr; gap:12px; padding:12px; }
+    @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
     .panel { background:var(--panel); border-radius:8px; padding:12px; min-height:120px; }
     .panel h2 { margin:0 0 8px; font-size:0.9rem; color:var(--muted); font-weight:600; }
     img#preview { width:100%; max-height:420px; object-fit:contain; background:#000; border-radius:6px; }
-    pre { font-size:0.75rem; overflow:auto; max-height:360px; margin:0; white-space:pre-wrap; }
+    pre { font-size:0.72rem; overflow:auto; max-height:280px; margin:0; white-space:pre-wrap; }
     .warn { color:var(--warn); font-size:0.8rem; }
     .ok { color:var(--ok); }
+    .track { border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px; }
+    .track h3 { margin:0 0 8px; font-size:0.95rem; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:6px 12px; font-size:0.82rem; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.7rem; margin-right:4px; border:1px solid var(--line); }
+    .pill.ok { background:#1b3a2f; color:#8fd6b5; }
+    .pill.warn { background:#3a3218; color:#e9c46a; }
+    .pill.err { background:#3a1f1a; color:#f4a261; }
+    .pill.muted { color:var(--muted); }
+    details { margin-top:8px; }
+    .manual { font-size:0.78rem; color:var(--muted); margin-top:8px; }
   </style>
 </head>
 <body>
   <header>
     <h1>/debug/vision</h1>
-    <span class="badge">localhost · sem embeddings · sem RTSP completo · sem persistência de frames</span>
+    <span class="badge">localhost · UTF-8 · sem embeddings · sem RTSP completo</span>
     <span id="status" class="badge">…</span>
   </header>
   <main>
     <section class="panel">
-      <h2>Preview (MJPEG existente)</h2>
-      <img id="preview" alt="preview" src="/debug/mjpeg" />
-      <p class="warn">Overlays emocionais por rosto desativados neste painel.</p>
+      <h2>Preview (MJPEG)</h2>
+      <img id="preview" alt="preview" src="/debug/mjpeg?camera_id=cam-web&overlay=1&fps=15" />
+      <p class="warn">Overlay em ASCII (cv2.putText). API/HTML em UTF-8.</p>
+      <div class="manual">
+        <strong>Roteiro manual:</strong> frente 10s · esquerda 5s · direita 5s · baixo 2s · baixo 10s ·
+        piscar · olhos 2s · olhos+inclinação 10s · sorriso 5s · neutro 5s · celular mesa · celular olhar · sair · voltar
+      </div>
     </section>
     <section class="panel">
-      <h2>Tracks / qualidade / latências / sinais</h2>
-      <pre id="payload">Carregando…</pre>
+      <h2>Tracks analíticos</h2>
+      <div id="cards">Carregando…</div>
+      <details>
+        <summary>JSON bruto</summary>
+        <pre id="payload"></pre>
+      </details>
     </section>
   </main>
   <script>
     const token = localStorage.getItem("api_token") || "";
+    function pill(status) {
+      const s = (status || "sem_dado").toLowerCase();
+      let cls = "muted";
+      if (["available", "observable", "high", "none", "ok"].includes(s)) cls = "ok";
+      else if (["inconclusive", "low_quality", "moderate", "possible", "low"].includes(s)) cls = "warn";
+      else if (["unavailable", "error", "disabled", "not_implemented"].includes(s)) cls = "err";
+      return `<span class="pill ${cls}">${status || "sem dado"}</span>`;
+    }
+    function fmt(v) {
+      if (v === null || v === undefined) return "null";
+      if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(3);
+      return String(v);
+    }
+    function renderTrack(t) {
+      const q = t.observation_quality || {};
+      const f = t.facial_features || {};
+      const e = t.expression || {};
+      const a = t.visual_attention || {};
+      const d = t.drowsiness || {};
+      const p = t.phone || {};
+      const lat = t.latencies_ms || {};
+      return `<div class="track">
+        <h3>${t.full_name || t.student_id || t.track_id || "?"}
+          ${pill(q.status)} ${pill(f.status)} ${pill(e.status)} ${pill(a.state || a.status)} ${pill(d.state || d.status)} ${pill(p.status)}
+        </h3>
+        <div class="grid">
+          <div>identidade: <strong>${t.student_id || "—"}</strong> (${fmt(t.identity_confidence ?? t.confidence)})</div>
+          <div>provider landmarks: ${f.provider || "—"}</div>
+          <div>overall quality: ${fmt(q.overall_score)} · size ${fmt(q.face_size_score)} · sharp ${fmt(q.sharpness_score)} · illum ${fmt(q.illumination_score)}</div>
+          <div>olhos: L ${fmt(f.left_eye_openness)} R ${fmt(f.right_eye_openness)} avg ${fmt(f.average_eye_openness)}</div>
+          <div>boca: ${fmt(f.mouth_open_score)} · yawn ${fmt(f.possible_yawn_score)}</div>
+          <div>pose: yaw ${fmt(f.yaw)} pitch ${fmt(f.pitch)} roll ${fmt(f.roll)}</div>
+          <div>expressão: ${e.smoothed_display_pt || e.smoothed_state || e.status || "—"} (raw ${e.raw_label || "—"}) conf ${fmt(e.confidence)}</div>
+          <div>atenção: ${a.state || a.status || "—"} · ${fmt(a.confidence)} · ${fmt(a.duration_seconds)}s</div>
+          <div>sonolência: ${d.state || d.status || "—"} · ${fmt(d.duration_seconds)}s</div>
+          <div>celular: ${p.state || p.status || "—"}</div>
+          <div>latências ms: q ${fmt(lat.quality)} · lm ${fmt(lat.landmarks)} · expr ${fmt(lat.expression)} · total ${fmt(lat.total_analytics)}</div>
+          <div>reasons: ${(q.reasons || []).join(", ") || "—"}</div>
+        </div>
+      </div>`;
+    }
     async function refresh() {
       try {
         const headers = {};
@@ -50,13 +109,17 @@
         }
         const data = await r.json();
         document.getElementById("status").textContent = "ok · " + new Date().toLocaleTimeString();
+        const tracks = data.tracks || [];
+        document.getElementById("cards").innerHTML = tracks.length
+          ? tracks.map(renderTrack).join("")
+          : "<p class='warn'>Nenhum track (lista vazia = ninguém no frame).</p>";
         document.getElementById("payload").textContent = JSON.stringify(data, null, 2);
       } catch (e) {
         document.getElementById("status").textContent = "erro: " + e;
       }
     }
     refresh();
-    setInterval(refresh, 2000);
+    setInterval(refresh, 1500);
   </script>
 </body>
 </html>

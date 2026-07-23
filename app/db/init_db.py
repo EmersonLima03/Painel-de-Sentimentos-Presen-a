@@ -42,12 +42,14 @@ def init_database(*, apply_experimental_005: bool | None = None) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     if apply_experimental_005 is None:
-        apply_experimental_005 = os.environ.get("EXPERIMENTAL_SQLITE_005", "").strip() in (
+        env_on = os.environ.get("EXPERIMENTAL_SQLITE_005", "").strip() in (
             "1",
             "true",
             "True",
             "yes",
         )
+        cfg_on = bool(getattr(settings, "experimental_sqlite_005_enabled", False))
+        apply_experimental_005 = env_on or cfg_on
 
     if db_path.exists():
         try:
