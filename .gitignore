@@ -35,6 +35,8 @@ wheels/
 data/**
 !data/spike/
 !data/spike/README.md
+!data/trackers/
+!data/trackers/*.yaml
 validation_dataset/**
 !validation_dataset/README.md
 
