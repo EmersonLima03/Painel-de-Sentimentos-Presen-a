@@ -2,40 +2,38 @@
 
 ## Estado atual por módulo
 
-Ver tabela em [README.md](README.md). Atualização 2026-07-23:
-
-- **Conectado no runtime RTSP/webcam:** quality, landmarks, expressão FER (ou unavailable), atenção, sonolência, phone status explícito via `RealtimeAnalyticsEngine`.
-- **Testado automatizado:** 62 pytest; typecheck/build frontend.
-- **Testado na webcam:** presença já validada localmente; analytics depende de reinício do servidor com o código novo — **sem declaração de acurácia**.
-- Providers reais: **experimental / shadow / não aprovado para produção**.
+- **Conectado e validado na webcam (cam-web):** presença, observation quality, MediaPipe Tasks landmarks, expressão ONNX, atenção/sonolência, YOLO celular, eventos temporais, WS RTSP, debug vision.
+- **Person-first (analytics):** YOLO person → ByteTrack bruto → **StablePersonTrackManager** (ID estável sob oclusão); IdentityBinding TTL/swap; Pose IMAGE; `phone_detector` debug.
+- **Painel de validação controlada:** cenários extras (oclusão TTL, swap, cabeça≠sono, celular mesa, cruzamento).
+- **Testado automatizado:** `test_person_centric_pipeline` + regressão de presença; typecheck/build frontend.
 - Intelbras / dataset rotulado / longitudinal: **pendentes**.
 
 ## Bloqueios atuais
 
-1. Credenciais RTSP / câmera alcançável  
-2. Corpus consentido para spike offline  
-3. Benchmark FER / HSEmotion / DeepFace  
-4. Validação longitudinal (`longitudinal_approval_recorded`)  
-5. Spec HTTP do LXP (sem `HttpLXPClient` até lá)  
+1. TensorFlow completo não instalado (disco) — FER via ONNX  
+2. Corpus consentido / longitudinal  
+3. Spec HTTP do LXP  
+4. Validação de campo Intelbras  
+5. Calibração YOLO celular só após amostras reais em `/debug/vision` (`phone_detector`)  
 
 ## Próximas etapas (ordem)
 
-1. Configurar RTSP via env (sem Git)  
-2. Capturar corpus consentido  
-3. Benchmark providers de expressão em ambiente isolado  
-4. Validar tracking / binding em câmera  
-5. Validar associação de celular  
-6. Calibrar sonolência aparente  
+1. Validar 1 pessoa (track + TTL + pose + celular) na webcam  
+2. Só então 2 / 4 / 8 pessoas e cruzamentos  
+3. Configurar RTSP via env (sem Git)  
+4. Capturar corpus consentido  
+5. Benchmark providers de expressão em ambiente isolado  
+6. Calibrar threshold celular com amostras  
 7. Medir CPU/RAM/FPS/latência **em hardware real**  
-8. Validar dashboard em aula piloto  
-9. Promover módulos selecionados para **shadow**  
-10. Validação longitudinal  
-11. Production seletiva  
-12. Integração LXP real  
+8. Shadow → longitudinal → production seletiva  
+9. Integração LXP real  
 
 ## Decisões arquiteturais vigentes
 
 - Presença isolada de analytics  
+- Person track ≠ face track ≠ identidade  
+- Margem de identidade nunca inventada  
+- Cabeça baixa / celular visível / rosto oculto ≠ labels automáticos de sono/desatenção/uso  
 - Providers pluggable + lazy import  
 - Shadow antes de production  
 - Baixa qualidade → inconclusivo (não baixo engajamento)  

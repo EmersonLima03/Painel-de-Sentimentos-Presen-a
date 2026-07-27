@@ -10,10 +10,19 @@
 | RAM | ≥ 2 GB (recomendado ≥ 8 GB para visão) |
 | GPU | Não obrigatória |
 
-Dependências principais: FastAPI, OpenCV, NumPy, SQLAlchemy, FaceNet/torch, YuNet, FAISS (opcional), MediaPipe (parcial).  
-Extras isolados: `requirements-emotion.txt`, `requirements-spike-hsemotion.txt`, `requirements-spike-deepface.txt` — **não** instalar no venv core sem necessidade.
+Dependências principais: FastAPI, OpenCV, NumPy, SQLAlchemy, FaceNet/torch, YuNet, FAISS (opcional), **MediaPipe Tasks** (Face Landmarker), **onnxruntime** (FER emotion-ferplus), **ultralytics** (YOLO celular).  
+Extras isolados: `requirements-emotion.txt`, `requirements-spike-hsemotion.txt`, `requirements-spike-deepface.txt` — **não** instalar no venv core sem necessidade. TensorFlow completo é opcional (FER usa ONNX quando TF não cabe no disco).
 
-Hardware conhecido de lab: notebook i5-class + webcam USB/notebook; Intelbras VIP-5440-IA (rede) — **ainda sem validação de campo** neste repositório.
+Hardware conhecido de lab: notebook i5-class + webcam USB/notebook (**cam-web index 1 validada**); Intelbras VIP-5440-IA (rede) — **ainda sem validação de campo** neste repositório.
+
+### Modelos locais necessários (analytics)
+
+| Modelo | Path | Uso |
+|--------|------|-----|
+| Face Landmarker | `data/mediapipe_models/face_landmarker.task` | olhos/boca/yaw/pitch/roll |
+| Emotion FER+ ONNX | `data/models/emotion-ferplus-8.onnx` | expressão aparente (fallback sem TF) |
+| Mini-XCEPTION hdf5 | `data/models/_mini_XCEPTION.106-0.65.hdf5` | FER legado se TensorFlow disponível |
+| YOLOv8n | `data/models/yolov8n.pt` | celular (`phone_yolo.enabled: true`) |
 
 ## Instalação backend (PowerShell)
 
@@ -133,10 +142,11 @@ Aguarde carga de YuNet/FaceNet (~20–40s na primeira subida).
 |------|-----|
 | `/dashboard` | Educacional |
 | `/dashboard-legacy` | Legado |
-| `/debug/vision` | Técnico |
+| `/debug/vision` | Técnico + aba **Validação controlada** |
 | `/docs` | OpenAPI |
 | `/api/v1/system/health` | Saúde |
 | `/api/v1/live/status` | Status live |
+| `/api/v1/validation/sessions` | Sessões de validação manual |
 
 ## Banco de dados
 
@@ -144,6 +154,7 @@ Aguarde carga de YuNet/FaceNet (~20–40s na primeira subida).
 |------|----------|
 | `data/dulino_edge.db` | Produção local (presença, fila, alunos) |
 | `data/demo/dulino_edge_demo.db` | Somente demo |
+| `data/validation/validation.db` | Sessões/etapas/amostras de validação controlada (isolado) |
 | `data/backups/` | Backups manuais / DAT |
 
 **Migration 005:** gated. Rollback em cópia:

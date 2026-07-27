@@ -19,7 +19,10 @@ Biometria facial é **dado sensível**. Finalidade atual: presença educacional 
 | RTSP/credenciais fora de respostas | Sim (não logar URL completa) |
 | Variáveis de ambiente para segredos | Sim |
 | Banco demo isolado do real | Sim |
+| Banco de validação isolado (`validation.db`) | Sim — sem frames/embeddings; não altera attendance |
 | Review humana para confirmação de eventos | Sim (celular nunca auto-confirmed) |
+| Identidade analítica com TTL (não eterna sem rosto) | Sim — `IdentityBinding`; **não** grava attendance |
+| Sem inferência de identidade por roupa/corpo | Sim (contrato person-first) |
 | Proibição de raça/gênero/idade/etnia nos providers DeepFace | Contrato: só `emotion` |
 | Auth por token opcional | Sim |
 | Testes não tocam DB prod | Sim |

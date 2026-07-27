@@ -12,11 +12,13 @@ from app.vision.observation_quality import compute_observation_quality
 class _FakeSettings:
     module_expression_mode = "debug"
     module_face_landmarks_mode = "debug"
-    module_pose_mode = "debug"
+    module_pose_mode = "disabled"
     module_temporal_fusion_mode = "debug"
     module_phone_mode = "debug"
     phone_yolo_enabled = False
     expression_provider = "fer_legacy"
+    pose_body_enabled = False
+    person_tracking_enabled = True
     analytics_quality_interval_seconds = 0.0
     analytics_landmarks_interval_seconds = 0.0
     expression_interval_seconds = 0.0
@@ -31,6 +33,12 @@ class _FakeSettings:
     drowsiness_probable_after_seconds = 10
     drowsiness_minimum_observation_quality = 0.3
     drowsiness_cooldown_seconds = 20
+    identity_face_missing_ttl_seconds = 12.0
+    identity_minimum_new_confidence = 0.75
+    identity_minimum_margin = 0.10
+    identity_confirmations_before_switch = 3
+    identity_switch_cooldown_seconds = 10.0
+    identity_confidence_decay_per_second = 0.04
 
 
 def _face(mean=140, blur_noise=False, size=120):

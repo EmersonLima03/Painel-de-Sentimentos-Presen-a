@@ -169,6 +169,9 @@ class PipelineOrchestrator:
         self._analytics_tracks: Dict[str, List[dict]] = {}
         self.last_analytics_sample: Dict[str, float] = {}
         self._analytics_counts: Dict[str, dict] = {}
+        self._person_trackers: Dict[str, object] = {}
+        self._overlay_person_tracks: Dict[str, List[dict]] = {}
+        self._person_tracker_debug: Dict[str, dict] = {}
 
     def initialize(self) -> None:
         logger.info("orchestrator_initializing")
@@ -439,59 +442,254 @@ class PipelineOrchestrator:
                     "phone": getattr(self.settings, "module_phone_mode", "disabled"),
                     "pose": getattr(self.settings, "module_pose_mode", "disabled"),
                     "temporal_fusion": getattr(self.settings, "module_temporal_fusion_mode", "disabled"),
+                    "person_tracking": getattr(self.settings, "module_person_tracking_mode", "disabled"),
                 },
                 camera_status="webcam_or_rtsp",
                 is_simulated=False,
                 runtime_mode="rtsp",
-                classroom_counts=counts,
+                classroom_counts={
+                    **counts,
+                    "person_detector": self._person_tracker_debug.get(camera_id),
+                },
             )
         except Exception:
             pass
+
+    def _ensure_person_tracker(self, camera_id: str):
+        if camera_id in self._person_trackers:
+            return self._person_trackers[camera_id]
+        if not getattr(self.settings, "person_tracking_enabled", True):
+            return None
+        mode = str(getattr(self.settings, "module_person_tracking_mode", "disabled") or "disabled").lower()
+        if mode == "disabled":
+            return None
+        from app.vision.person_tracker import create_person_tracker
+
+        model = getattr(self.settings, "person_tracking_model_path", None) or "data/models/yolov8n.pt"
+        tracker = create_person_tracker(
+            camera_id,
+            prefer_bytetrack=bool(getattr(self.settings, "person_tracking_prefer_bytetrack", True)),
+            model_path=str(model),
+            ttl_seconds=float(getattr(self.settings, "person_tracking_ttl_seconds", 8.0) or 8.0),
+            max_time_lost_seconds=float(
+                getattr(self.settings, "person_tracking_max_time_lost_seconds", 8.0) or 8.0
+            ),
+            minimum_detection_confidence=float(
+                getattr(self.settings, "person_tracking_min_detection_confidence", 0.25) or 0.25
+            ),
+            minimum_reassociation_iou=float(
+                getattr(self.settings, "person_tracking_min_reassociation_iou", 0.30) or 0.30
+            ),
+            maximum_center_distance_ratio=float(
+                getattr(self.settings, "person_tracking_max_center_distance_ratio", 0.35) or 0.35
+            ),
+            tracker_yaml=getattr(self.settings, "person_tracking_bytetrack_yaml", None),
+        )
+        self._person_trackers[camera_id] = tracker
+        return tracker
+
+    def get_overlay_person_tracks(self, camera_id: str) -> List[dict]:
+        return list(self._overlay_person_tracks.get(camera_id) or [])
+
+    def get_person_tracker_debug(self, camera_id: str) -> dict:
+        return dict(self._person_tracker_debug.get(camera_id) or {})
 
     def _ensure_analytics_engine(self):
         if self._analytics_engine is None:
             from app.pipeline.analytics_track import RealtimeAnalyticsEngine
 
             self._analytics_engine = RealtimeAnalyticsEngine(self.settings)
+            self._analytics_engine.set_event_sink(self._on_analytics_event)
         return self._analytics_engine
 
+    def _on_analytics_event(self, lifecycle: str, event: dict) -> None:
+        """Persiste eventos do motor oficial (sem duplicar agregador legado)."""
+        try:
+            from datetime import datetime
+            import json
+            from app.db.models import BehavioralEvent
+            from app.utils.ids import generate_event_id
+
+            room_id = self.settings.room_id if hasattr(self.settings, "room_id") else "DEV"
+            if self.settings.cameras:
+                room_id = self.settings.cameras[0].room_id or room_id
+
+            session = get_session()
+            try:
+                beh_repo = BehavioralEventRepository(session)
+                event_repo = EventRepository(session)
+                event_id = event.get("event_id") or generate_event_id()
+                event["event_id"] = event_id
+                started = float(event.get("started_at") or time.time())
+                ended = float(event.get("ended_at") or started)
+                if lifecycle == "opened":
+                    payload = {
+                        **event,
+                        "lifecycle": lifecycle,
+                        "disclaimer": "Indicadores estimados; não constituem diagnóstico.",
+                    }
+                    event_repo.create_event(
+                        event_id=event_id,
+                        event_type="behavioral_event",
+                        payload_json=json.dumps(payload, ensure_ascii=False, default=str),
+                    )
+                    beh_repo.create(
+                        event_id=event_id,
+                        event_type=event.get("event_type") or "behavioral",
+                        school_id=str(self.settings.school_id),
+                        room_id=str(room_id),
+                        device_id=str(self.settings.device_id),
+                        camera_id=event.get("camera_id"),
+                        session_id=None,
+                        student_id=event.get("student_id"),
+                        anonymous_track_id=event.get("track_id"),
+                        started_at=datetime.utcfromtimestamp(started),
+                        ended_at=datetime.utcfromtimestamp(ended),
+                        duration_seconds=float(event.get("duration_seconds") or 0.0),
+                        confidence=float(event.get("confidence") or 0.0),
+                        observation_quality=event.get("observation_quality"),
+                        source_model="realtime_analytics_engine",
+                        model_version="analytics-v1",
+                        status="pending_review"
+                        if event.get("requires_human_review")
+                        else (event.get("status") or "observed"),
+                        metadata_json=json.dumps(
+                            {
+                                "provenance": event.get("provenance"),
+                                "reasons": event.get("reasons"),
+                                "lifecycle": lifecycle,
+                            },
+                            ensure_ascii=False,
+                            default=str,
+                        ),
+                    )
+                elif lifecycle in ("updated", "closed"):
+                    row = session.query(BehavioralEvent).filter_by(event_id=event_id).first()
+                    if row:
+                        row.ended_at = datetime.utcfromtimestamp(ended)
+                        row.duration_seconds = float(event.get("duration_seconds") or 0.0)
+                        row.confidence = float(event.get("confidence") or row.confidence or 0.0)
+                        row.metadata_json = json.dumps(
+                            {
+                                "provenance": event.get("provenance"),
+                                "reasons": event.get("reasons"),
+                                "lifecycle": lifecycle,
+                            },
+                            ensure_ascii=False,
+                            default=str,
+                        )
+                        session.commit()
+            finally:
+                try:
+                    from app.db.init_db import close_session
+
+                    close_session(session)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning("analytics_event_persist_error", error=str(e), lifecycle=lifecycle)
+
     def _run_analytics_sync(self, camera_id: str, frame: np.ndarray) -> None:
-        """Qualidade + landmarks (+ expressão/atenção/celular conforme módulos). Não altera presença."""
+        """Person tracks + faces → analytics. Não altera presença."""
         try:
             eng = self._ensure_analytics_engine()
             matches = self.get_overlay_matches(camera_id)
             boxes = self.get_overlay_boxes(camera_id)
+
+            person_tracks = []
+            tracker_debug = {}
+            tracker = self._ensure_person_tracker(camera_id)
+            if tracker is not None:
+                # ByteTrack: detecção interna — update([], frame). Fallback detecta se preciso.
+                person_tracks = tracker.update([], frame, time.time())
+                tracker_debug = dict(getattr(tracker, "last_debug", {}) or {})
+                self._person_tracker_debug[camera_id] = tracker_debug
+                self._overlay_person_tracks[camera_id] = [
+                    {
+                        "person_track_id": p.track_id,
+                        "bbox": [
+                            int(p.bounding_box[0]),
+                            int(p.bounding_box[1]),
+                            int(p.bounding_box[2]),
+                            int(p.bounding_box[3]),
+                        ],
+                        "confidence": float(p.tracking_confidence or 0.0),
+                        "tracking_state": getattr(p, "tracking_state", "active"),
+                        "seconds_since_person_detection": getattr(
+                            p, "seconds_since_person_detection", 0.0
+                        ),
+                    }
+                    for p in person_tracks
+                ]
+
             tracks = eng.process_camera(
                 camera_id=camera_id,
                 frame=frame,
                 matches=matches,
                 boxes=boxes,
+                person_tracks=person_tracks or None,
+                person_tracker_debug=tracker_debug,
             )
             present = sum(1 for m in matches if m.get("student_id"))
             self._analytics_tracks[camera_id] = tracks
             self._analytics_counts[camera_id] = eng.classroom_counts(tracks, present)
-            # sync engagement overlay labels from attention (ASCII for putText)
+            # phones from engine debug for overlay
+            try:
+                from app.vision.phone_yolo import get_phone_detector_debug
+
+                dbg = get_phone_detector_debug()
+                self._overlay_phones[camera_id] = [
+                    tuple(d.get("bbox") or []) + (float(d.get("confidence") or 0),)
+                    for d in (dbg.get("detections") or [])
+                    if d.get("bbox")
+                ]
+            except Exception:
+                pass
             from app.pipeline.analytics_track import ascii_overlay_label
 
             per_face = []
             for t in tracks:
                 va = t.get("visual_attention") or {}
                 state = va.get("state") or "inconclusive"
+                ident = t.get("identity") or {}
+                src = ident.get("source") or "unknown"
                 label = {
                     "high": "Atencao visual alta",
                     "moderate": "Atencao visual moderada",
                     "low": "Atencao visual baixa",
-                    "inconclusive": "Atencao nao conclusiva",
-                }.get(state, "Atencao nao conclusiva")
+                    "inconclusive": "Estado inconclusivo",
+                }.get(state, "Estado inconclusivo")
                 q = t.get("observation_quality") or {}
-                if q.get("status") in ("inconclusive", "low_quality", "error", "sem_dado"):
-                    label = "Observacao inconclusiva"
+                if q.get("status") in ("inconclusive", "low_quality", "error", "sem_dado", "not_visible"):
+                    label = "Estado inconclusivo"
+                elif q.get("status") == "partially_observable":
+                    hs = (t.get("head_state") or {}).get("state")
+                    if hs and "head_down" in str(hs):
+                        label = "Cabeca baixa"
+                    elif (t.get("face_occlusion") or {}).get("state", "none") != "none":
+                        label = "Possivel oclusao por mao"
+                    else:
+                        label = "Rosto temporariamente oculto"
+                if not ident.get("face_visible") and ident.get("student_id"):
+                    label = "Identidade mantida pelo track"
+                elif not ident.get("student_id"):
+                    if not ident.get("face_visible"):
+                        label = "Identidade desconhecida"
+                ph = (t.get("phone") or {}).get("state")
+                if ph in ("possible_phone_interaction", "probable_phone_interaction"):
+                    label = "Possivel interacao com celular"
+                elif ph in ("phone_visible", "phone_near_person", "phone_in_hand"):
+                    label = "Celular visivel"
                 per_face.append(
                     {
-                        "bbox": t.get("bbox"),
+                        "bbox": t.get("person_bbox") or t.get("bbox"),
+                        "face_bbox": t.get("face_bbox"),
+                        "person_track_id": t.get("person_track_id"),
+                        "identity": ident,
                         "state": state,
                         "label_pt": ascii_overlay_label(label),
                         "emotion": (t.get("expression") or {}).get("normalized_state"),
+                        "source": src,
                     }
                 )
             self._overlay_engagement[camera_id] = per_face

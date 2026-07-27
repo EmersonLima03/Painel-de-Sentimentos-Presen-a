@@ -81,8 +81,8 @@ vision:
     enabled: true            # sinais observáveis + agregador temporal
 
   phone_yolo:
-    enabled: false           # expansão; requer ultralytics + pesos
-    model_path: ""
+    enabled: true            # YOLO cell phone (ultralytics); nunca confirmed automático
+    model_path: "data/models/yolov8n.pt"
 
 # Cadastro por webcam: mais frames = mais precisão (média de embeddings)
 enrollment:
@@ -129,13 +129,38 @@ expression:
   provider: fer_legacy
   interval_seconds: 1.0
   window_seconds: 8
-  minimum_samples: 4
-  minimum_confidence: 0.60
+  minimum_samples: 3
+  minimum_confidence: 0.45
   minimum_observation_quality: 0.55
 
 analytics:
   quality_interval_seconds: 0.5
   landmarks_interval_seconds: 0.5
+
+# Person-first (analytics). Não altera thresholds de presença FaceNet.
+identity_binding:
+  face_missing_ttl_seconds: 12
+  minimum_new_identity_confidence: 0.75
+  minimum_identity_margin: 0.10   # só se top1/top2 reais no runtime
+  confirmations_before_switch: 3
+  identity_switch_cooldown_seconds: 10
+  confidence_decay_per_second: 0.04
+
+person_tracking:
+  enabled: true
+  prefer_bytetrack: true
+  model_path: data/models/yolov8n.pt
+  # Continuidade corporal (segundos). Independente do identity TTL (12s).
+  ttl_seconds: 8.0
+  max_time_lost_seconds: 8.0
+  minimum_detection_confidence: 0.25
+  minimum_reassociation_iou: 0.30
+  maximum_center_distance_ratio: 0.35
+  bytetrack_yaml: data/trackers/bytetrack_person.yaml
+
+pose_body:
+  enabled: true
+  model_path: data/mediapipe_models/pose_landmarker_lite.task
 
 visual_attention:
   window_seconds: 10

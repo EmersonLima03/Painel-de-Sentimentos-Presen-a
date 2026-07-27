@@ -38,6 +38,16 @@ def normalize_expression_label(raw: str | None) -> str:
 
 def display_expression_pt(raw_or_normalized: str | None) -> str:
     """Texto seguro para UI — nunca diagnóstico emocional."""
+    key = str(raw_or_normalized or "").strip().lower()
+    direct = {
+        "predominantly_positive": "expressão predominantemente positiva",
+        "predominantly_neutral": "expressão predominantemente neutra",
+        "predominantly_negative": "expressão predominantemente negativa",
+        "surprise": "expressão de surpresa aparente",
+        "inconclusive": "inconclusivo",
+    }
+    if key in direct:
+        return direct[key]
     n = normalize_expression_label(raw_or_normalized)
     return {
         "positive": "expressão predominantemente positiva",

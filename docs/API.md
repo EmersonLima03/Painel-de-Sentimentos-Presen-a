@@ -18,9 +18,26 @@ Prefixo do router: `/api/v1`. Em modo demo, payloads incluem `runtime_mode`, `is
 | Método | Path | Finalidade | Auth | Notas |
 |--------|------|------------|------|-------|
 | GET | `/live/status` | Modo, módulos, sessão, KPIs | sim | Demo: kpis do `DemoEngine` |
-| GET | `/live/tracks` | Tracks + bindings | sim | |
+| GET | `/live/tracks` | Tracks + bindings | sim | Contrato **person-first**: `person_track_id`, `tracking_state`, `seconds_since_person_detection`, `identity`, `person_bbox`, `face_bbox`; aliases deprecated `track_id`/`student_id`/`bbox` |
 | GET | `/live/classroom-summary` | Presentes/visíveis/observáveis/atenção/clima | sim | |
-| GET | `/live/debug-snapshot` | Snapshot técnico | sim + localhost | Sem embeddings |
+| GET | `/live/debug-snapshot` | Snapshot técnico | sim + localhost | Inclui `person_detector` / `phone_detector` no debug agregável |
+
+### Validação controlada (`/debug/vision` → aba)
+
+Banco **separado**: `data/validation/validation.db` (nunca `dulino_edge.db`). Não altera attendance.
+
+| Método | Path | Finalidade |
+|--------|------|------------|
+| GET | `/validation/scenarios` | Catálogo de cenários |
+| POST | `/validation/sessions` | Cria sessão + etapas |
+| GET | `/validation/sessions` | Lista sessões |
+| GET | `/validation/sessions/{id}` | Sessão + steps |
+| POST | `/validation/sessions/{id}/steps/start` | Inicia cenário (snapshot inicial) |
+| POST | `/validation/sessions/{id}/steps/{step_id}/sample` | Amostra do live |
+| POST | `/validation/sessions/{id}/steps/{step_id}/finish` | Finaliza + PASS/FAIL/INCONCLUSIVO |
+| PATCH | `/validation/sessions/{id}/steps/{step_id}` | Observação / resultado manual |
+| GET | `/validation/sessions/{id}/report` | Relatório JSON |
+| GET | `/validation/sessions/{id}/report.csv` | Export CSV |
 
 ### Sessions
 
@@ -88,7 +105,7 @@ Ainda usadas operacionalmente (não fazem parte do contrato v1 puro):
 
 `GET /api/v1/live/debug-snapshot` e `GET /api/v1/live/tracks` publicam tracks com:
 
-- `observation_quality` (scores + `status`: observable|low_quality|inconclusive|error)
+- `observation_quality` (scores + multimodal `person_visibility`… + `status`: observable|partially_observable|inconclusive|not_visible|…)
 - `facial_features` (olhos, boca, yaw/pitch/roll, `provider`, `status`)
 - `expression` (FER legado ou `unavailable`/`inconclusive`)
 - `visual_attention` / `drowsiness`

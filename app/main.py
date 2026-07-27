@@ -83,6 +83,12 @@ async def lifespan(app: FastAPI):
         # Banco de produção (presença) — nunca recebe dados demo
         init_database()
         logger.info("database_initialized")
+        try:
+            from app.validation.db import init_validation_db
+
+            init_validation_db()
+        except Exception as e:
+            logger.warning("validation_db_init_failed", error=str(e))
 
         sync_worker = SyncWorker()
         asyncio.create_task(sync_worker.start())
@@ -101,6 +107,7 @@ async def lifespan(app: FastAPI):
             # Orchestrator RTSP não sobe em demo (evita misturar fontes)
             orchestrator = None
         else:
+            asyncio.create_task(live_hub.rtsp_ticker())
             _orchestrator = PipelineOrchestrator()
             orchestrator = _orchestrator
 
@@ -1003,50 +1010,129 @@ def _overlay_scale_for_frame(camera_id: str, frame_w: int, frame_h: int) -> tupl
 
 
 def _draw_overlay_from_cache(frame: np.ndarray, camera_id: str) -> int:
-    """Desenha caixas do cache (posição 10 Hz) + rótulos da presença (2 s)."""
+    """Desenha person (ciano), face (verde), celular e rótulos person-first."""
     if not orchestrator:
         return 0
     fh, fw = frame.shape[:2]
     sx, sy = _overlay_scale_for_frame(camera_id, fw, fh)
-    matches = orchestrator.get_overlay_matches(camera_id)
-    boxes = orchestrator.get_overlay_boxes(camera_id)
     eng_faces = orchestrator.get_overlay_engagement(camera_id)
-    n = max(len(matches), len(boxes))
-    for i in range(n):
-        m = dict(matches[i]) if i < len(matches) else {}
-        sid = m.get("student_id")
-        conf = float(m.get("confidence") or 0.0)
-        if not sid and conf < 0.10:
-            continue
-        if i < len(eng_faces) and not m.get("engagement_label"):
-            m["engagement_state"] = eng_faces[i].get("state")
-            m["engagement_label"] = eng_faces[i].get("label_pt")
-        if i < len(boxes):
-            x, y, w, h = boxes[i]
-        else:
-            bbox = m.get("bbox") or [0, 0, 0, 0]
-            x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
-        x, y, w, h = int(x * sx), int(y * sy), int(w * sx), int(h * sy)
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        display = (m.get("full_name") or sid or "?").strip()
-        label = f"{display} ({conf:.2f})"
-        cv2.putText(frame, label, (x, max(y - 5, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
-        eng_label = m.get("engagement_label")
-        if eng_label:
-            from app.pipeline.analytics_track import ascii_overlay_label
+    analytics = list(getattr(orchestrator, "_analytics_tracks", {}).get(camera_id) or [])
 
-            eng_label = ascii_overlay_label(str(eng_label))
-            eng_state = m.get("engagement_state") or ""
-            eng_color = (0, 255, 0) if eng_state == "attentive" else (
-                (0, 200, 255) if eng_state == "neutral" else (0, 80, 255)
-            )
+    # person tracks (ciano)
+    for t in analytics:
+        pb = t.get("person_bbox") or t.get("bbox")
+        if not pb or len(pb) < 4:
+            continue
+        x, y, w, h = int(pb[0] * sx), int(pb[1] * sy), int(pb[2] * sx), int(pb[3] * sy)
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2)  # cyan-ish BGR
+        ident = t.get("identity") or {}
+        sid = ident.get("student_id") or t.get("student_id")
+        src = ident.get("source") or "?"
+        conf = float(ident.get("confidence") or t.get("confidence") or 0.0)
+        gap = ident.get("seconds_since_face_seen")
+        pid = t.get("person_track_id") or t.get("track_id") or ""
+        face_vis = ident.get("face_visible")
+        tstate = t.get("tracking_state") or "active"
+        det_gap = t.get("seconds_since_person_detection")
+        line1 = f"{pid}"
+        if sid:
+            line1 = f"{pid} {sid} ({conf:.2f}) [{src}]"
+        else:
+            line1 = f"{pid} unknown"
+        line1 = f"{line1} [{tstate}]"
+        from app.pipeline.analytics_track import ascii_overlay_label
+
+        cv2.putText(
+            frame,
+            ascii_overlay_label(line1)[:56],
+            (x, max(y - 8, 16)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (255, 255, 0),
+            1,
+        )
+        status_bits = []
+        if tstate == "temporarily_lost":
+            status_bits.append("Track temporariamente perdido")
+            if det_gap is not None:
+                status_bits.append(f"corpo {float(det_gap):.1f}s")
+        elif tstate == "reassociated":
+            status_bits.append("Track reassociado")
+        if face_vis:
+            status_bits.append("Rosto visivel")
+        elif sid:
+            status_bits.append("Rosto temporariamente oculto")
+            if gap is not None:
+                status_bits.append(f"face {float(gap):.1f}s")
+        else:
+            status_bits.append("Identidade desconhecida")
+        hs = (t.get("head_state") or {}).get("state")
+        if hs and "head_down" in str(hs):
+            status_bits.append("Cabeca baixa")
+        occ = (t.get("face_occlusion") or {}).get("state")
+        if occ and occ != "none":
+            status_bits.append("Possivel oclusao por mao")
+        ph = (t.get("phone") or {}).get("state")
+        if ph in ("possible_phone_interaction", "probable_phone_interaction"):
+            status_bits.append("Possivel interacao com celular")
+        elif ph and ph not in ("not_detected", "none"):
+            status_bits.append("Celular visivel")
+        va = (t.get("visual_attention") or {}).get("state")
+        if va == "inconclusive":
+            status_bits.append("Estado inconclusivo")
+        label2 = ascii_overlay_label(" | ".join(status_bits[:3]) or "Pessoa rastreada")
+        cv2.putText(
+            frame, label2[:56], (x, min(y + h + 16, fh - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1
+        )
+        # face bbox verde
+        fb = t.get("face_bbox")
+        if fb and len(fb) >= 4:
+            fx, fy, fw_, fh_ = int(fb[0] * sx), int(fb[1] * sy), int(fb[2] * sx), int(fb[3] * sy)
+            cv2.rectangle(frame, (fx, fy), (fx + fw_, fy + fh_), (0, 255, 0), 2)
+
+    # fallback legado se sem analytics
+    if not analytics:
+        matches = orchestrator.get_overlay_matches(camera_id)
+        boxes = orchestrator.get_overlay_boxes(camera_id)
+        n = max(len(matches), len(boxes))
+        for i in range(n):
+            m = dict(matches[i]) if i < len(matches) else {}
+            sid = m.get("student_id")
+            conf = float(m.get("confidence") or 0.0)
+            if not sid and conf < 0.10:
+                continue
+            if i < len(boxes):
+                x, y, w, h = boxes[i]
+            else:
+                bbox = m.get("bbox") or [0, 0, 0, 0]
+                x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
+            x, y, w, h = int(x * sx), int(y * sy), int(w * sx), int(h * sy)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            display = (m.get("full_name") or sid or "?").strip()
             cv2.putText(
-                frame, eng_label, (x, min(y + h + 18, fh - 5)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, eng_color, 2,
+                frame, f"{display} ({conf:.2f})", (x, max(y - 5, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2
             )
-    count = n if n else len(boxes)
-    cv2.putText(frame, f"faces: {count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-    return count
+
+    # celulares (magenta)
+    phones = getattr(orchestrator, "_overlay_phones", {}).get(camera_id) or []
+    for p in phones:
+        bb = p[:4] if not isinstance(p, dict) else (p.get("bbox") or [0, 0, 0, 0])
+        if len(bb) < 4:
+            continue
+        x, y, w, h = int(bb[0] * sx), int(bb[1] * sy), int(bb[2] * sx), int(bb[3] * sy)
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 255), 2)
+
+    n_people = len(analytics) if analytics else len(orchestrator.get_overlay_boxes(camera_id) or [])
+    cv2.putText(
+        frame,
+        f"pessoas: {n_people}",
+        (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.9,
+        (255, 255, 0),
+        2,
+    )
+    return n_people
 
 
 def _encode_preview_jpeg(frame: np.ndarray, overlay: int, camera_id: str, full_res: bool) -> bytes:

@@ -192,8 +192,109 @@ def _smooth_state(state: str) -> str:
     return best
 
 
+def emotion_backend_health() -> dict:
+    """
+    Health check real do FER.
+    Ordem: TensorFlow Mini-XCEPTION → ONNX emotion-ferplus (fallback sem TF).
+    status: available | dependency_missing | model_missing | model_incompatible | inference_failed
+    """
+    import importlib.util
+
+    has_tf = (
+        importlib.util.find_spec("tf_keras") is not None
+        or importlib.util.find_spec("tensorflow") is not None
+    )
+    path = default_model_path()
+
+    if has_tf and path.is_file():
+        try:
+            model = _load_model(path)
+            model.predict(np.zeros((1, 48, 48, 1), dtype=np.float32), verbose=0)
+            return {
+                "status": "available",
+                "provider": "fer_legacy",
+                "reason": None,
+                "model_path": str(path),
+                "model_name": "mini-xception",
+                "model_version": "106-0.65",
+                "backend": "tensorflow",
+            }
+        except Exception as e:
+            msg = str(e).lower()
+            status = "inference_failed"
+            if "compatibil" in msg or "hdf5" in msg or "deserialize" in msg:
+                status = "model_incompatible"
+            tf_fail = {
+                "status": status,
+                "provider": "fer_legacy",
+                "reason": f"{type(e).__name__}:{e}",
+                "model_path": str(path),
+            }
+            # tenta ONNX
+            from app.vision.fer_onnx import onnx_fer_health
+
+            oh = onnx_fer_health()
+            if oh.get("status") == "available":
+                oh["fallback_from"] = tf_fail
+                return oh
+            return tf_fail
+
+    # Sem TF ou sem hdf5 → ONNX
+    from app.vision.fer_onnx import onnx_fer_health
+
+    oh = onnx_fer_health()
+    if oh.get("status") == "available":
+        oh["note"] = "tensorflow_unavailable_using_onnx_ferplus"
+        return oh
+
+    if not has_tf:
+        return {
+            "status": "dependency_missing",
+            "provider": "fer_legacy",
+            "reason": "tensorflow_or_tf_keras_missing_and_onnx_unavailable",
+            "model_path": str(path),
+            "onnx": oh,
+        }
+    if not path.is_file():
+        return {
+            "status": "model_missing",
+            "provider": "fer_legacy",
+            "reason": "hdf5_not_found",
+            "model_path": str(path),
+            "onnx": oh,
+        }
+    return oh
+
+
+def is_emotion_backend_available() -> bool:
+    """True somente se dependências + modelo + smoke inference ok."""
+    try:
+        return emotion_backend_health().get("status") == "available"
+    except Exception:
+        return False
+
+
 def _analyze_face(face_bgr: np.ndarray) -> Tuple[str, float, str, str, str]:
     """Retorna label, conf, state_smooth, state_raw, source."""
+    health = emotion_backend_health()
+    backend = health.get("backend") or health.get("provider")
+
+    if health.get("provider") == "fer_onnx" or health.get("model_name") == "emotion-ferplus-8":
+        from app.vision.fer_onnx import predict_emotion_onnx
+
+        label, conf, _probs = predict_emotion_onnx(face_bgr)
+        # smile heuristic still helps webcam
+        smile_s = _smile_heuristic_score(face_bgr)
+        source = "onnx"
+        if smile_s >= _smile_heuristic_threshold:
+            label, conf, source = "happy", max(conf, smile_s), "smile"
+        raw_state = _map_emotion_to_state(label, conf, smile_boost=source == "smile")
+        state = _smooth_state(raw_state)
+        if source == "smile" and state == "neutral":
+            state = "attentive"
+        return label, conf, state, raw_state, source
+
+    # TensorFlow Mini-XCEPTION
     face48 = _preprocess_face_gray(face_bgr)
     x = face48.astype("float32") / 255.0
     x = x.reshape(1, 48, 48, 1)
@@ -219,18 +320,6 @@ def predict_emotion(face_bgr: np.ndarray) -> Tuple[str, float, str]:
 
 
 def predict_emotion_detail(face_bgr: np.ndarray) -> Tuple[str, float, str, str, str]:
-    """Retorna label, conf, state_smooth, state_raw, source (model|smile|happy_prob)."""
+    """Retorna label, conf, state_smooth, state_raw, source (model|smile|happy_prob|onnx)."""
     label, conf, state, raw_state, source = _analyze_face(face_bgr)
     return label, conf, state, raw_state, source
-
-
-def is_emotion_backend_available() -> bool:
-    try:
-        path = default_model_path()
-        if path.is_file():
-            return True
-        import importlib.util
-
-        return importlib.util.find_spec("tf_keras") is not None or importlib.util.find_spec("tensorflow") is not None
-    except Exception:
-        return False

@@ -4,13 +4,15 @@
 
 | Suite | Resultado |
 |-------|-----------|
-| `pytest tests -q` | **62 passed** |
+| `pytest tests -q` | Inclui `test_person_centric_pipeline` + validação |
 | `npm run typecheck` (frontend) | **PASS** |
 | `npm run build` (frontend) | **PASS** |
 | E2E demo | **PASS** |
-| Analytics real (quality/landmarks/expression/attn/phone status) | `tests/test_realtime_analytics.py` |
+| Analytics person-first | `tests/test_person_centric_pipeline.py` (TTL, swap blocked, cruzamento, cabeça≠sono, celular≠uso) |
+| Analytics real (quality/landmarks/…) | `tests/test_realtime_analytics.py` |
+| Validação controlada | `tests/test_validation_panel.py` |
+| Regressão presença | `test_dedup_presence`, `test_competitor_margin`, `test_queue` |
 | Validação de campo / Intelbras | **Pendente** |
-| Benchmark FER / HSEmotion / DeepFace | **Não executado** (sem labels) |
 
 Métricas de software/demo **não** representam acurácia ou desempenho da câmera Intelbras.
 
@@ -18,8 +20,10 @@ Métricas de software/demo **não** representam acurácia ou desempenho da câme
 
 - `tests/conftest.py` — SQLite temporário; `reset_db_singleton()`; **bloqueia** uso de `data/dulino_edge.db`
 - Presença: `test_dedup_presence`, `test_competitor_margin`, `test_queue`, `test_events`
+- Person-first: associação face↔pessoa, IdentityBinding TTL/swap, **continuidade corporal** (`test_person_track_continuity`), phone ambíguo, buffers por `person_track_id`
 - Multimodal: `test_multimodal_contracts` (modos, mock expression, binding, phone sem confirmed, qualidade, fusion, LXP)
 - Demo: `test_demo_mode` (8 tracks, review, WS, LXP flush, isolamento DB)
+- Validação: `test_validation_panel` (DB `validation.db` isolado; sem frames/embeddings; não altera presença)
 - Migration 005: `test_migration_005` em DB temp
 - Engajamento / emoção mapeamento: testes legados existentes
 
@@ -33,6 +37,29 @@ cd frontend
 npm run typecheck
 npm run build
 ```
+
+## Checklist person-first (1 pessoa antes de multi)
+
+1. Person detect+track estável sem rosto  
+2. Face associada à pessoa correta (`face_person_association`)  
+3. Identidade no TTL sob oclusão; após TTL → unknown **no mesmo** `person_track_id`  
+4. 15–20s com rosto coberto: ID corporal não muda (`tracking_state` pode ser active/temporarily_lost)  
+5. Swap bloqueado com conf baixa / ambiguidade  
+6. Cabeça baixa ≠ sonolência; celular visível ≠ uso  
+7. Só então 2 → 4 → 8 pessoas  
+
+## Checklist manual — validação controlada (webcam RTSP)
+
+1. `$env:RUNTIME_MODE="rtsp"; $env:ENABLE_DEBUG_SNAPSHOT="1"` + uvicorn  
+2. Abrir `/debug/vision` → aba **Validação controlada**  
+3. **Nova sessão** (operador + `cam-web`)  
+4. Para cada cenário: **Iniciar** → executar a instrução → **Finalizar** (+ observação)  
+5. Amostras são coletadas automaticamente (~0.5s) a partir do `debug-snapshot` live  
+6. **Gerar relatório** → export JSON / CSV  
+7. Confirmar que dados foram para `data/validation/validation.db` (não `dulino_edge.db`)  
+8. Confirmar que attendance/presença não mudou por causa da validação  
+
+Resultados por etapa: **PASS** / **FAIL** / **INCONCLUSIVO** (heurística + observação manual).
 
 ## Checklist manual — modo demo
 

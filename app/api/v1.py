@@ -480,14 +480,313 @@ class LiveHub:
                 continue
             try:
                 snap = _demo_snap()
-                await self.broadcast({"type": "classroom_summary", "payload": snap["kpis"], "is_simulated": True})
-                await self.broadcast({"type": "live_tracks", "payload": {"tracks": snap["tracks"]}, "is_simulated": True})
-                await self.broadcast({"type": "heartbeat", "ts": time.time(), "is_simulated": True})
+                await self.broadcast(
+                    _enrich(
+                        {
+                            "type": "classroom_summary",
+                            "payload": snap["kpis"],
+                            "is_simulated": True,
+                        }
+                    )
+                )
+                await self.broadcast(
+                    _enrich(
+                        {
+                            "type": "live_tracks",
+                            "payload": {"tracks": snap["tracks"]},
+                            "is_simulated": True,
+                        }
+                    )
+                )
+                await self.broadcast(
+                    _enrich({"type": "heartbeat", "ts": time.time(), "is_simulated": True})
+                )
+            except Exception:
+                continue
+
+    async def rtsp_ticker(self):
+        """Broadcast live analytics no runtime real (sem frames/embeddings/credenciais)."""
+        while True:
+            await asyncio.sleep(1.0)
+            if is_demo() or not self.clients:
+                continue
+            try:
+                from app.main import orchestrator
+
+                orch = orchestrator
+                if orch is None:
+                    await self.broadcast(
+                        _enrich(
+                            {
+                                "type": "heartbeat",
+                                "ts": time.time(),
+                                "is_simulated": False,
+                            }
+                        )
+                    )
+                    continue
+
+                status = orch.get_status() if hasattr(orch, "get_status") else {}
+                cams = (status or {}).get("cameras") or {}
+                cam_id = next(iter(cams.keys()), "cam-web")
+                tracks = list(getattr(orch, "_analytics_tracks", {}).get(cam_id) or [])
+                # sanitize
+                safe_tracks = []
+                for t in tracks:
+                    safe_tracks.append(
+                        {
+                            k: v
+                            for k, v in t.items()
+                            if k
+                            not in (
+                                "embedding",
+                                "embeddings",
+                                "frame",
+                                "rtsp_url",
+                                "credentials",
+                            )
+                        }
+                    )
+                counts = getattr(orch, "_analytics_counts", {}).get(cam_id) or {}
+                cam_st = cams.get(cam_id) or {}
+                await self.broadcast(
+                    _enrich(
+                        {
+                            "type": "camera_status",
+                            "payload": {
+                                "camera_id": cam_id,
+                                "connected": bool(cam_st.get("connected") or cam_st.get("is_connected")),
+                                "faces_detected_last": cam_st.get("faces_detected_last"),
+                            },
+                            "is_simulated": False,
+                        }
+                    )
+                )
+                await self.broadcast(
+                    _enrich(
+                        {
+                            "type": "live_tracks",
+                            "payload": {"camera_id": cam_id, "tracks": safe_tracks},
+                            "is_simulated": False,
+                        }
+                    )
+                )
+                await self.broadcast(
+                    _enrich(
+                        {
+                            "type": "classroom_summary",
+                            "payload": {
+                                "visible_people": counts.get("visible"),
+                                "recognized_people": counts.get("present"),
+                                "observable_people": counts.get("observable"),
+                                "inconclusive_people": counts.get("inconclusive"),
+                                "attention_index": counts.get("attention_index"),
+                                "apparent_climate": counts.get("climate"),
+                            },
+                            "is_simulated": False,
+                        }
+                    )
+                )
+                if counts.get("attention_index") is not None:
+                    await self.broadcast(
+                        _enrich(
+                            {
+                                "type": "engagement_update",
+                                "payload": {"attention_index": counts.get("attention_index")},
+                                "is_simulated": False,
+                            }
+                        )
+                    )
+                if counts.get("climate") is not None:
+                    await self.broadcast(
+                        _enrich(
+                            {
+                                "type": "climate_update",
+                                "payload": {"apparent_climate": counts.get("climate")},
+                                "is_simulated": False,
+                            }
+                        )
+                    )
+                # drain engine events
+                eng = getattr(orch, "_analytics_engine", None)
+                if eng and hasattr(eng, "drain_ws_events"):
+                    for ev in eng.drain_ws_events():
+                        await self.broadcast(_enrich(ev))
+                # latencies aggregate
+                lat = {}
+                for t in safe_tracks:
+                    for k, v in (t.get("latencies_ms") or {}).items():
+                        if isinstance(v, (int, float)):
+                            lat.setdefault(k, []).append(float(v))
+                lat_avg = {k: round(sum(vs) / len(vs), 2) for k, vs in lat.items() if vs}
+                await self.broadcast(
+                    _enrich(
+                        {
+                            "type": "performance_metrics",
+                            "payload": {"latencies_ms": lat_avg},
+                            "is_simulated": False,
+                        }
+                    )
+                )
+                await self.broadcast(
+                    _enrich({"type": "heartbeat", "ts": time.time(), "is_simulated": False})
+                )
             except Exception:
                 continue
 
 
 live_hub = LiveHub()
+
+
+# --- Validação controlada (DB isolado; não altera presença) ---
+
+
+class ValidationSessionBody(BaseModel):
+    operator: str = "operator"
+    camera_id: str = "cam-web"
+    student_id: Optional[str] = None
+
+
+class ValidationStartBody(BaseModel):
+    scenario_key: Optional[str] = None
+    step_id: Optional[str] = None
+
+
+class ValidationFinishBody(BaseModel):
+    observation: Optional[str] = None
+    result: Optional[str] = None  # override PASS|FAIL|INCONCLUSIVO
+
+
+class ValidationPatchBody(BaseModel):
+    observation: Optional[str] = None
+    result: Optional[str] = None
+
+
+@router.get("/validation/scenarios")
+async def validation_scenarios(_: None = Depends(require_api_token)):
+    from app.validation.scenarios import list_scenarios
+
+    return _enrich({"scenarios": list_scenarios()})
+
+
+@router.post("/validation/sessions")
+async def validation_create_session(body: ValidationSessionBody, _: None = Depends(require_api_token)):
+    from app.validation.service import get_validation_service
+
+    svc = get_validation_service()
+    sess = svc.create_session(
+        operator=body.operator, camera_id=body.camera_id, student_id=body.student_id
+    )
+    return _enrich(sess)
+
+
+@router.get("/validation/sessions")
+async def validation_list_sessions(_: None = Depends(require_api_token)):
+    from app.validation.service import get_validation_service
+
+    return _enrich({"sessions": get_validation_service().list_sessions()})
+
+
+@router.get("/validation/sessions/{session_id}")
+async def validation_get_session(session_id: str, _: None = Depends(require_api_token)):
+    from app.validation.service import get_validation_service
+
+    try:
+        return _enrich(get_validation_service().get_session(session_id))
+    except KeyError:
+        return JSONResponse({"detail": "session_not_found"}, status_code=404)
+
+
+@router.post("/validation/sessions/{session_id}/steps/start")
+async def validation_start_step(
+    session_id: str, body: ValidationStartBody, _: None = Depends(require_api_token)
+):
+    from app.validation.service import get_validation_service
+
+    try:
+        step = get_validation_service().start_step(
+            session_id, scenario_key=body.scenario_key, step_id=body.step_id
+        )
+        return _enrich(step)
+    except KeyError:
+        return JSONResponse({"detail": "step_not_found"}, status_code=404)
+
+
+@router.post("/validation/sessions/{session_id}/steps/{step_id}/sample")
+async def validation_sample_step(
+    session_id: str, step_id: str, _: None = Depends(require_api_token)
+):
+    from app.validation.service import get_validation_service
+
+    try:
+        return _enrich(get_validation_service().record_sample(session_id, step_id))
+    except RuntimeError as e:
+        return JSONResponse({"detail": str(e)}, status_code=400)
+
+
+@router.post("/validation/sessions/{session_id}/steps/{step_id}/finish")
+async def validation_finish_step(
+    session_id: str,
+    step_id: str,
+    body: ValidationFinishBody,
+    _: None = Depends(require_api_token),
+):
+    from app.validation.service import get_validation_service
+
+    try:
+        step = get_validation_service().finish_step(
+            session_id,
+            step_id,
+            observation=body.observation,
+            result_override=body.result,
+        )
+        return _enrich(step)
+    except (KeyError, RuntimeError) as e:
+        return JSONResponse({"detail": str(e)}, status_code=400)
+
+
+@router.patch("/validation/sessions/{session_id}/steps/{step_id}")
+async def validation_patch_step(
+    session_id: str,
+    step_id: str,
+    body: ValidationPatchBody,
+    _: None = Depends(require_api_token),
+):
+    from app.validation.service import get_validation_service
+
+    try:
+        return _enrich(
+            get_validation_service().patch_step(
+                session_id, step_id, observation=body.observation, result=body.result
+            )
+        )
+    except (KeyError, ValueError) as e:
+        return JSONResponse({"detail": str(e)}, status_code=400)
+
+
+@router.get("/validation/sessions/{session_id}/report")
+async def validation_report(session_id: str, _: None = Depends(require_api_token)):
+    from app.validation.service import get_validation_service
+
+    try:
+        return _enrich(get_validation_service().build_report(session_id))
+    except KeyError:
+        return JSONResponse({"detail": "session_not_found"}, status_code=404)
+
+
+@router.get("/validation/sessions/{session_id}/report.csv")
+async def validation_report_csv(session_id: str, _: None = Depends(require_api_token)):
+    from app.validation.service import get_validation_service
+
+    try:
+        csv_text = get_validation_service().report_csv(session_id)
+    except KeyError:
+        return JSONResponse({"detail": "session_not_found"}, status_code=404)
+    return StreamingResponse(
+        io.StringIO(csv_text),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="validation_{session_id}.csv"'},
+    )
 
 
 @router.websocket("/ws/live")
@@ -502,15 +801,24 @@ async def ws_live(websocket: WebSocket):
     await live_hub.connect(websocket)
     try:
         await websocket.send_json(
-            _enrich({"type": "system_status", "payload": {"ok": True, "runtime_mode": get_runtime_mode().value}})
+            _enrich(
+                {
+                    "type": "system_status",
+                    "payload": {"ok": True, "runtime_mode": get_runtime_mode().value},
+                }
+            )
         )
         while True:
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                 if data == "ping":
-                    await websocket.send_json({"type": "heartbeat", "ts": time.time(), "is_simulated": is_demo()})
+                    await websocket.send_json(
+                        {"type": "heartbeat", "ts": time.time(), "is_simulated": is_demo()}
+                    )
             except asyncio.TimeoutError:
-                await websocket.send_json({"type": "heartbeat", "ts": time.time(), "is_simulated": is_demo()})
+                await websocket.send_json(
+                    {"type": "heartbeat", "ts": time.time(), "is_simulated": is_demo()}
+                )
             except WebSocketDisconnect:
                 break
     finally:

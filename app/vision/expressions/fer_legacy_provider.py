@@ -1,9 +1,9 @@
-"""FER legado (Mini-XCEPTION) como provider — lazy import."""
+"""FER legado (Mini-XCEPTION) como provider — lazy import + health check real."""
 
 from __future__ import annotations
 
 import time
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -18,13 +18,35 @@ class FerLegacyProvider:
 
     def __init__(self, minimum_confidence: float = 0.60):
         self.minimum_confidence = minimum_confidence
-        self._available = None
+        self._health_cache: Optional[dict] = None
+        self._health_ts: float = 0.0
+
+    def health(self, *, force: bool = False) -> dict:
+        now = time.time()
+        if not force and self._health_cache and now - self._health_ts < 30.0:
+            return self._health_cache
+        try:
+            from app.vision.emotion_engagement import emotion_backend_health
+
+            h = emotion_backend_health()
+        except Exception as e:
+            h = {
+                "status": "dependency_missing",
+                "provider": self.provider_name,
+                "reason": str(e),
+            }
+        self._health_cache = h
+        self._health_ts = now
+        return h
+
+    @property
+    def is_available(self) -> bool:
+        return self.health().get("status") == "available"
 
     def predict_batch(self, face_crops: List[np.ndarray]) -> List[FacialExpressionPrediction]:
         out: List[FacialExpressionPrediction] = []
-        try:
-            from app.vision.emotion_engagement import is_emotion_backend_available, predict_emotion_detail
-        except Exception:
+        health = self.health()
+        if health.get("status") != "available":
             return [
                 FacialExpressionPrediction(
                     label="inconclusive",
@@ -34,29 +56,49 @@ class FerLegacyProvider:
                     inference_ms=0.0,
                     face_quality=0.0,
                     is_conclusive=False,
+                    raw_label=None,
                 )
                 for _ in face_crops
             ]
 
-        if not is_emotion_backend_available():
-            return [
-                FacialExpressionPrediction(
-                    label="inconclusive",
-                    probabilities={"inconclusive": 1.0},
-                    confidence=0.0,
-                    provider=self.provider_name,
-                    inference_ms=0.0,
-                    face_quality=0.0,
-                    is_conclusive=False,
-                )
-                for _ in face_crops
-            ]
+        from app.vision.emotion_engagement import emotion_backend_health, predict_emotion_detail
+
+        health = self.health()
+        use_onnx = health.get("provider") == "fer_onnx" or health.get("model_name") == "emotion-ferplus-8"
 
         for crop in face_crops:
             t0 = time.perf_counter()
             try:
+                if use_onnx:
+                    from app.vision.fer_onnx import predict_emotion_onnx
+                    from app.vision.expressions.normalization import normalize_expression_label
+
+                    label, conf_raw, probs_arr = predict_emotion_onnx(crop)
+                    # map ferplus array to normalized dict via labels
+                    from app.vision.fer_onnx import FERPLUS_LABELS, _TO_FER2013
+
+                    raw_probs = {}
+                    for i, name in enumerate(FERPLUS_LABELS):
+                        if i < len(probs_arr):
+                            fer = _TO_FER2013.get(name, name)
+                            raw_probs[fer] = raw_probs.get(fer, 0.0) + float(probs_arr[i])
+                    probs = normalize_probabilities(raw_probs)
+                    label_n, conf, ok = pick_label(probs, minimum_confidence=self.minimum_confidence)
+                    out.append(
+                        FacialExpressionPrediction(
+                            label=label_n,
+                            probabilities=probs,
+                            confidence=conf,
+                            provider=self.provider_name,
+                            inference_ms=(time.perf_counter() - t0) * 1000.0,
+                            face_quality=0.5,
+                            is_conclusive=ok,
+                            raw_label=str(label),
+                        )
+                    )
+                    continue
+
                 detail = predict_emotion_detail(crop)
-                # (state, conf, emotion_label, model_version, backend)
                 if isinstance(detail, (tuple, list)) and len(detail) >= 2:
                     raw_label = detail[0]
                     conf_raw = float(detail[1])
@@ -79,6 +121,13 @@ class FerLegacyProvider:
                     )
                 )
             except Exception:
+                # invalidate health so next call re-probes
+                self._health_cache = {
+                    "status": "inference_failed",
+                    "provider": self.provider_name,
+                    "reason": "predict_exception",
+                }
+                self._health_ts = time.time()
                 out.append(
                     FacialExpressionPrediction(
                         label="inconclusive",

@@ -36,8 +36,13 @@ Indicadores são **estimativas a partir de sinais visuais**. **Não** constituem
 | Modo demo | Funcional e validado em demo | `RUNTIME_MODE=demo` | 54 testes incl. E2E | 8 alunos fictícios; DB separado |
 | RTSP Intelbras | Bloqueado por hardware/credencial | `rtsp` | Pendente | Placeholder `PASSWORD` |
 | Offline (vídeo/pasta) | Parcialmente funcional | `offline` | Pendente corpus | Sem labels ≠ validação real |
-| Observation quality | Funcional no runtime RTSP | debug | Testes unitários | Conectado; sem validação científica |
-| Landmarks / facial_features | Funcional no runtime (MediaPipe) | debug | Testes + webcam se MP ok | unavailable explícito se MP falhar |
+| Observation quality | Funcional no runtime RTSP | debug | Testes + webcam | Conectado; sem validação científica |
+| Landmarks / facial_features | Funcional (MediaPipe Tasks Face Landmarker) | debug | Testes + webcam | EAR/boca/yaw/pitch/roll reais |
+| Expressão FER | Funcional (ONNX ferplus; TF opcional) | debug | Testes + webcam | Health check real; não é diagnóstico |
+| Atenção / sonolência | Funcional temporal | debug | Testes + webcam | Depende de landmarks |
+| Celular YOLO | Funcional (ultralytics yolov8n) | debug | Testes + webcam | Nunca `confirmed` automático |
+| WebSocket RTSP | Funcional | — | Testes manuais | `live_tracks`, summary, métricas ~1 Hz |
+| Dashboard / debug | Funcional | — | Manual | null ≠ zero; `/debug/vision` |
 | Expressão FER | Experimental | debug/shadow | Testes; latência real se modelo OK | **não aprovado p/ produção** |
 | Atenção / sonolência | Experimental | debug | Testes temporais | Thresholds configuráveis |
 | Celular | Indisponível explícito (YOLO off) | debug | Testes status | Sem YOLO no core |

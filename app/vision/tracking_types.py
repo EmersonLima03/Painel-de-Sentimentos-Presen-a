@@ -21,6 +21,14 @@ class PersonTrack:
     visible: bool = True
     occlusion_level: float = 0.0
     observation_quality: float = 0.0
+    # Continuidade corporal (independente de face/identidade)
+    tracking_state: str = "active"  # active|temporarily_lost|reassociated|expired
+    seconds_since_person_detection: float = 0.0
+    last_person_bbox: Optional[BBox] = None
+    reassociation_score: Optional[float] = None
+    raw_tracker_id: Optional[str] = None
+    missed_detections: int = 0
+    expire_reason: Optional[str] = None
 
 
 @dataclass

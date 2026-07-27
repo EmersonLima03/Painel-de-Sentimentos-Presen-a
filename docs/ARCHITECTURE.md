@@ -38,34 +38,48 @@ flowchart TD
 
 **Presença** (YuNet + FaceNet + check-in) corre em caminho **isolado** no `PresencePipeline` / orquestrador. Analytics **não** cria, remove ou invalida presença.
 
-### Runtime RTSP conectado (2026-07-23)
+### Runtime RTSP conectado (person-first, 2026-07-23)
 
-Motor oficial de analytics no vídeo real: `app.pipeline.analytics_track.RealtimeAnalyticsEngine`.
+Motor oficial de analytics: `app.pipeline.analytics_track.RealtimeAnalyticsEngine`.
 
 ```text
-frame → bbox → crop → observation_quality → facial_features
-      → expression (FER legado ou unavailable)
-      → visual_attention + drowsiness (temporal)
-      → phone (yolo ou unavailable explícito)
-      → publish_live_debug → /api/v1 → /debug/vision + dashboard
+PersonTrack = continuidade da pessoa (YOLO → ByteTrack bruto → StablePersonTrackManager)
+FaceTrack = observação temporária do rosto (YuNet overlay)
+IdentityBinding = vínculo pessoa ↔ identidade (TTL; nunca attendance)
+PresencePipeline = check-in independente (INTOCADO)
+RealtimeAnalyticsEngine = sinais / eventos analíticos
 ```
 
-| Módulo | Conectado ao RTSP | Estado |
-|--------|-------------------|--------|
-| Observation quality | Sim | Funcional no runtime (sem mock) |
-| Landmarks / facial_features | Sim (MediaPipe) | available / unavailable / inconclusive explícitos |
-| Expressão aparente | Sim (FER legado) | **experimental**; fallback unavailable |
-| Atenção / sonolência | Sim (motor único) | experimental; thresholds configuráveis |
-| Celular | Status explícito | unavailable se YOLO off — **não** lista vazia silenciosa |
-| Aggregator legado | Não emite em paralelo | Desligado quando analytics engine ativo |
-| FusionEngine | Não chamado no loop | Código disponível; engine de snapshot é o RealtimeAnalyticsEngine |
+**Dois TTL distintos:** identity TTL (12s sem face → unknown) ≠ person track `max_time_lost` (8s sem corpo → expire). Durante `temporarily_lost`, o mesmo `person_track_id` continua e buffers são preservados. Reassociação espacial remapeia IDs brutos ByteTrack (`bt-N`) para o ID estável.
 
-Intervalos: `analytics.quality_interval_seconds` / `landmarks_interval_seconds` (default 0.5s). Overlay bitmap usa ASCII (`Atencao nao conclusiva`); API/HTML em UTF-8.
+```text
+frame completo
+  → YOLO.track (bytetrack_person.yaml; track_buffer em FRAMES do ciclo ~0.5s)
+  → raw tracks (bt-N podem mudar)
+  → StablePersonTrackManager (IDs estáveis + temporarily_lost / reassociated)
+  → FacePersonAssociator / IdentityBinding / Pose / Phone
+  → RealtimeAnalyticsEngine (buffers por person_track_id)
+```
+
+| Conceito | Papel |
+|----------|--------|
+| `person_track_id` | Chave temporal estável do analytics (`tracking_state`: active\|temporarily_lost\|reassociated) |
+| Face | Identifica / reconfirma; some → `cached_binding` até TTL |
+| Margem | Só se runtime fornecer top2; senão `margin=null` + regras mais rígidas |
+| Cabeça baixa | Descritivo (`head_down_*`); ≠ sonolência / desatenção automática |
+| Mãos (punhos) | No máx. `hand_near_face` / `possible_face_occlusion_*` |
+| Celular | `phone_visible` ≠ uso; nunca `confirmed_*` |
+| Atenção / sonolência sem rosto | `inconclusive` |
+| Aliases deprecated | `track_id`, `student_id`, `bbox` (= person_*) |
+
+**Presença** (YuNet + FaceNet + check-in) permanece isolada. Analytics **não** cria/remove presença.
+
+Intervalos: `analytics.quality_interval_seconds` / `landmarks_interval_seconds`. Overlay: pessoa ciano, face verde, celular magenta; textos descritivos (sem “dormindo/desatento” como fato).
 
 **Nenhuma validação científica / longitudinal nesta conexão.**
 
-**Motor temporal oficial:** `app.analytics.fusion.FusionEngine` (+ regras em `attention_drowsiness.py`).  
-**Legado:** `app.pipeline.temporal_aggregator` — adapter / deprecated-as-primary (não operar dois fluxos equivalentes).
+**Motor temporal oficial:** regras no `RealtimeAnalyticsEngine` (+ `attention_drowsiness.py`).  
+**Legado:** `temporal_aggregator` — não operar dois fluxos equivalentes.
 
 ## Modos de runtime (`RUNTIME_MODE` / `runtime.mode`)
 

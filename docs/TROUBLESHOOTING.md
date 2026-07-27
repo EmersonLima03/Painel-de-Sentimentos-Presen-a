@@ -4,20 +4,54 @@ Para cada item: sintoma → causa → diagnóstico → correção → confirmaç
 
 ---
 
+### `person_track_id` muda (001→002) com rosto coberto mas corpo visível
+
+- **Causa:** ByteTrack emitia novo ID bruto; analytics limpava o track no mesmo ciclo sem `temporarily_lost`. Em campo, também gerava **ghost** (`pessoas: 2` = 001 lost + 002 novo).  
+- **Correção:** `StablePersonTrackManager` com reclaim frouxo + **forced_single / forced_block_new** (não cria ID novo se houver track reclaimável na mesma região). Identity TTL permanece 12s e é independente.  
+- **Confirmação:** 15–20s de oclusão facial → mesmo `person_track_id` + `identity.source=unknown`; overlay **não** deve mostrar `pessoas: 2` com uma só pessoa no quadro.
+
+### Identidade troca sozinha (p01 ↔ outro) com oclusão
+
+- **Causa:** analytics face-cêntrico antigo; swap sem confirmações.  
+- **Correção:** person track + `IdentityBinding` (TTL, N confirmações, cooldown, bloqueio se associação ambígua / margem unavailable).  
+- **Confirmação:** com rosto coberto, `identity.source=cached_binding`; após TTL → `unknown`; logs `identity_swap_blocked`.
+
+### Cabeça baixa aparece como sonolência
+
+- **Causa:** pitch facial sozinho.  
+- **Correção:** pose corporal + regra “sem olhos observáveis fechados → não possible/probable”.  
+- **Confirmação:** `head_state=head_down_*` com `drowsiness.state` em `none|inconclusive`.
+
+### Celular na mão com `not_detected` / threshold
+
+- **Causa:** associação por face; ou conf baixa.  
+- **Diagnóstico:** inspecionar `phone_detector` no snapshot (frame, confs, bboxes) **antes** de baixar conf YOLO.  
+- **Correção:** associação por `person_bbox` + punhos; calibrar só com amostras.  
+- **Confirmação:** `phone_visible` / `phone_in_hand` sem `confirmed_*`.
+
 ### Snapshot com `observation_quality: {}` / sem landmarks
 
-- **Causa (antes):** módulos não publicados no `publish_live_debug`.  
-- **Correção:** subir build com `RealtimeAnalyticsEngine`; reiniciar uvicorn `RUNTIME_MODE=rtsp`.  
-- **Confirmação:** cada track em `/debug/vision` tem `observation_quality.status` e `facial_features.status`.
+- **Causa (antes):** módulos não publicados no `publish_live_debug` ou MediaPipe sem `solutions`.  
+- **Correção:** `RealtimeAnalyticsEngine` + **MediaPipe Tasks Face Landmarker** (`face_landmarker.task`); reiniciar uvicorn `RUNTIME_MODE=rtsp`.  
+- **Confirmação:** `facial_features.status=available`, `provider=mediapipe`, yaw/pitch/roll e EAR variam.
 
-### Overlay `Aten????o`
+### Expressão sempre `inconclusive` / conf 0
 
-- **Causa:** `cv2.putText` sem Unicode.  
-- **Correção:** labels ASCII no bitmap (`Atencao nao conclusiva`); API/HTML UTF-8.
+- **Causa:** health check antigo aceitava só o arquivo `.hdf5`; TensorFlow ausente (disco).  
+- **Correção:** health real + fallback **ONNX emotion-ferplus-8**; `sample_count` sobe com o tempo.  
+- **Confirmação:** `expression.status=available`, `model_name=emotion-ferplus-8` (ou mini-xception se TF).
 
-### Expressão / phone “vazio”
+### Celular `unavailable`
 
-- **Esperado:** `status: unavailable` com `reason` se FER/YOLO ausentes — **não** objeto vazio.
+- **Causa:** `phone_yolo.enabled: false` ou ultralytics/pesos ausentes.  
+- **Correção:** `enabled: true`, `model_path: data/models/yolov8n.pt`, `pip install ultralytics`.  
+- **Confirmação:** `phone.status=available` (mesmo com `not_detected`).
+
+### WebSocket só heartbeat no RTSP
+
+- **Causa:** ticker só existia no demo.  
+- **Correção:** `live_hub.rtsp_ticker` publica `live_tracks`, `classroom_summary`, métricas, eventos.  
+- **Confirmação:** cliente WS recebe `live_tracks` ~1 Hz.
 
 - **Causa:** índice OpenCV errado (ex.: `0` abre mas frame preto; `1` tem imagem).  
 - **Diagnóstico:** script probe de índices; log `async_capture_black_frame`.  

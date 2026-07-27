@@ -4,14 +4,19 @@
   <meta charset="utf-8" />
   <title>Debug Vision — técnico</title>
   <style>
-    :root { --bg:#0f1419; --panel:#1a2332; --text:#e7ecf3; --muted:#8b9bb4; --ok:#3d9a6a; --warn:#c9a227; --err:#e76f51; --line:#2a3548; }
+    :root { --bg:#0f1419; --panel:#1a2332; --text:#e7ecf3; --muted:#8b9bb4; --ok:#3d9a6a; --warn:#c9a227; --err:#e76f51; --line:#2a3548; --accent:#4a90d9; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); }
     header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
     h1 { font-size:1.1rem; margin:0; font-weight:600; }
     .badge { font-size:0.75rem; color:var(--muted); }
-    main { display:grid; grid-template-columns: 1.1fr 1.2fr; gap:12px; padding:12px; }
-    @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+    .tabs { display:flex; gap:4px; margin-left:auto; }
+    .tab { background:transparent; border:1px solid var(--line); color:var(--muted); padding:6px 14px; border-radius:6px; cursor:pointer; font-size:0.85rem; }
+    .tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .view { display:none; }
+    .view.active { display:block; }
+    main.live-grid { display:grid; grid-template-columns: 1.1fr 1.2fr; gap:12px; padding:12px; }
+    @media (max-width: 1000px) { main.live-grid { grid-template-columns: 1fr; } }
     .panel { background:var(--panel); border-radius:8px; padding:12px; min-height:120px; }
     .panel h2 { margin:0 0 8px; font-size:0.9rem; color:var(--muted); font-weight:600; }
     img#preview { width:100%; max-height:420px; object-fit:contain; background:#000; border-radius:6px; }
@@ -28,41 +33,107 @@
     .pill.muted { color:var(--muted); }
     details { margin-top:8px; }
     .manual { font-size:0.78rem; color:var(--muted); margin-top:8px; }
+    #val-root { padding:12px; display:grid; grid-template-columns: 1fr 1.4fr; gap:12px; }
+    @media (max-width: 1100px) { #val-root { grid-template-columns: 1fr; } }
+    .scenario { border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:8px; }
+    .scenario.active { border-color:var(--accent); }
+    .scenario h3 { margin:0 0 4px; font-size:0.9rem; }
+    .scenario p { margin:0 0 6px; font-size:0.78rem; color:var(--muted); }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px; }
+    button.btn { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; font-size:0.8rem; }
+    button.btn.secondary { background:#2a3548; }
+    button.btn:disabled { opacity:0.45; cursor:not-allowed; }
+    input, textarea, select { background:#0f1419; border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px 8px; font-size:0.8rem; }
+    textarea { width:100%; min-height:52px; }
+    .timer { font-variant-numeric: tabular-nums; font-size:1.1rem; color:var(--ok); }
+    .report-box { font-size:0.82rem; }
+    .kpi { display:inline-block; margin-right:12px; }
   </style>
 </head>
 <body>
   <header>
     <h1>/debug/vision</h1>
-    <span class="badge">localhost · UTF-8 · sem embeddings · sem RTSP completo</span>
+    <span class="badge">localhost · UTF-8 · sem embeddings · sem frames persistidos</span>
     <span id="status" class="badge">…</span>
+    <div class="tabs">
+      <button class="tab active" data-tab="live">Live</button>
+      <button class="tab" data-tab="validation">Validação controlada</button>
+    </div>
   </header>
-  <main>
-    <section class="panel">
-      <h2>Preview (MJPEG)</h2>
-      <img id="preview" alt="preview" src="/debug/mjpeg?camera_id=cam-web&overlay=1&fps=15" />
-      <p class="warn">Overlay em ASCII (cv2.putText). API/HTML em UTF-8.</p>
-      <div class="manual">
-        <strong>Roteiro manual:</strong> frente 10s · esquerda 5s · direita 5s · baixo 2s · baixo 10s ·
-        piscar · olhos 2s · olhos+inclinação 10s · sorriso 5s · neutro 5s · celular mesa · celular olhar · sair · voltar
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Tracks analíticos</h2>
-      <div id="cards">Carregando…</div>
-      <details>
-        <summary>JSON bruto</summary>
-        <pre id="payload"></pre>
-      </details>
-    </section>
-  </main>
+
+  <div id="view-live" class="view active">
+    <main class="live-grid">
+      <section class="panel">
+        <h2>Preview (MJPEG)</h2>
+        <img id="preview" alt="preview" src="/debug/mjpeg?camera_id=cam-web&overlay=1&fps=15" />
+        <p class="warn">Overlay em ASCII (cv2.putText). API/HTML em UTF-8.</p>
+      </section>
+      <section class="panel">
+        <h2>Tracks analíticos</h2>
+        <div id="cards">Carregando…</div>
+        <details>
+          <summary>JSON bruto</summary>
+          <pre id="payload"></pre>
+        </details>
+      </section>
+    </main>
+  </div>
+
+  <div id="view-validation" class="view">
+    <div id="val-root">
+      <section class="panel">
+        <h2>Sessão de validação</h2>
+        <div class="row">
+          <label>Operador <input id="val-operator" value="operador" /></label>
+          <label>Câmera <input id="val-camera" value="cam-web" /></label>
+          <label>student_id <input id="val-student" placeholder="auto" /></label>
+          <button class="btn" id="btn-new-session">Nova sessão</button>
+          <button class="btn secondary" id="btn-report">Gerar relatório</button>
+        </div>
+        <p class="badge" id="val-session-meta">Nenhuma sessão ativa</p>
+        <div class="row">
+          <span class="timer" id="val-timer">00:00</span>
+          <span class="badge" id="val-sample-count">amostras: 0</span>
+        </div>
+        <h2 style="margin-top:14px">Cenários</h2>
+        <div id="scenario-list"></div>
+      </section>
+      <section class="panel">
+        <h2>Resultado / relatório</h2>
+        <div id="val-report" class="report-box">Inicie uma sessão e execute os cenários.</div>
+        <div class="row" style="margin-top:10px">
+          <a class="btn secondary" id="link-json" href="#" style="text-decoration:none;display:none">Export JSON</a>
+          <a class="btn secondary" id="link-csv" href="#" style="text-decoration:none;display:none">Export CSV</a>
+        </div>
+        <details style="margin-top:12px">
+          <summary>Live snapshot (mesma fonte do runtime)</summary>
+          <pre id="val-live-snap">…</pre>
+        </details>
+      </section>
+    </div>
+  </div>
+
   <script>
-    const token = localStorage.getItem("api_token") || "";
+    const token = localStorage.getItem("api_token") || new URLSearchParams(location.search).get("api_token") || "";
+    const headers = () => {
+      const h = { "Content-Type": "application/json" };
+      if (token) h["X-API-Token"] = token;
+      return h;
+    };
+    async function api(path, opts = {}) {
+      const r = await fetch(path, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+      if (r.status === 401) throw new Error("401 — autenticação necessária");
+      const ct = r.headers.get("content-type") || "";
+      if (ct.includes("application/json")) return r.json();
+      return r.text();
+    }
+
     function pill(status) {
       const s = (status || "sem_dado").toLowerCase();
       let cls = "muted";
-      if (["available", "observable", "high", "none", "ok"].includes(s)) cls = "ok";
-      else if (["inconclusive", "low_quality", "moderate", "possible", "low"].includes(s)) cls = "warn";
-      else if (["unavailable", "error", "disabled", "not_implemented"].includes(s)) cls = "err";
+      if (["available", "observable", "high", "none", "ok", "pass"].includes(s)) cls = "ok";
+      else if (["inconclusive", "low_quality", "moderate", "possible", "low", "inconclusivo"].includes(s)) cls = "warn";
+      else if (["unavailable", "error", "disabled", "not_implemented", "fail"].includes(s)) cls = "err";
       return `<span class="pill ${cls}">${status || "sem dado"}</span>`;
     }
     function fmt(v) {
@@ -85,41 +156,177 @@
         <div class="grid">
           <div>identidade: <strong>${t.student_id || "—"}</strong> (${fmt(t.identity_confidence ?? t.confidence)})</div>
           <div>provider landmarks: ${f.provider || "—"}</div>
-          <div>overall quality: ${fmt(q.overall_score)} · size ${fmt(q.face_size_score)} · sharp ${fmt(q.sharpness_score)} · illum ${fmt(q.illumination_score)}</div>
-          <div>olhos: L ${fmt(f.left_eye_openness)} R ${fmt(f.right_eye_openness)} avg ${fmt(f.average_eye_openness)}</div>
-          <div>boca: ${fmt(f.mouth_open_score)} · yawn ${fmt(f.possible_yawn_score)}</div>
+          <div>overall quality: ${fmt(q.overall_score)}</div>
+          <div>olhos: L ${fmt(f.left_eye_openness)} R ${fmt(f.right_eye_openness)}</div>
+          <div>boca: ${fmt(f.mouth_open_score)}</div>
           <div>pose: yaw ${fmt(f.yaw)} pitch ${fmt(f.pitch)} roll ${fmt(f.roll)}</div>
-          <div>expressão: ${e.smoothed_display_pt || e.smoothed_state || e.status || "—"} (raw ${e.raw_label || "—"}) conf ${fmt(e.confidence)}</div>
-          <div>atenção: ${a.state || a.status || "—"} · ${fmt(a.confidence)} · ${fmt(a.duration_seconds)}s</div>
+          <div>expressão: ${e.smoothed_display_pt || e.smoothed_state || e.status || "—"} conf ${fmt(e.confidence)} n=${e.sample_count ?? "—"}</div>
+          <div>atenção: ${a.state || a.status || "—"} · ${fmt(a.duration_seconds)}s</div>
           <div>sonolência: ${d.state || d.status || "—"} · ${fmt(d.duration_seconds)}s</div>
-          <div>celular: ${p.state || p.status || "—"}</div>
+          <div>celular: ${p.status || "—"} / ${p.state || "—"}</div>
           <div>latências ms: q ${fmt(lat.quality)} · lm ${fmt(lat.landmarks)} · expr ${fmt(lat.expression)} · total ${fmt(lat.total_analytics)}</div>
-          <div>reasons: ${(q.reasons || []).join(", ") || "—"}</div>
         </div>
       </div>`;
     }
-    async function refresh() {
+
+    async function refreshLive() {
       try {
-        const headers = {};
-        if (token) headers["X-API-Token"] = token;
-        const r = await fetch("/api/v1/live/debug-snapshot", { headers });
-        if (r.status === 401) {
-          document.getElementById("status").textContent = "401 — autenticação necessária";
-          return;
-        }
-        const data = await r.json();
+        const data = await api("/api/v1/live/debug-snapshot?camera_id=cam-web");
         document.getElementById("status").textContent = "ok · " + new Date().toLocaleTimeString();
         const tracks = data.tracks || [];
         document.getElementById("cards").innerHTML = tracks.length
           ? tracks.map(renderTrack).join("")
-          : "<p class='warn'>Nenhum track (lista vazia = ninguém no frame).</p>";
+          : "<p class='warn'>Nenhum track.</p>";
         document.getElementById("payload").textContent = JSON.stringify(data, null, 2);
+        const vs = document.getElementById("val-live-snap");
+        if (vs) vs.textContent = JSON.stringify(data, null, 2);
       } catch (e) {
-        document.getElementById("status").textContent = "erro: " + e;
+        document.getElementById("status").textContent = "erro: " + e.message;
       }
     }
-    refresh();
-    setInterval(refresh, 1500);
+
+    // Tabs
+    document.querySelectorAll(".tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
+        document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById("view-" + btn.dataset.tab).classList.add("active");
+      });
+    });
+
+    // Validation state
+    let session = null;
+    let activeStep = null;
+    let sampleTimer = null;
+    let clockTimer = null;
+    let startedAt = null;
+
+    function stopTimers() {
+      if (sampleTimer) clearInterval(sampleTimer);
+      if (clockTimer) clearInterval(clockTimer);
+      sampleTimer = null;
+      clockTimer = null;
+    }
+
+    function renderScenarios() {
+      if (!session) {
+        document.getElementById("scenario-list").innerHTML = "<p class='badge'>Crie uma sessão.</p>";
+        return;
+      }
+      const steps = session.steps || [];
+      document.getElementById("scenario-list").innerHTML = steps.map((s) => {
+        const isActive = activeStep && activeStep.id === s.id;
+        const res = s.result ? pill(s.result) : pill("pendente");
+        return `<div class="scenario ${isActive ? "active" : ""}" data-step="${s.id}">
+          <h3>${s.sort_order + 1}. ${s.scenario_name} ${res}</h3>
+          <p>${s.instruction || ""}</p>
+          <p>Duração esperada: <strong>${s.duration_expected ?? "—"}s</strong></p>
+          <div class="row">
+            <button class="btn" data-act="start" data-id="${s.id}" ${activeStep && !isActive ? "disabled" : ""}>Iniciar</button>
+            <button class="btn secondary" data-act="finish" data-id="${s.id}" ${isActive ? "" : "disabled"}>Finalizar</button>
+          </div>
+          <textarea data-obs="${s.id}" placeholder="Observação manual">${s.observation || ""}</textarea>
+        </div>`;
+      }).join("");
+      document.querySelectorAll("[data-act=start]").forEach((b) => b.addEventListener("click", () => startStep(b.dataset.id)));
+      document.querySelectorAll("[data-act=finish]").forEach((b) => b.addEventListener("click", () => finishStep(b.dataset.id)));
+    }
+
+    async function newSession() {
+      stopTimers();
+      activeStep = null;
+      const body = {
+        operator: document.getElementById("val-operator").value || "operador",
+        camera_id: document.getElementById("val-camera").value || "cam-web",
+        student_id: document.getElementById("val-student").value || null,
+      };
+      session = await api("/api/v1/validation/sessions", { method: "POST", body: JSON.stringify(body) });
+      document.getElementById("val-session-meta").textContent =
+        `Sessão ${session.id} · camera ${session.camera_id} · student ${session.student_id || "auto"} · ${session.runtime_mode}`;
+      document.getElementById("link-json").style.display = "none";
+      document.getElementById("link-csv").style.display = "none";
+      document.getElementById("val-report").textContent = "Sessão criada. Execute os cenários na ordem.";
+      renderScenarios();
+    }
+
+    async function startStep(stepId) {
+      if (!session) return;
+      stopTimers();
+      activeStep = await api(`/api/v1/validation/sessions/${session.id}/steps/start`, {
+        method: "POST",
+        body: JSON.stringify({ step_id: stepId }),
+      });
+      startedAt = Date.now();
+      document.getElementById("val-sample-count").textContent = "amostras: " + (activeStep.sample_count || 1);
+      clockTimer = setInterval(() => {
+        const sec = Math.floor((Date.now() - startedAt) / 1000);
+        const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+        const ss = String(sec % 60).padStart(2, "0");
+        document.getElementById("val-timer").textContent = `${mm}:${ss}`;
+      }, 200);
+      // amostra na frequência do analytics (~0.5s)
+      sampleTimer = setInterval(async () => {
+        try {
+          await api(`/api/v1/validation/sessions/${session.id}/steps/${stepId}/sample`, { method: "POST", body: "{}" });
+          const st = await api(`/api/v1/validation/sessions/${session.id}`);
+          session = st;
+          const step = (st.steps || []).find((x) => x.id === stepId);
+          document.getElementById("val-sample-count").textContent = "amostras: " + (step?.sample_count ?? "?");
+        } catch (_) {}
+      }, 500);
+      session = await api(`/api/v1/validation/sessions/${session.id}`);
+      renderScenarios();
+    }
+
+    async function finishStep(stepId) {
+      if (!session) return;
+      stopTimers();
+      const obs = document.querySelector(`textarea[data-obs="${stepId}"]`)?.value || "";
+      activeStep = await api(`/api/v1/validation/sessions/${session.id}/steps/${stepId}/finish`, {
+        method: "POST",
+        body: JSON.stringify({ observation: obs }),
+      });
+      const finished = activeStep;
+      activeStep = null;
+      session = await api(`/api/v1/validation/sessions/${session.id}`);
+      renderScenarios();
+      if (finished) {
+        document.getElementById("val-report").innerHTML =
+          `<p><strong>${finished.scenario_name || ""}</strong> → ${pill(finished.result)}</p>
+           <pre>${finished.evidence_json || finished.received_json || ""}</pre>`;
+      }
+    }
+
+    async function genReport() {
+      if (!session) return;
+      const report = await api(`/api/v1/validation/sessions/${session.id}/report`);
+      const c = report.counts || {};
+      document.getElementById("val-report").innerHTML = `
+        <div class="kpi">PASS: <strong class="ok">${c.PASS || 0}</strong></div>
+        <div class="kpi">FAIL: <strong style="color:var(--err)">${c.FAIL || 0}</strong></div>
+        <div class="kpi">INCONCLUSIVO: <strong style="color:var(--warn)">${c.INCONCLUSIVO || 0}</strong></div>
+        <div class="kpi">PENDING: ${c.PENDING || 0}</div>
+        <p>Resultado geral: ${pill(report.overall_result)}</p>
+        <p>Latências total p50/p95: ${fmt(report.latencies_ms?.p50)} / ${fmt(report.latencies_ms?.p95)} ms (n=${report.latencies_ms?.n})</p>
+        <p>Presença: ${report.presence?.note || "—"}</p>
+        <ul>${(report.steps || []).map((s) => `<li>${s.name}: ${s.result || "pendente"}</li>`).join("")}</ul>
+        <p class="badge">${(report.limitations || []).join(" · ")}</p>
+        <pre>${JSON.stringify(report, null, 2)}</pre>`;
+      const q = token ? `?api_token=${encodeURIComponent(token)}` : "";
+      const j = document.getElementById("link-json");
+      const csv = document.getElementById("link-csv");
+      j.href = `/api/v1/validation/sessions/${session.id}/report${q}`;
+      j.style.display = "inline-block";
+      csv.href = `/api/v1/validation/sessions/${session.id}/report.csv${q}`;
+      csv.style.display = "inline-block";
+    }
+
+    document.getElementById("btn-new-session").addEventListener("click", () => newSession().catch((e) => alert(e.message)));
+    document.getElementById("btn-report").addEventListener("click", () => genReport().catch((e) => alert(e.message)));
+
+    refreshLive();
+    setInterval(refreshLive, 1500);
   </script>
 </body>
 </html>

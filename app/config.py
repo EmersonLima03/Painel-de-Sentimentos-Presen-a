@@ -131,6 +131,7 @@ class Settings(BaseSettings):
     # Runtime: demo | offline | rtsp
     runtime_mode: str = Field(default="demo", env="RUNTIME_MODE")
     demo_db_path: str = Field(default="./data/demo/dulino_edge_demo.db", env="DEMO_DB_PATH")
+    validation_db_path: str = Field(default="./data/validation/validation.db", env="VALIDATION_DB_PATH")
     experimental_sqlite_005_enabled: bool = Field(default=False, env="EXPERIMENTAL_SQLITE_005")
     longitudinal_approval_recorded: bool = Field(default=False, env="LONGITUDINAL_APPROVAL_RECORDED")
 
@@ -168,6 +169,29 @@ class Settings(BaseSettings):
     drowsiness_probable_after_seconds: float = Field(default=10.0, env="DROWSINESS_PROBABLE_AFTER")
     drowsiness_minimum_observation_quality: float = Field(default=0.60, env="DROWSINESS_MIN_QUALITY")
     drowsiness_cooldown_seconds: float = Field(default=20.0, env="DROWSINESS_COOLDOWN")
+
+    # Person-first tracking / identity continuity (analytics only — não altera presença)
+    identity_face_missing_ttl_seconds: float = Field(default=12.0, env="IDENTITY_FACE_MISSING_TTL")
+    identity_minimum_new_confidence: float = Field(default=0.75, env="IDENTITY_MIN_NEW_CONF")
+    identity_minimum_margin: float = Field(default=0.10, env="IDENTITY_MIN_MARGIN")
+    identity_confirmations_before_switch: int = Field(default=3, env="IDENTITY_CONFIRMATIONS")
+    identity_switch_cooldown_seconds: float = Field(default=10.0, env="IDENTITY_SWITCH_COOLDOWN")
+    identity_confidence_decay_per_second: float = Field(default=0.04, env="IDENTITY_CONF_DECAY")
+    person_tracking_enabled: bool = Field(default=True, env="PERSON_TRACKING_ENABLED")
+    person_tracking_prefer_bytetrack: bool = Field(default=True, env="PERSON_TRACKING_BYTETRACK")
+    person_tracking_model_path: str = Field(default="data/models/yolov8n.pt", env="PERSON_TRACKING_MODEL")
+    person_tracking_ttl_seconds: float = Field(default=8.0, env="PERSON_TRACKING_TTL")
+    person_tracking_max_time_lost_seconds: float = Field(default=8.0, env="PERSON_TRACKING_MAX_LOST")
+    person_tracking_min_detection_confidence: float = Field(default=0.25, env="PERSON_TRACKING_MIN_CONF")
+    person_tracking_min_reassociation_iou: float = Field(default=0.30, env="PERSON_TRACKING_MIN_IOU")
+    person_tracking_max_center_distance_ratio: float = Field(default=0.35, env="PERSON_TRACKING_MAX_DIST")
+    person_tracking_bytetrack_yaml: str = Field(
+        default="data/trackers/bytetrack_person.yaml", env="PERSON_TRACKING_BT_YAML"
+    )
+    pose_body_enabled: bool = Field(default=True, env="POSE_BODY_ENABLED")
+    pose_body_model_path: str = Field(
+        default="data/mediapipe_models/pose_landmarker_lite.task", env="POSE_BODY_MODEL"
+    )
 
     class Config:
         env_file = ".env"
@@ -411,6 +435,52 @@ class Settings(BaseSettings):
             ):
                 if k in pr:
                     object.__setattr__(self, attr, str(pr[k]))
+        if "identity_binding" in config and isinstance(config["identity_binding"], dict):
+            ib = config["identity_binding"]
+            for yk, attr in (
+                ("face_missing_ttl_seconds", "identity_face_missing_ttl_seconds"),
+                ("minimum_new_identity_confidence", "identity_minimum_new_confidence"),
+                ("minimum_identity_margin", "identity_minimum_margin"),
+                ("confirmations_before_switch", "identity_confirmations_before_switch"),
+                ("identity_switch_cooldown_seconds", "identity_switch_cooldown_seconds"),
+                ("confidence_decay_per_second", "identity_confidence_decay_per_second"),
+            ):
+                if yk in ib:
+                    object.__setattr__(self, attr, type(getattr(self, attr))(ib[yk]))
+        if "person_tracking" in config and isinstance(config["person_tracking"], dict):
+            pt = config["person_tracking"]
+            if "enabled" in pt:
+                object.__setattr__(self, "person_tracking_enabled", bool(pt["enabled"]))
+            if "prefer_bytetrack" in pt:
+                object.__setattr__(self, "person_tracking_prefer_bytetrack", bool(pt["prefer_bytetrack"]))
+            if "model_path" in pt:
+                object.__setattr__(self, "person_tracking_model_path", str(pt["model_path"]))
+            if "ttl_seconds" in pt:
+                object.__setattr__(self, "person_tracking_ttl_seconds", float(pt["ttl_seconds"]))
+            if "max_time_lost_seconds" in pt:
+                object.__setattr__(self, "person_tracking_max_time_lost_seconds", float(pt["max_time_lost_seconds"]))
+            if "minimum_detection_confidence" in pt:
+                object.__setattr__(
+                    self, "person_tracking_min_detection_confidence", float(pt["minimum_detection_confidence"])
+                )
+            if "minimum_reassociation_iou" in pt:
+                object.__setattr__(
+                    self, "person_tracking_min_reassociation_iou", float(pt["minimum_reassociation_iou"])
+                )
+            if "maximum_center_distance_ratio" in pt:
+                object.__setattr__(
+                    self,
+                    "person_tracking_max_center_distance_ratio",
+                    float(pt["maximum_center_distance_ratio"]),
+                )
+            if "bytetrack_yaml" in pt:
+                object.__setattr__(self, "person_tracking_bytetrack_yaml", str(pt["bytetrack_yaml"]))
+        if "pose_body" in config and isinstance(config["pose_body"], dict):
+            pb = config["pose_body"]
+            if "enabled" in pb:
+                object.__setattr__(self, "pose_body_enabled", bool(pb["enabled"]))
+            if "model_path" in pb:
+                object.__setattr__(self, "pose_body_model_path", str(pb["model_path"]))
         if "privacy" in config and isinstance(config["privacy"], dict):
             priv = config["privacy"]
             if "demo_db_path" in priv and not os.environ.get("DEMO_DB_PATH"):

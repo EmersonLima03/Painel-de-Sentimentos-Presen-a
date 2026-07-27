@@ -1,0 +1,11 @@
+# ByteTrack customizado para analytics person-first (atualização ~2 Hz).
+# track_buffer é em FRAMES do ciclo de update (não FPS de vídeo).
+# Com analytics ~0.5s: 30 ≈ 15s; 40 ≈ 20s de tolerância no ByteTrack bruto.
+# A continuidade estável final fica em StablePersonTrackManager (segundos).
+tracker_type: bytetrack
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 40
+match_thresh: 0.7
+fuse_score: True
