@@ -142,8 +142,8 @@ def test_expire_after_real_exit():
     assert again[0].track_id == "cam-web-person-002"
 
 
-def test_identity_ttl_independent_of_person_track(monkeypatch):
-    """Identidade expira; person_track_id permanece (engine + continuity)."""
+def test_identity_face_stale_independent_of_person_track(monkeypatch):
+    """Confirmação facial envelhece; person_track_id e body_continuity permanecem."""
     from app.vision.identity_binding import IdentityBindingEngine
     from app.vision.tracking_types import FaceTrack
 
@@ -157,12 +157,13 @@ def test_identity_ttl_independent_of_person_track(monkeypatch):
         face_tracks=[face],
         face_identities={"face-000": {"student_id": "p01", "confidence": 0.9, "margin": 0.2}},
     )
-    # 20s sem face — identidade unknown; person track id inalterado
+    # 20s sem face — identidade body_continuity; person track id inalterado
     st = eng.update_continuity(
         now=1020.0, person_tracks=[person], face_tracks=[], face_identities={}
     )["cam-web-person-001"]
-    assert st.student_id is None
-    assert st.source == "unknown"
+    assert st.student_id == "p01"
+    assert st.identity_state == "body_continuity"
+    assert st.face_confirmation_stale is True
     assert person.track_id == "cam-web-person-001"
 
 

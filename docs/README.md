@@ -4,7 +4,7 @@ Ponto de entrada oficial da documentação do projeto.
 
 ## Visão geral
 
-**Dulino Edge Vision** é um sistema **edge** (local) de visão computacional para salas de aula: captura frames de câmera, reconhece presença facial e estima **sinais visuais observáveis** (atenção aparente, expressão aparente, celular, sonolência aparente, clima coletivo).
+**Dulino Edge Vision** é um sistema **edge** (local) de visão computacional para salas de aula: captura frames de câmera, reconhece presença facial e estima **sinais visuais observáveis** (indicadores visuais de acompanhamento, expressão aparente, celular, sonolência aparente, clima coletivo). Observação assistida da dinâmica da sala — não é diagnóstico de sentimento nem avaliação de aluno.
 
 | Público | Uso |
 |---------|-----|
@@ -99,4 +99,6 @@ Webcam local: ver [OPERATIONS.md](OPERATIONS.md) (índice OpenCV; neste ambiente
 | [TESTING.md](TESTING.md) | Testes automatizados e manuais |
 | [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) | LGPD, ética, segurança |
 | [ROADMAP.md](ROADMAP.md) | Pendências, decisões, próximos passos |
+| [MODULAR_CLASSROOM_SCENARIOS.md](MODULAR_CLASSROOM_SCENARIOS.md) | Levantamento de cenários reais além do P0 (somente documentação) |
+| [LESSON_CONTEXT_CONFIGURATION.md](LESSON_CONTEXT_CONFIGURATION.md) | Modelo conceitual de configuração modular da aula |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Problemas e soluções |

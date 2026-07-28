@@ -166,17 +166,33 @@ class Settings(BaseSettings):
     visual_attention_window_seconds: float = Field(default=10.0, env="ATTENTION_WINDOW")
     visual_attention_minimum_observation_quality: float = Field(default=0.55, env="ATTENTION_MIN_QUALITY")
     drowsiness_possible_after_seconds: float = Field(default=6.0, env="DROWSINESS_POSSIBLE_AFTER")
-    drowsiness_probable_after_seconds: float = Field(default=10.0, env="DROWSINESS_PROBABLE_AFTER")
+    drowsiness_probable_after_seconds: float = Field(default=30.0, env="DROWSINESS_PROBABLE_AFTER")
     drowsiness_minimum_observation_quality: float = Field(default=0.60, env="DROWSINESS_MIN_QUALITY")
     drowsiness_cooldown_seconds: float = Field(default=20.0, env="DROWSINESS_COOLDOWN")
+    drowsiness_eye_closed_ear_threshold: float = Field(default=0.18, env="DROWSINESS_EAR_THRESHOLD")
+    drowsiness_observation_gap_inconclusive_seconds: float = Field(
+        default=8.0, env="DROWSINESS_OBS_GAP_INCONCLUSIVE"
+    )
+    phone_possible_after_seconds: float = Field(default=5.0, env="PHONE_POSSIBLE_AFTER")
+    phone_probable_after_seconds: float = Field(default=12.0, env="PHONE_PROBABLE_AFTER")
+    experimental_perclos_enabled: bool = Field(default=False, env="EXPERIMENTAL_PERCLOS")
+    experimental_perclos_window_seconds: float = Field(default=60.0, env="PERCLOS_WINDOW")
+    experimental_perclos_min_coverage: float = Field(default=0.50, env="PERCLOS_MIN_COVERAGE")
 
     # Person-first tracking / identity continuity (analytics only — não altera presença)
+    # face_missing_ttl = stale facial (UI/decay facial); NÃO expira body_continuity sozinho
     identity_face_missing_ttl_seconds: float = Field(default=12.0, env="IDENTITY_FACE_MISSING_TTL")
     identity_minimum_new_confidence: float = Field(default=0.75, env="IDENTITY_MIN_NEW_CONF")
     identity_minimum_margin: float = Field(default=0.10, env="IDENTITY_MIN_MARGIN")
     identity_confirmations_before_switch: int = Field(default=3, env="IDENTITY_CONFIRMATIONS")
     identity_switch_cooldown_seconds: float = Field(default=10.0, env="IDENTITY_SWITCH_COOLDOWN")
     identity_confidence_decay_per_second: float = Field(default=0.04, env="IDENTITY_CONF_DECAY")
+    identity_body_continuity_uncertain_threshold: float = Field(
+        default=0.45, env="IDENTITY_BODY_CONT_UNCERTAIN"
+    )
+    identity_temporarily_lost_uncertain_seconds: float = Field(
+        default=4.0, env="IDENTITY_TEMP_LOST_UNCERTAIN"
+    )
     person_tracking_enabled: bool = Field(default=True, env="PERSON_TRACKING_ENABLED")
     person_tracking_prefer_bytetrack: bool = Field(default=True, env="PERSON_TRACKING_BYTETRACK")
     person_tracking_model_path: str = Field(default="data/models/yolov8n.pt", env="PERSON_TRACKING_MODEL")
@@ -367,6 +383,16 @@ class Settings(BaseSettings):
                 object.__setattr__(
                     self, "longitudinal_approval_recorded", bool(exp["longitudinal_approval_recorded"])
                 )
+            if "perclos_enabled" in exp:
+                object.__setattr__(self, "experimental_perclos_enabled", bool(exp["perclos_enabled"]))
+            if "perclos_window_seconds" in exp:
+                object.__setattr__(
+                    self, "experimental_perclos_window_seconds", float(exp["perclos_window_seconds"])
+                )
+            if "perclos_min_coverage" in exp:
+                object.__setattr__(
+                    self, "experimental_perclos_min_coverage", float(exp["perclos_min_coverage"])
+                )
 
         # Módulos (modos) + provenance
         if "modules" in config:
@@ -423,9 +449,17 @@ class Settings(BaseSettings):
                 ("probable_after_seconds", "drowsiness_probable_after_seconds"),
                 ("minimum_observation_quality", "drowsiness_minimum_observation_quality"),
                 ("cooldown_seconds", "drowsiness_cooldown_seconds"),
+                ("eye_closed_ear_threshold", "drowsiness_eye_closed_ear_threshold"),
+                ("observation_gap_inconclusive_seconds", "drowsiness_observation_gap_inconclusive_seconds"),
             ):
                 if yk in dr:
                     object.__setattr__(self, attr, float(dr[yk]))
+        if "phone" in config and isinstance(config["phone"], dict):
+            ph = config["phone"]
+            if "possible_after_seconds" in ph:
+                object.__setattr__(self, "phone_possible_after_seconds", float(ph["possible_after_seconds"]))
+            if "probable_after_seconds" in ph:
+                object.__setattr__(self, "phone_probable_after_seconds", float(ph["probable_after_seconds"]))
         if "provenance" in config and isinstance(config["provenance"], dict):
             pr = config["provenance"]
             for k, attr in (
@@ -444,6 +478,8 @@ class Settings(BaseSettings):
                 ("confirmations_before_switch", "identity_confirmations_before_switch"),
                 ("identity_switch_cooldown_seconds", "identity_switch_cooldown_seconds"),
                 ("confidence_decay_per_second", "identity_confidence_decay_per_second"),
+                ("body_continuity_uncertain_threshold", "identity_body_continuity_uncertain_threshold"),
+                ("temporarily_lost_uncertain_seconds", "identity_temporarily_lost_uncertain_seconds"),
             ):
                 if yk in ib:
                     object.__setattr__(self, attr, type(getattr(self, attr))(ib[yk]))

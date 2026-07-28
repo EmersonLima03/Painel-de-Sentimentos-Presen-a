@@ -22,6 +22,18 @@ Para cada item: sintoma → causa → diagnóstico → correção → confirmaç
 - **Correção:** pose corporal + regra “sem olhos observáveis fechados → não possible/probable”.  
 - **Confirmação:** `head_state=head_down_*` com `drowsiness.state` em `none|inconclusive`.
 
+### Olhos fechados longos ficam só em `possible`
+
+- **Causa:** score só com olhos era baixo; `probable` exigia cabeça baixa; cooldown rebaixava o estado a cada frame.  
+- **Correção:** olhos fechados ≥ **30s** → `probable` sem baixar a cabeça; cooldown só ao **abrir** os olhos.  
+- **Confirmação:** 30–40s olhos fechados de frente → `sonolência: probable`.
+
+### Sorriso aparece como expressão neutra
+
+- **Causa:** caminho ONNX (FER+) não usava heurística de boca/dentes.  
+- **Correção:** boost de sorriso no provider ONNX/TF → `positive` quando sorriso geométrico é forte.  
+- **Confirmação:** sorriso sustentado ~8s → `expressão predominantemente positiva` (`n≥3`).
+
 ### Celular na mão com `not_detected` / threshold
 
 - **Causa:** associação por face; ou conf baixa.  

@@ -75,6 +75,17 @@ def test_brief_eyes_closed_no_persistent_drowsiness():
     assert st.state == "none"
 
 
+def test_eyes_only_long_duration_probable():
+    st = evaluate_apparent_drowsiness(
+        eyes_closed_seconds=30.0,
+        head_pitch=0.1,
+        sample_count=20,
+        observation_quality=0.9,
+        min_duration_seconds=30.0,
+    )
+    assert st.state == "probable"
+
+
 def test_low_quality_drowsiness_inconclusive():
     st = evaluate_apparent_drowsiness(
         eyes_closed_seconds=20.0,

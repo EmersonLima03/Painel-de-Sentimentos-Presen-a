@@ -61,7 +61,11 @@ class FerLegacyProvider:
                 for _ in face_crops
             ]
 
-        from app.vision.emotion_engagement import emotion_backend_health, predict_emotion_detail
+        from app.vision.emotion_engagement import (
+            apply_smile_boost_to_fer_probs,
+            emotion_backend_health,
+            predict_emotion_detail,
+        )
 
         health = self.health()
         use_onnx = health.get("provider") == "fer_onnx" or health.get("model_name") == "emotion-ferplus-8"
@@ -71,19 +75,23 @@ class FerLegacyProvider:
             try:
                 if use_onnx:
                     from app.vision.fer_onnx import predict_emotion_onnx
-                    from app.vision.expressions.normalization import normalize_expression_label
-
-                    label, conf_raw, probs_arr = predict_emotion_onnx(crop)
-                    # map ferplus array to normalized dict via labels
                     from app.vision.fer_onnx import FERPLUS_LABELS, _TO_FER2013
 
+                    label, conf_raw, probs_arr = predict_emotion_onnx(crop)
                     raw_probs = {}
                     for i, name in enumerate(FERPLUS_LABELS):
                         if i < len(probs_arr):
                             fer = _TO_FER2013.get(name, name)
                             raw_probs[fer] = raw_probs.get(fer, 0.0) + float(probs_arr[i])
+                    raw_probs, label, smile_src = apply_smile_boost_to_fer_probs(
+                        crop, raw_probs, raw_label=str(label)
+                    )
                     probs = normalize_probabilities(raw_probs)
                     label_n, conf, ok = pick_label(probs, minimum_confidence=self.minimum_confidence)
+                    if smile_src == "smile":
+                        label_n = "positive"
+                        conf = max(conf, float(raw_probs.get("happy", conf)))
+                        ok = True
                     out.append(
                         FacialExpressionPrediction(
                             label=label_n,
@@ -102,12 +110,20 @@ class FerLegacyProvider:
                 if isinstance(detail, (tuple, list)) and len(detail) >= 2:
                     raw_label = detail[0]
                     conf_raw = float(detail[1])
+                    source = detail[4] if len(detail) >= 5 else "model"
                     raw_probs = {str(raw_label): conf_raw}
+                    if source == "smile" or str(raw_label).lower() == "happy":
+                        raw_probs = {"happy": max(conf_raw, 0.5), "neutral": 0.2}
                 else:
                     raw_label = None
                     raw_probs = {}
+                    source = "model"
                 probs = normalize_probabilities(raw_probs)
                 label, conf, ok = pick_label(probs, minimum_confidence=self.minimum_confidence)
+                if source == "smile" or str(raw_label).lower() == "happy":
+                    label = "positive"
+                    conf = max(conf, conf_raw if isinstance(detail, (tuple, list)) else conf)
+                    ok = True
                 out.append(
                     FacialExpressionPrediction(
                         label=label,

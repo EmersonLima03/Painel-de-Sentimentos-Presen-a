@@ -30,15 +30,26 @@ class _FakeSettings:
     visual_attention_window_seconds = 10
     visual_attention_minimum_observation_quality = 0.3
     drowsiness_possible_after_seconds = 6
-    drowsiness_probable_after_seconds = 10
+    drowsiness_probable_after_seconds = 30
     drowsiness_minimum_observation_quality = 0.3
     drowsiness_cooldown_seconds = 20
+    drowsiness_eye_closed_ear_threshold = 0.18
+    drowsiness_observation_gap_inconclusive_seconds = 8.0
+    phone_possible_after_seconds = 5.0
+    phone_probable_after_seconds = 12.0
+    experimental_perclos_enabled = False
     identity_face_missing_ttl_seconds = 12.0
     identity_minimum_new_confidence = 0.75
     identity_minimum_margin = 0.10
     identity_confirmations_before_switch = 3
     identity_switch_cooldown_seconds = 10.0
     identity_confidence_decay_per_second = 0.04
+    identity_body_continuity_uncertain_threshold = 0.45
+    identity_temporarily_lost_uncertain_seconds = 4.0
+    rule_engine_version = "test"
+    threshold_profile = "test"
+    camera_calibration_version = "test"
+    person_tracking_max_time_lost_seconds = 8.0
 
 
 def _face(mean=140, blur_noise=False, size=120):
@@ -108,6 +119,8 @@ def test_engine_snapshot_contract_no_empty_objects():
         "inconclusive",
         "error",
         "disabled",
+        "dependency_missing",
+        "not_loaded",
     )
     assert t["phone"].get("status") in ("unavailable", "disabled", "available", "error")
     counts = eng.classroom_counts(tracks, present_count=1)
@@ -147,6 +160,64 @@ def test_short_eyes_closed_not_persistent_drowsiness():
     cache.eyes_closed_since = now - 2.0
     attn, drow = eng._compute_attention_drowsiness(cache, now)
     assert drow["state"] == "none"
+
+
+def test_eyes_closed_30s_probable_without_head_down():
+    """Olhos fechados ≥30s sozinhos → probable (não trava em possible)."""
+    settings = _FakeSettings()
+    settings.drowsiness_probable_after_seconds = 30
+    settings.drowsiness_possible_after_seconds = 6
+    eng = RealtimeAnalyticsEngine(settings)
+    cache = eng._get_cache("p01")
+    cache.observation_quality = {
+        "overall_score": 0.85,
+        "overall_observability": 0.85,
+        "status": "observable",
+        "reasons": [],
+    }
+    cache.facial_features = {
+        "status": "available",
+        "average_eye_openness": 0.05,
+        "yaw": 0.0,
+        "pitch": 0.1,  # sem cabeça baixa
+    }
+    cache.head_state = {"state": "facing_forward", "confidence": 0.8, "reasons": []}
+    cache.face_occlusion = {"state": "none"}
+    now = 2000.0
+    cache.eyes_closed_accum_seconds = 35.0
+    cache.eyes_last_tick = now
+    cache.eyes_closed_since = now - 35.0
+    _, drow = eng._compute_attention_drowsiness(cache, now, face_visible=True)
+    assert drow["state"] == "probable"
+    assert drow["duration_seconds"] >= 30
+
+
+def test_eyes_closed_10s_possible_before_probable():
+    settings = _FakeSettings()
+    settings.drowsiness_probable_after_seconds = 30
+    settings.drowsiness_possible_after_seconds = 6
+    eng = RealtimeAnalyticsEngine(settings)
+    cache = eng._get_cache("p01")
+    cache.observation_quality = {
+        "overall_score": 0.85,
+        "overall_observability": 0.85,
+        "status": "observable",
+        "reasons": [],
+    }
+    cache.facial_features = {
+        "status": "available",
+        "average_eye_openness": 0.05,
+        "yaw": 0.0,
+        "pitch": 0.1,
+    }
+    cache.head_state = {"state": "facing_forward", "confidence": 0.8, "reasons": []}
+    cache.face_occlusion = {"state": "none"}
+    now = 2000.0
+    cache.eyes_closed_accum_seconds = 10.0
+    cache.eyes_last_tick = now
+    cache.eyes_closed_since = now - 10.0
+    _, drow = eng._compute_attention_drowsiness(cache, now, face_visible=True)
+    assert drow["state"] == "possible"
 
 
 def test_phone_unavailable_explicit():

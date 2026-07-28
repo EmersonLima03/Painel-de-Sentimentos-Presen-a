@@ -61,6 +61,7 @@ class FacialSignalSample:
     ear_right: Optional[float] = None
     provider: str = "mediapipe"
     landmarks_quality: float = 0.0
+    smile_score: float = 0.0
 
 
 def face_landmarker_health() -> dict:
@@ -167,6 +168,43 @@ def _mouth_aspect(landmarks, iw: int, ih: int) -> float:
         if horiz < 1e-3:
             return 0.0
         return float(vert / horiz)
+    except Exception:
+        return 0.0
+
+
+def _smile_from_landmarks(landmarks, iw: int, ih: int, *, mouth_aspect: float) -> float:
+    """
+    Sorriso geométrico: cantos da boca elevados + boca larga (não bocejo).
+    Retorna 0..1 — independente do FER.
+    """
+    try:
+        top = _pt(landmarks, _MOUTH_TOP, iw, ih)
+        bottom = _pt(landmarks, _MOUTH_BOTTOM, iw, ih)
+        left = _pt(landmarks, _MOUTH_LEFT, iw, ih)
+        right = _pt(landmarks, _MOUTH_RIGHT, iw, ih)
+        mid_y = float((top[1] + bottom[1]) * 0.5)
+        # y menor = mais alto na imagem → cantos acima do meio = sorriso
+        lift = (mid_y - float((left[1] + right[1]) * 0.5)) / max(float(ih) * 0.015, 1.0)
+        width_ratio = float(np.linalg.norm(right - left)) / max(float(iw), 1.0)
+        score = 0.0
+        if lift >= 0.25:
+            score += 0.30
+        if lift >= 0.55:
+            score += 0.25
+        if lift >= 0.90:
+            score += 0.15
+        if width_ratio >= 0.32:
+            score += 0.18
+        if width_ratio >= 0.40:
+            score += 0.12
+        # boca aberta moderada (dentes) — bocejo é MAR alto
+        if 0.12 <= float(mouth_aspect) <= 0.48:
+            score += 0.18
+        elif 0.08 <= float(mouth_aspect) < 0.12:
+            score += 0.08
+        if float(mouth_aspect) >= 0.55:
+            score *= 0.25  # provável bocejo, não sorriso
+        return float(min(1.0, max(0.0, score)))
     except Exception:
         return 0.0
 
@@ -293,6 +331,7 @@ def analyze_face_roi(
     ear_r = _ear_six(lm, _RIGHT_EYE, iw, ih)
     ear = (ear_l + ear_r) * 0.5
     mouth = _mouth_aspect(lm, iw, ih)
+    smile = _smile_from_landmarks(lm, iw, ih, mouth_aspect=mouth)
     yaw, pitch, roll = _pose_from_landmarks(lm, iw, ih)
 
     eyes_closed = ear < ear_closed_thresh
@@ -329,4 +368,5 @@ def analyze_face_roi(
         ear_right=float(ear_r),
         provider="mediapipe",
         landmarks_quality=lq,
+        smile_score=float(smile),
     )

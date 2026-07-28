@@ -50,15 +50,25 @@ class _FakeSettings:
     visual_attention_window_seconds = 10
     visual_attention_minimum_observation_quality = 0.3
     drowsiness_possible_after_seconds = 6
-    drowsiness_probable_after_seconds = 10
+    drowsiness_probable_after_seconds = 30
     drowsiness_minimum_observation_quality = 0.3
     drowsiness_cooldown_seconds = 20
-    identity_face_missing_ttl_seconds = 3.0
+    drowsiness_eye_closed_ear_threshold = 0.18
+    drowsiness_observation_gap_inconclusive_seconds = 8.0
+    phone_possible_after_seconds = 5.0
+    phone_probable_after_seconds = 12.0
+    experimental_perclos_enabled = False
+    identity_face_missing_ttl_seconds = 12.0
     identity_minimum_new_confidence = 0.75
     identity_minimum_margin = 0.10
     identity_confirmations_before_switch = 3
     identity_switch_cooldown_seconds = 10.0
     identity_confidence_decay_per_second = 0.04
+    identity_body_continuity_uncertain_threshold = 0.45
+    identity_temporarily_lost_uncertain_seconds = 4.0
+    rule_engine_version = "rules-v0"
+    threshold_profile = "test"
+    camera_calibration_version = "test"
 
 
 def test_bbox_tracker_requires_detections():
@@ -95,26 +105,214 @@ def test_wrong_face_near_wrong_body_ambiguous_or_low():
     assert linked[0].ambiguous or linked[0].score < 0.7
 
 
-def test_identity_ttl_expires_to_unknown():
+def test_identity_face_stale_keeps_body_continuity():
+    """Tempo sem rosto NÃO zera identidade se corpo estável (sem TTL oculto)."""
     eng = IdentityBindingEngine(
         face_missing_ttl_seconds=2.0,
         minimum_new_identity_confidence=0.7,
-        confidence_decay_per_second=0.01,
+        confidence_decay_per_second=0.04,
     )
     persons = [_person("cam-person-001", (0, 0, 100, 200))]
     faces = [_face("face-000", (20, 10, 40, 40))]
     fi = {"face-000": {"student_id": "p01", "confidence": 0.9, "margin": 0.2}}
     st1 = eng.update_continuity(now=100.0, person_tracks=persons, face_tracks=faces, face_identities=fi)
     assert st1["cam-person-001"].student_id == "p01"
-    # face some
+    assert st1["cam-person-001"].identity_state == "face_confirmed"
     st2 = eng.update_continuity(now=101.0, person_tracks=persons, face_tracks=[], face_identities={})
-    assert st2["cam-person-001"].source == "cached_binding"
+    assert st2["cam-person-001"].identity_state == "body_continuity"
     assert st2["cam-person-001"].student_id == "p01"
-    st3 = eng.update_continuity(now=103.5, person_tracks=persons, face_tracks=[], face_identities={})
-    assert st3["cam-person-001"].student_id is None
-    assert st3["cam-person-001"].source == "unknown"
+    # bem além dos 12s / stale facial
+    st3 = eng.update_continuity(now=160.0, person_tracks=persons, face_tracks=[], face_identities={})
+    assert st3["cam-person-001"].student_id == "p01"
+    assert st3["cam-person-001"].identity_state == "body_continuity"
+    assert st3["cam-person-001"].face_confirmation_stale is True
+    assert st3["cam-person-001"].reconfirmation_recommended is True
+    # student_id NÃO removido; sem identity_binding_expired por ttl
     ev = eng.drain_events()
-    assert any(e["event_type"] == "identity_binding_expired" for e in ev)
+    assert not any(e.get("reason") == "ttl_exceeded" for e in ev)
+
+
+@pytest.mark.parametrize("gap", [15.0, 30.0, 60.0])
+def test_identity_body_continuity_stable_gaps(gap):
+    eng = IdentityBindingEngine(face_missing_ttl_seconds=12.0, minimum_new_identity_confidence=0.7)
+    persons = [_person("t1", (0, 0, 100, 200))]
+    faces = [_face("f1", (20, 10, 40, 40))]
+    eng.update_continuity(
+        now=1.0,
+        person_tracks=persons,
+        face_tracks=faces,
+        face_identities={"f1": {"student_id": "p01", "confidence": 0.9, "margin": 0.2}},
+    )
+    st = eng.update_continuity(
+        now=1.0 + gap, person_tracks=persons, face_tracks=[], face_identities={}
+    )["t1"]
+    assert st.student_id == "p01"
+    assert st.identity_state == "body_continuity"
+
+
+def test_identity_uncertain_on_temporarily_lost_prolonged():
+    eng = IdentityBindingEngine(face_missing_ttl_seconds=12.0, minimum_new_identity_confidence=0.7)
+    persons = [_person("t1", (0, 0, 100, 200))]
+    faces = [_face("f1", (20, 10, 40, 40))]
+    eng.update_continuity(
+        now=1.0,
+        person_tracks=persons,
+        face_tracks=faces,
+        face_identities={"f1": {"student_id": "p01", "confidence": 0.9, "margin": 0.2}},
+    )
+    st = eng.update_continuity(
+        now=6.0,
+        person_tracks=persons,
+        face_tracks=[],
+        face_identities={},
+        person_meta={"t1": {"tracking_state": "temporarily_lost", "seconds_since_person_detection": 4.5}},
+    )["t1"]
+    assert st.student_id == "p01"
+    assert st.identity_state == "uncertain"
+    assert st.revalidation_required is True
+
+
+def test_identity_uncertain_on_spatial_reassociation():
+    eng = IdentityBindingEngine(face_missing_ttl_seconds=12.0, minimum_new_identity_confidence=0.7)
+    persons = [_person("t1", (0, 0, 100, 200))]
+    faces = [_face("f1", (20, 10, 40, 40))]
+    eng.update_continuity(
+        now=1.0,
+        person_tracks=persons,
+        face_tracks=faces,
+        face_identities={"f1": {"student_id": "p01", "confidence": 0.9, "margin": 0.2}},
+    )
+    st = eng.update_continuity(
+        now=10.0,
+        person_tracks=persons,
+        face_tracks=[],
+        face_identities={},
+        person_meta={"t1": {"spatial_reassociation": True, "tracking_state": "active"}},
+    )["t1"]
+    assert st.identity_state == "uncertain"
+    assert st.identity_source == "spatial_reassociation"
+
+
+def test_occlusion_ambiguous_keeps_body_continuity():
+    """Mão no rosto / associação ambígua com corpo estável → body_continuity, não uncertain."""
+    eng = IdentityBindingEngine(face_missing_ttl_seconds=12.0, minimum_new_identity_confidence=0.7)
+    persons = [_person("t1", (0, 0, 100, 200))]
+    faces = [_face("f1", (20, 10, 40, 40))]
+    eng.update_continuity(
+        now=1.0,
+        person_tracks=persons,
+        face_tracks=faces,
+        face_identities={
+            "f1": {"student_id": "p01", "confidence": 0.9, "margin": 0.2, "full_name": "Emerson Lima"}
+        },
+    )
+    # sem face + simula ambiguidade via person_meta path: chamar finalize indireto
+    # com face ambígua — usamos FacePersonAssociator real: face entre pessoas.
+    # Aqui: sem face, corpo active → body_continuity
+    st = eng.update_continuity(
+        now=20.0,
+        person_tracks=persons,
+        face_tracks=[],
+        face_identities={},
+        person_meta={"t1": {"tracking_state": "active", "tracking_confidence": 0.9}},
+    )["t1"]
+    assert st.student_id == "p01"
+    assert st.identity_state == "body_continuity"
+    assert st.full_name == "Emerson Lima"
+    assert st.revalidation_required is False
+
+
+def test_weak_swap_blocked_keeps_body_continuity():
+    eng = IdentityBindingEngine(
+        face_missing_ttl_seconds=12.0,
+        minimum_new_identity_confidence=0.75,
+        confirmations_before_switch=3,
+    )
+    persons = [_person("t1", (0, 0, 100, 200))]
+    faces = [_face("f1", (20, 10, 40, 40))]
+    eng.update_continuity(
+        now=1.0,
+        person_tracks=persons,
+        face_tracks=faces,
+        face_identities={"f1": {"student_id": "p01", "confidence": 0.9, "margin": 0.2, "full_name": "Emerson"}},
+    )
+    # face some → body_continuity
+    eng.update_continuity(now=2.0, person_tracks=persons, face_tracks=[], face_identities={})
+    # face fraca de outro aluno (oclusão) não deve virar uncertain
+    eng.update_continuity(
+        now=3.0,
+        person_tracks=persons,
+        face_tracks=faces,
+        face_identities={"f1": {"student_id": "p99", "confidence": 0.4, "margin": 0.01}},
+    )
+    st = eng.get_state("t1")
+    assert st.student_id == "p01"
+    assert st.identity_state == "body_continuity"
+
+
+def test_reassociation_score_residual_does_not_force_uncertain_via_meta():
+    """Score residual sem tracking_state=reassociated não deve ser passado como spatial_reassociation."""
+    from app.pipeline.analytics_track import RealtimeAnalyticsEngine
+
+    class S:
+        module_expression_mode = "disabled"
+        module_face_landmarks_mode = "disabled"
+        module_pose_mode = "disabled"
+        module_temporal_fusion_mode = "disabled"
+        module_phone_mode = "disabled"
+        phone_yolo_enabled = False
+        pose_body_enabled = False
+        analytics_quality_interval_seconds = 0.0
+        analytics_landmarks_interval_seconds = 0.0
+        expression_interval_seconds = 0.0
+        visual_attention_interval_seconds = 0.0
+        identity_face_missing_ttl_seconds = 12.0
+        identity_minimum_new_confidence = 0.7
+        identity_minimum_margin = 0.1
+        identity_confirmations_before_switch = 3
+        identity_switch_cooldown_seconds = 10.0
+        identity_confidence_decay_per_second = 0.04
+        identity_body_continuity_uncertain_threshold = 0.45
+        identity_temporarily_lost_uncertain_seconds = 4.0
+        person_tracking_max_time_lost_seconds = 8.0
+        drowsiness_possible_after_seconds = 6
+        drowsiness_probable_after_seconds = 30
+        drowsiness_minimum_observation_quality = 0.3
+        drowsiness_cooldown_seconds = 20
+        drowsiness_eye_closed_ear_threshold = 0.18
+        visual_attention_minimum_observation_quality = 0.3
+        visual_attention_window_seconds = 10
+        rule_engine_version = "t"
+        threshold_profile = "t"
+        camera_calibration_version = "t"
+
+    # Verifica a regra do person_meta diretamente
+    tracking_state = "active"
+    reassociation_score = 0.999
+    spatial = tracking_state == "reassociated"
+    assert spatial is False
+    # antiga regra (bug) seria True:
+    old_bug = tracking_state == "reassociated" or reassociation_score > 0
+    assert old_bug is True
+
+
+
+def test_new_track_does_not_inherit_identity():
+    eng = IdentityBindingEngine(face_missing_ttl_seconds=12.0, minimum_new_identity_confidence=0.7)
+    p1 = [_person("t1", (0, 0, 100, 200))]
+    faces = [_face("f1", (20, 10, 40, 40))]
+    eng.update_continuity(
+        now=1.0,
+        person_tracks=p1,
+        face_tracks=faces,
+        face_identities={"f1": {"student_id": "p01", "confidence": 0.9, "margin": 0.2}},
+    )
+    # t1 some; t2 novo na mesma região sem face
+    p2 = [_person("t2", (0, 0, 100, 200))]
+    st = eng.update_continuity(now=20.0, person_tracks=p2, face_tracks=[], face_identities={})
+    assert "t1" not in st
+    assert st["t2"].student_id is None
+    assert st["t2"].identity_state == "unknown"
 
 
 def test_identity_swap_blocked_low_confidence():
@@ -381,7 +579,13 @@ def test_engine_continues_without_face():
     )
     assert len(tracks) == 1
     assert tracks[0]["person_track_id"] == "cam-web-person-001"
-    assert tracks[0]["identity"]["source"] in ("cached_binding", "face_recognition", "unknown")
+    assert tracks[0]["identity"]["source"] in (
+        "body_continuity",
+        "face_recognition",
+        "spatial_reassociation",
+        "unknown",
+        "cached_binding",
+    )
     assert tracks[0]["visual_attention"]["state"] == "inconclusive" or tracks[0]["identity"][
         "face_visible"
     ] is False

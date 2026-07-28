@@ -419,6 +419,13 @@ class PipelineOrchestrator:
                 camera_id=camera_id,
                 tracks=analytics_tracks,
                 bindings=[],
+                live_event_buffer=(
+                    self._analytics_engine.live_event_buffer_snapshot()
+                    if self._analytics_engine is not None
+                    and hasattr(self._analytics_engine, "live_event_buffer_snapshot")
+                    else []
+                ),
+                data_freshness_meta={"poll_hint_ms": 1500, "storage": "live_event_buffer"},
                 signals=self._overlay_signals.get(camera_id) or [],
                 phones=[
                     {"bbox": list(p[:4]), "conf": p[4] if len(p) > 4 else None}

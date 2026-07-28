@@ -1,26 +1,34 @@
 # Testes
 
-## Estado atual (2026-07-23)
+## Estado atual (2026-07-27 — P0)
 
 | Suite | Resultado |
 |-------|-----------|
-| `pytest tests -q` | Inclui `test_person_centric_pipeline` + validação |
-| `npm run typecheck` (frontend) | **PASS** |
-| `npm run build` (frontend) | **PASS** |
-| E2E demo | **PASS** |
-| Analytics person-first | `tests/test_person_centric_pipeline.py` (TTL, swap blocked, cruzamento, cabeça≠sono, celular≠uso) |
-| Analytics real (quality/landmarks/…) | `tests/test_realtime_analytics.py` |
-| Validação controlada | `tests/test_validation_panel.py` |
-| Regressão presença | `test_dedup_presence`, `test_competitor_margin`, `test_queue` |
-| Validação de campo / Intelbras | **Pendente** |
+| `pytest tests -q` | Inclui identidade body_continuity, observabilidade, attribution |
+| Analytics person-first | `test_person_centric_pipeline` — **12s ≠ expire**; 15/30/60s body_continuity |
+| P0 observabilidade | `tests/test_p0_observability_attribution.py` |
+| Analytics real | `tests/test_realtime_analytics.py` |
 
-Métricas de software/demo **não** representam acurácia ou desempenho da câmera Intelbras.
+**Timeline / eventos:** `live_event_buffer` in-memory (não sobrevive reinício). Sem migração SQLite no P0.
+
+## Checklist manual webcam (P0)
+
+1. Ocultar só o rosto 15–60s com corpo estável → identidade `body_continuity` (não unknown).
+2. Cabeça baixa >12s → identidade mantida; sem sono só por pose.
+3. Virar de costas / oclusão → mesma regra; `temporarily_lost` ≥4s → `uncertain`.
+4. Cruzar com outra pessoa → `uncertain`; nova pessoa na posição → não herda id.
+5. Olhos 3s / 6s / 30s → descritivo / possible / probable.
+6. Ocluir rosto no meio do evento → duração não soma gap; após ~8s gap → inconclusivo.
+7. Celular breve / 5s / 12s → estados corretos; sem “desatento”.
+8. Interromper API → UI `unavailable`/`stale` cinza; restaurar → `recovering`/`live`.
+9. Preview falho ≠ snapshot OK; `no_tracks` quando API ok sem pessoas.
 
 ## Estrutura
 
 - `tests/conftest.py` — SQLite temporário; `reset_db_singleton()`; **bloqueia** uso de `data/dulino_edge.db`
 - Presença: `test_dedup_presence`, `test_competitor_margin`, `test_queue`, `test_events`
-- Person-first: associação face↔pessoa, IdentityBinding TTL/swap, **continuidade corporal** (`test_person_track_continuity`), phone ambíguo, buffers por `person_track_id`
+- Person-first: associação face↔pessoa, IdentityBinding **body_continuity** (não expire@12s), **continuidade corporal** (`test_person_track_continuity`), phone ambíguo, buffers por `person_track_id`
+- P0: `test_p0_observability_attribution` (pausa oclusão, attribution pending, EAR config)
 - Multimodal: `test_multimodal_contracts` (modos, mock expression, binding, phone sem confirmed, qualidade, fusion, LXP)
 - Demo: `test_demo_mode` (8 tracks, review, WS, LXP flush, isolamento DB)
 - Validação: `test_validation_panel` (DB `validation.db` isolado; sem frames/embeddings; não altera presença)

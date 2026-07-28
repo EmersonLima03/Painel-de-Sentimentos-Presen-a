@@ -330,6 +330,7 @@ def estimate_body_pose(
                     "confidence": 0.55,
                     "reasons": ["wrist_near_face_persistent"],
                     "note": "wrists_only_no_hand_landmarker",
+                    "duration_seconds": round(dur_h, 2),
                 }
             else:
                 face_occlusion = {
@@ -337,6 +338,7 @@ def estimate_body_pose(
                     "confidence": 0.4,
                     "reasons": ["wrist_near_face"],
                     "note": "wrists_only_no_hand_landmarker",
+                    "duration_seconds": round(dur_h, 2),
                 }
             hands["state"] = "hand_near_face"
 

@@ -1,4 +1,4 @@
-"""Analytics por track no runtime real (RTSP/webcam) — sem mocks."""
+﻿"""Analytics por track no runtime real (RTSP/webcam) - sem mocks."""
 
 from __future__ import annotations
 
@@ -42,16 +42,16 @@ def _quality_status(overall: float, reasons: List[str]) -> str:
 
 
 def ascii_overlay_label(text: str) -> str:
-    """cv2.putText não desenha acentos — usar ASCII no bitmap."""
+    """cv2.putText cannot draw accents — use ASCII on the bitmap."""
     repl = {
-        "á": "a", "à": "a", "â": "a", "ã": "a", "ä": "a",
-        "é": "e", "ê": "e", "è": "e",
-        "í": "i", "ì": "i",
-        "ó": "o", "ô": "o", "õ": "o", "ò": "o",
-        "ú": "u", "ù": "u",
-        "ç": "c",
-        "Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U", "Ç": "C",
-        "ñ": "n", "Ñ": "N",
+        "\u00e1": "a", "\u00e0": "a", "\u00e2": "a", "\u00e3": "a", "\u00e4": "a",
+        "\u00e9": "e", "\u00ea": "e", "\u00e8": "e",
+        "\u00ed": "i", "\u00ec": "i",
+        "\u00f3": "o", "\u00f4": "o", "\u00f5": "o", "\u00f2": "o",
+        "\u00fa": "u", "\u00f9": "u",
+        "\u00e7": "c",
+        "\u00c1": "A", "\u00c9": "E", "\u00cd": "I", "\u00d3": "O", "\u00da": "U", "\u00c7": "C",
+        "\u00f1": "n", "\u00d1": "N",
     }
     out = []
     for ch in text or "":
@@ -82,9 +82,16 @@ class TrackAnalyticsCache:
     expr_labels: Deque[Tuple[float, str, float]] = field(default_factory=lambda: deque(maxlen=64))
     # attention / drowsiness temporal
     attn_samples: Deque[Tuple[float, str, float]] = field(default_factory=lambda: deque(maxlen=64))
-    eyes_closed_since: Optional[float] = None
+    eyes_closed_since: Optional[float] = None  # legado; preferir accum
+    eyes_closed_accum_seconds: float = 0.0
+    eyes_last_tick: Optional[float] = None
+    eyes_unobservable_since: Optional[float] = None
+    eyes_observation_paused: bool = False
+    head_down_accum_seconds: float = 0.0
+    head_down_last_tick: Optional[float] = None
     head_down_since: Optional[float] = None
     hand_near_since: Optional[float] = None
+    hand_near_last_seen: Optional[float] = None
     forward_since: Optional[float] = None
     away_since: Optional[float] = None
     drowsiness_cooldown_until: float = 0.0
@@ -92,12 +99,18 @@ class TrackAnalyticsCache:
     attention_state: str = "inconclusive"
     attention_started: Optional[float] = None
     track_first_seen: Optional[float] = None
+    force_close_observation_gap: bool = False
+    perclos_samples: Deque[Tuple[float, bool]] = field(default_factory=lambda: deque(maxlen=512))
+    episode_counts: Dict[str, int] = field(default_factory=dict)
+    last_student_id: Optional[str] = None
+    last_identity_state: Optional[str] = None
+    observability: Dict[str, Any] = field(default_factory=dict)
 
 
 class RealtimeAnalyticsEngine:
     """
-    Motor único de analytics por track no modo RTSP.
-    FusionEngine legado permanece disponível; este engine é o oficial no runtime.
+    Motor Ãºnico de analytics por track no modo RTSP.
+    FusionEngine legado permanece disponÃ­vel; este engine Ã© o oficial no runtime.
     """
 
     def __init__(self, settings):
@@ -110,6 +123,7 @@ class RealtimeAnalyticsEngine:
         self._phone_status = "disabled"
         self._phone_reason = "phone_yolo_disabled"
         self._open_events: Dict[str, Dict[str, Any]] = {}  # key = f"{track}:{event_type}"
+        self._live_event_buffer: Deque[Dict[str, Any]] = deque(maxlen=200)
         self._event_sink = None  # callable(event_dict) | None
         self._ws_events: Deque[Dict[str, Any]] = deque(maxlen=64)
         self._identity_engine = None
@@ -140,6 +154,12 @@ class RealtimeAnalyticsEngine:
             ),
             confidence_decay_per_second=float(
                 getattr(self.settings, "identity_confidence_decay_per_second", 0.04) or 0.04
+            ),
+            body_continuity_uncertain_threshold=float(
+                getattr(self.settings, "identity_body_continuity_uncertain_threshold", 0.45) or 0.45
+            ),
+            temporarily_lost_uncertain_seconds=float(
+                getattr(self.settings, "identity_temporarily_lost_uncertain_seconds", 4.0) or 4.0
             ),
         )
 
@@ -200,7 +220,14 @@ class RealtimeAnalyticsEngine:
         try:
             from app.vision.person_phone import PersonPhoneAssociator
 
-            self._phone_associator = PersonPhoneAssociator()
+            self._phone_associator = PersonPhoneAssociator(
+                minimum_interaction_seconds=float(
+                    getattr(self.settings, "phone_possible_after_seconds", 5.0) or 5.0
+                ),
+                probable_seconds=float(
+                    getattr(self.settings, "phone_probable_after_seconds", 12.0) or 12.0
+                ),
+            )
             # probe import
             from app.vision.phone_yolo import detect_phones  # noqa: F401
 
@@ -246,7 +273,7 @@ class RealtimeAnalyticsEngine:
     ) -> List[dict]:
         """
         Person-first: person_tracks alimentam o motor.
-        matches/boxes (faces do overlay de presença) só reconfirmam identidade.
+        matches/boxes (faces do overlay de presenÃ§a) sÃ³ reconfirmam identidade.
         Compat: se person_tracks ausente, sintetiza 1 track por face (legado).
         """
         now = now if now is not None else time.time()
@@ -285,7 +312,7 @@ class RealtimeAnalyticsEngine:
                 "tracker_backend": "face_proxy_fallback",
                 "detections_count": len(persons),
                 "person_tracks_count": len(persons),
-                "note": "sem person_tracks — usando faces como proxy",
+                "note": "sem person_tracks - usando faces como proxy",
             }
 
         # --- face tracks from overlay ---
@@ -326,14 +353,28 @@ class RealtimeAnalyticsEngine:
         # identity continuity
         id_states = {}
         if self._identity_engine is not None:
+            person_meta = {
+                p.track_id: {
+                    "tracking_state": getattr(p, "tracking_state", "active"),
+                    "tracking_confidence": float(getattr(p, "tracking_confidence", 0.0) or 0.0),
+                    "seconds_since_person_detection": float(
+                        getattr(p, "seconds_since_person_detection", 0.0) or 0.0
+                    ),
+                    # Só no frame de reclaim — NÃO usar reassociation_score residual
+                    # (score fica >0 enquanto o track vive e derrubava identidade para uncertain).
+                    "spatial_reassociation": getattr(p, "tracking_state", "") == "reassociated",
+                }
+                for p in persons
+            }
             id_states = self._identity_engine.update_continuity(
                 now=now,
                 person_tracks=persons,
                 face_tracks=face_tracks,
                 face_identities=face_identities,
+                person_meta=person_meta,
             )
 
-        # map face_id → face track
+        # map face_id â†’ face track
         faces_by_id = {f.track_id: f for f in face_tracks}
 
         tracks_out: List[dict] = []
@@ -365,7 +406,7 @@ class RealtimeAnalyticsEngine:
             face_tid = assoc.get("face_track_id") if not assoc.get("ambiguous") else None
             face_tr = faces_by_id.get(face_tid) if face_tid else None
             face_bbox = face_tr.face_bbox if face_tr else None
-            # se associação ambígua mas há face candidata, ainda pode usar bbox espacialmente
+            # se associaÃ§Ã£o ambÃ­gua mas hÃ¡ face candidata, ainda pode usar bbox espacialmente
             if face_bbox is None and assoc.get("face_track_id"):
                 ft = faces_by_id.get(assoc["face_track_id"])
                 if ft:
@@ -388,7 +429,7 @@ class RealtimeAnalyticsEngine:
             face_visible = bool(identity.get("face_visible"))
 
             t0 = time.perf_counter()
-            # crops: face se visível, senão ROI cabeça (topo do person)
+            # crops: face se visÃ­vel, senÃ£o ROI cabeÃ§a (topo do person)
             if face_bbox is not None:
                 crop = _clip_crop(frame, face_bbox)
                 crop_lm = _clip_crop(frame, face_bbox, pad_ratio=0.35)
@@ -416,7 +457,7 @@ class RealtimeAnalyticsEngine:
                 cache.latencies_ms["quality"] = round((time.perf_counter() - tq0) * 1000.0, 2)
                 cache.last_quality_ts = now
 
-            # --- landmarks (só se face observável) ---
+            # --- landmarks (sÃ³ se face observÃ¡vel) ---
             if face_visible and face_bbox is not None:
                 if now - cache.last_landmarks_ts >= l_iv or not cache.facial_features:
                     tl0 = time.perf_counter()
@@ -470,11 +511,48 @@ class RealtimeAnalyticsEngine:
                             cache.head_down_since = now
                     else:
                         cache.head_down_since = None
+                    # Histerese: 1 frame sem punho perto do rosto não zera o temporizador
+                    # (evita duration 0s / evento piscando com headset ou oclusão intermitente).
+                    hand_hold = float(
+                        getattr(self.settings, "face_occlusion_clear_hold_seconds", 2.0) or 2.0
+                    )
                     if (pr.hands or {}).get("state") == "hand_near_face":
                         if cache.hand_near_since is None:
                             cache.hand_near_since = now
+                        cache.hand_near_last_seen = now
+                    elif cache.hand_near_last_seen is not None and (now - cache.hand_near_last_seen) < hand_hold:
+                        dur_h = now - float(cache.hand_near_since or now)
+                        cache.hands = dict(cache.hands or {})
+                        cache.hands["state"] = "hand_near_face"
+                        if dur_h >= 3.0:
+                            cache.face_occlusion = {
+                                "state": "persistent_possible_face_occlusion",
+                                "confidence": float((pr.face_occlusion or {}).get("confidence") or 0.55),
+                                "reasons": list((pr.face_occlusion or {}).get("reasons") or [])
+                                or ["wrist_near_face_persistent"],
+                                "note": "occlusion_hold",
+                                "duration_seconds": round(dur_h, 2),
+                            }
+                        else:
+                            cache.face_occlusion = {
+                                "state": "possible_face_occlusion_by_hand",
+                                "confidence": float((pr.face_occlusion or {}).get("confidence") or 0.4),
+                                "reasons": list((pr.face_occlusion or {}).get("reasons") or [])
+                                or ["wrist_near_face"],
+                                "note": "occlusion_hold",
+                                "duration_seconds": round(dur_h, 2),
+                            }
                     else:
                         cache.hand_near_since = None
+                        cache.hand_near_last_seen = None
+                    if cache.hand_near_since is not None and (cache.face_occlusion or {}).get("state") not in (
+                        None,
+                        "none",
+                    ):
+                        cache.face_occlusion = dict(cache.face_occlusion or {})
+                        cache.face_occlusion["duration_seconds"] = round(
+                            now - float(cache.hand_near_since), 2
+                        )
                     # wrists for phone
                     wr = []
                     for kname in ("left_wrist", "right_wrist"):
@@ -561,6 +639,8 @@ class RealtimeAnalyticsEngine:
             full_name = None
             if face_tid and face_tid in face_identities:
                 full_name = face_identities[face_tid].get("full_name")
+            if not full_name:
+                full_name = identity.get("full_name")
 
             pb_list = [int(person_bbox[0]), int(person_bbox[1]), int(person_bbox[2]), int(person_bbox[3])]
             fb_list = (
@@ -570,15 +650,72 @@ class RealtimeAnalyticsEngine:
             )
             track_age = now - (cache.track_first_seen or now)
 
+            # reset janelas se identidade mudou de forma real
+            id_state = str(identity.get("identity_state") or "unknown")
+            if cache.last_student_id and sid and cache.last_student_id != sid:
+                cache.eyes_closed_accum_seconds = 0.0
+                cache.eyes_last_tick = None
+                cache.perclos_samples.clear()
+                cache.episode_counts.clear()
+            if cache.last_identity_state == "uncertain" and id_state == "face_confirmed":
+                pass  # confirmação — mantém eventos do track
+            cache.last_student_id = sid
+            cache.last_identity_state = id_state
+
+            tstate = getattr(person, "tracking_state", "active") or "active"
+            secs_body = float(getattr(person, "seconds_since_person_detection", 0.0) or 0.0)
+            body_detected = tstate == "active" and bool(person.visible if hasattr(person, "visible") else True)
+            if tstate == "temporarily_lost":
+                body_detected = False
+            max_lost = float(getattr(self.settings, "person_tracking_max_time_lost_seconds", 8) or 8)
+            body_track_active = tstate in ("active", "temporarily_lost", "reassociated")
+            body_continuity_available = body_track_active and (
+                tstate != "temporarily_lost" or secs_body < max_lost
+            )
+            body_observable = body_detected and float(person.tracking_confidence or 0) >= 0.25
+            ff_st = (cache.facial_features or {}).get("status")
+            ear_v = (cache.facial_features or {}).get("average_eye_openness")
+            face_obs = bool(face_visible) and ff_st == "available"
+            eyes_obs = face_obs and ear_v is not None
+            head_obs = face_obs and (cache.facial_features or {}).get("yaw") is not None
+            expr_st = (cache.expression or {}).get("status")
+            expression_obs = face_obs and expr_st in ("available", "inconclusive")
+            phone_obs = body_detected and self._phone_status == "available"
+            id_obs = id_state in ("face_confirmed", "body_continuity") and not bool(
+                identity.get("revalidation_required")
+            )
+            observability = {
+                "face_observable": face_obs,
+                "eyes_observable": eyes_obs,
+                "head_pose_observable": head_obs,
+                "body_detected": body_detected,
+                "body_observable": body_observable,
+                "body_track_active": body_track_active,
+                "body_continuity_available": body_continuity_available,
+                "seconds_since_body_detection": round(secs_body, 2),
+                "tracking_state": tstate,
+                "phone_observable": phone_obs,
+                "expression_observable": expression_obs,
+                "identity_observable": id_obs,
+                "ui_body_label": (
+                    "body_observable"
+                    if body_observable
+                    else (
+                        "body_continuity_temporarily_interrupted"
+                        if body_continuity_available and not body_detected
+                        else "body_not_observable"
+                    )
+                ),
+            }
+            cache.observability = observability
+
             tracks_out.append(
                 {
                     "person_track_id": key,
                     "track_age_seconds": round(track_age, 2),
                     "track_confidence": round(float(person.tracking_confidence or 0.0), 3),
-                    "tracking_state": getattr(person, "tracking_state", "active") or "active",
-                    "seconds_since_person_detection": round(
-                        float(getattr(person, "seconds_since_person_detection", 0.0) or 0.0), 2
-                    ),
+                    "tracking_state": tstate,
+                    "seconds_since_person_detection": round(secs_body, 2),
                     "last_person_bbox": [
                         int(person.bounding_box[0]),
                         int(person.bounding_box[1]),
@@ -594,6 +731,7 @@ class RealtimeAnalyticsEngine:
                     "missed_detections": int(getattr(person, "missed_detections", 0) or 0),
                     "expire_reason": getattr(person, "expire_reason", None),
                     "identity": identity,
+                    "observability": observability,
                     "person_bbox": pb_list,
                     "face_bbox": fb_list,
                     "face_person_association": assoc,
@@ -645,6 +783,12 @@ class RealtimeAnalyticsEngine:
                     "event_type": ev["event_type"],
                     "status": ev["lifecycle"],
                     "duration_seconds": round(now - ev["started_at"], 2),
+                    "attribution_status": ev.get("attribution_status"),
+                    "candidate_student_id": ev.get("candidate_student_id"),
+                    "confirmed_student_id": ev.get("confirmed_student_id"),
+                    "identity_state": ev.get("identity_state"),
+                    "reasons": ev.get("reasons"),
+                    "severity": ev.get("severity"),
                 }
                 for k, ev in self._open_events.items()
                 if k.startswith(tid + ":")
@@ -822,7 +966,7 @@ class RealtimeAnalyticsEngine:
             "sharpness_score": round(q.sharpness_score, 3),
             "illumination_score": round(q.illumination_score, 3),
             "pose_score": round(q.pose_score, 3),
-            "occlusion_score": None,  # não estimamos oclusão sem modelo
+            "occlusion_score": None,  # nÃ£o estimamos oclusÃ£o sem modelo
             "visibility_score": round(q.visibility_score, 3),
             "landmarks_quality": None,
             "overall_score": round(q.overall_score, 3),
@@ -887,7 +1031,7 @@ class RealtimeAnalyticsEngine:
                 "possible_yawn_score": None if ff.mouth_open_score is None else (
                     round(float(ff.mouth_open_score), 4) if ff.mouth_open_score >= 0.55 else 0.0
                 ),
-                "smile_score": ff.smile_score,
+                "smile_score": None if ff.smile_score is None else round(float(ff.smile_score), 4),
                 "yaw": None if ff.yaw is None else round(float(ff.yaw), 4),
                 "pitch": None if ff.pitch is None else round(float(ff.pitch), 4),
                 "roll": None if ff.roll is None else round(float(ff.roll), 4),
@@ -977,7 +1121,6 @@ class RealtimeAnalyticsEngine:
                 label2, conf2, ok2 = _pick(pred.probabilities, minimum_confidence=0.01)
                 if label2 != "inconclusive":
                     raw = pred.raw_label or label2
-                    # keep pred fields aligned
                     pred_label = label2
                     pred_conf = conf2
                 else:
@@ -986,18 +1129,71 @@ class RealtimeAnalyticsEngine:
             else:
                 pred_label = pred.label
                 pred_conf = float(pred.confidence)
+
+            # Se o provider jÃ¡ marcou positive/happy (sorriso), nÃ£o deixar o pick reverter para neutral
+            provider_norm = normalize_expression_label(str(pred.label or ""))
+            raw_norm = normalize_expression_label(str(pred.raw_label or ""))
+            if provider_norm == "positive" or raw_norm == "positive":
+                pred_label = "positive"
+                pred_conf = max(float(pred_conf), float(pred.confidence or 0.0), 0.55)
+
+            # Boost de sorriso no motor: MediaPipe smile_score + heurÃ­stica no crop
+            # (FER+ sozinho costuma classificar sorriso como neutral na webcam)
+            smile_src = "none"
+            try:
+                from app.vision.emotion_engagement import _smile_heuristic_score
+
+                smile_px = float(_smile_heuristic_score(crop)) if crop is not None else 0.0
+            except Exception:
+                smile_px = 0.0
+            ff = cache.facial_features or {}
+            smile_lm = ff.get("smile_score")
+            smile_lm_f = float(smile_lm) if isinstance(smile_lm, (int, float)) else 0.0
+            ear = ff.get("average_eye_openness")
+            ear_f = float(ear) if isinstance(ear, (int, float)) else 1.0
+            mouth = ff.get("mouth_open_score")
+            mouth_f = float(mouth) if isinstance(mouth, (int, float)) else 0.0
+            smile_combined = max(smile_px, smile_lm_f)
+            # olhos abertos + sorriso geomÃ©trico
+            if ear_f >= 0.12 and smile_combined >= 0.32:
+                pred_label = "positive"
+                pred_conf = max(float(pred_conf), smile_combined, 0.6)
+                raw = "happy"
+                smile_src = "landmarks" if smile_lm_f >= smile_px else "pixel"
+            elif ear_f >= 0.12 and smile_lm_f >= 0.28 and 0.10 <= mouth_f <= 0.50:
+                pred_label = "positive"
+                pred_conf = max(float(pred_conf), smile_lm_f, 0.55)
+                raw = "happy"
+                smile_src = "landmarks_mouth"
+
             norm = normalize_expression_label(pred_label)
             min_conf = float(getattr(self.settings, "expression_minimum_confidence", 0.60) or 0.60)
             conclusive = bool(pred.is_conclusive and pred_conf >= min_conf and norm != "inconclusive")
             if not conclusive and norm != "inconclusive" and pred_conf >= min_conf:
                 conclusive = True
-            # Aceita amostras com confiança razoável para smoothing
+            if smile_src != "none" and norm == "positive":
+                conclusive = True
+            # Aceita amostras com confianÃ§a razoÃ¡vel para smoothing
             if norm != "inconclusive" and pred_conf >= min(0.35, min_conf):
-                cache.expr_labels.append((now, norm, pred_conf))
+                if smile_src != "none" and norm == "positive":
+                    # remove neutrals recentes para a suavizaÃ§Ã£o virar positiva rÃ¡pido
+                    kept = [(t, lab, c) for t, lab, c in cache.expr_labels if lab != "neutral"]
+                    cache.expr_labels.clear()
+                    cache.expr_labels.extend(kept[-6:])
+                    cache.expr_labels.append((now, "positive", float(pred_conf)))
+                    cache.expr_labels.append((now, "positive", float(pred_conf)))
+                else:
+                    cache.expr_labels.append((now, norm, pred_conf))
             win = float(getattr(self.settings, "expression_window_seconds", 8) or 8)
             while cache.expr_labels and now - cache.expr_labels[0][0] > win:
                 cache.expr_labels.popleft()
             smoothed, sample_count = self._smooth_expression(cache.expr_labels, now)
+            # sorriso forte sustentado: nÃ£o ficar preso em neutra se jÃ¡ hÃ¡ positives
+            if smile_src != "none" and sample_count >= 2:
+                pos_w = sum(c for _, lab, c in cache.expr_labels if lab == "positive")
+                neu_w = sum(c for _, lab, c in cache.expr_labels if lab == "neutral")
+                if pos_w >= neu_w * 0.6:
+                    smoothed = "predominantly_positive"
             display = display_expression_pt(smoothed)
             try:
                 from app.vision.emotion_engagement import emotion_backend_health
@@ -1025,6 +1221,8 @@ class RealtimeAnalyticsEngine:
                 "status": status,
                 "inference_ms": round(float(pred.inference_ms), 2),
                 "sample_count": sample_count,
+                "smile_boost": smile_src,
+                "smile_score": round(smile_combined, 3),
             }
         except Exception as e:
             return {
@@ -1075,15 +1273,28 @@ class RealtimeAnalyticsEngine:
         occ = (cache.face_occlusion or {}).get("state") or "none"
         head_st = (cache.head_state or {}).get("state") or "pose_inconclusive"
 
-        # Sem face observável / oclusão possível → atenção e sonolência inconclusivas
-        if (
+        # Sem face/olhos observÃ¡veis â†’ pausar acumuladores (nÃ£o avanÃ§ar, nÃ£o zerar)
+        eyes_not_obs = (
             not face_visible
             or occ in ("possible_face_occlusion_by_hand", "persistent_possible_face_occlusion")
             or (
                 ff.get("status") in ("unavailable", "error", "inconclusive")
                 and ff.get("average_eye_openness") is None
             )
-        ):
+        )
+        gap_limit = float(
+            getattr(self.settings, "drowsiness_observation_gap_inconclusive_seconds", 8) or 8
+        )
+        if eyes_not_obs:
+            cache.eyes_last_tick = None
+            cache.eyes_observation_paused = True
+            if cache.eyes_unobservable_since is None:
+                cache.eyes_unobservable_since = now
+            unobs = now - cache.eyes_unobservable_since
+            if unobs >= gap_limit and cache.eyes_closed_accum_seconds > 0:
+                cache.force_close_observation_gap = True
+                cache.eyes_closed_accum_seconds = 0.0
+                cache.eyes_closed_since = None
             reasons = []
             if not face_visible:
                 reasons.append("face_not_observable")
@@ -1091,11 +1302,14 @@ class RealtimeAnalyticsEngine:
                 reasons.append(occ)
             if head_st in ("head_down_short", "head_down_persistent", "head_supported"):
                 reasons.append(head_st)
-            # sinais descritivos ok, mas state inconclusive
+            # Tempo da pausa (rosto não observável) — não confundir com atenção alta/baixa medida.
+            # Sonolência continua inconclusiva sem EAR (não inventar possible/probable).
+            occ_dur = float((cache.face_occlusion or {}).get("duration_seconds") or 0.0)
+            pause_dur = max(float(unobs), occ_dur)
             attn = {
                 "state": "inconclusive",
                 "confidence": 0.0,
-                "duration_seconds": 0.0,
+                "duration_seconds": round(pause_dur, 2),
                 "sample_count": len(cache.attn_samples),
                 "contributing_signals": {
                     "observation_quality": overall,
@@ -1104,16 +1318,30 @@ class RealtimeAnalyticsEngine:
                 },
                 "reasons": reasons or ["insufficient_visual_evidence"],
                 "descriptive_signals": [s for s in (head_st, occ) if s and s not in ("none", "pose_inconclusive")],
+                "observation_paused": True,
+                "unobservable_seconds": round(unobs, 2),
+                "descriptive_label": "face_occlusion_observation_paused"
+                if "occlusion" in occ
+                else "face_not_observable_observation_paused",
             }
             drow = {
                 "state": "inconclusive",
                 "confidence": 0.0,
-                "duration_seconds": 0.0,
+                "duration_seconds": round(float(cache.eyes_closed_accum_seconds or 0.0), 2),
                 "sample_count": len(cache.attn_samples),
                 "reasons": ["eyes_not_observable"] + reasons,
+                "observation_paused": True,
+                "unobservable_seconds": round(unobs, 2),
+                "descriptive_label": "eyes_not_observable_drowsiness_paused",
+                "end_reason": "inconclusive_observation_gap" if cache.force_close_observation_gap else None,
             }
             cache.drowsiness_state = "inconclusive"
             return attn, drow
+
+        # retomada observÃ¡vel
+        cache.eyes_observation_paused = False
+        cache.eyes_unobservable_since = None
+        cache.force_close_observation_gap = False
 
         yaw = ff.get("yaw")
         pitch = ff.get("pitch")
@@ -1121,35 +1349,56 @@ class RealtimeAnalyticsEngine:
         gaze_h = ff.get("gaze_horizontal")
         gaze_reliable = ff.get("status") == "available" and yaw is not None
 
-        eyes_closed = ear is not None and float(ear) < 0.18
-        # head_down do pose tem prioridade; pitch facial é auxiliar
+        ear_thr = float(getattr(self.settings, "drowsiness_eye_closed_ear_threshold", 0.18) or 0.18)
+        eyes_closed = ear is not None and float(ear) < ear_thr
+        # head_down do pose tem prioridade; pitch facial Ã© auxiliar
         head_down = head_st in ("head_down_short", "head_down_persistent", "head_supported") or (
             pitch is not None and float(pitch) > 0.35
         )
-        if eyes_closed:
+        if eyes_closed and ear is not None and overall >= min_q_dr:
+            if cache.eyes_last_tick is not None:
+                cache.eyes_closed_accum_seconds += max(0.0, now - cache.eyes_last_tick)
+            cache.eyes_last_tick = now
             if cache.eyes_closed_since is None:
                 cache.eyes_closed_since = now
         else:
-            cache.eyes_closed_since = None
-        if head_down:
+            if ear is not None and not eyes_closed:
+                cache.eyes_closed_accum_seconds = 0.0
+                cache.eyes_closed_since = None
+                cache.eyes_last_tick = None
+            elif ear is None or overall < min_q_dr:
+                # qualidade baixa com ear: pausar sem zerar
+                cache.eyes_last_tick = None
+                cache.eyes_observation_paused = True
+
+        if head_down and face_visible:
+            if cache.head_down_last_tick is not None:
+                cache.head_down_accum_seconds += max(0.0, now - cache.head_down_last_tick)
+            cache.head_down_last_tick = now
             if cache.head_down_since is None:
                 cache.head_down_since = now
         else:
-            cache.head_down_since = None
+            if not head_down:
+                cache.head_down_accum_seconds = 0.0
+                cache.head_down_since = None
+                cache.head_down_last_tick = None
+            else:
+                cache.head_down_last_tick = None
 
-        eyes_closed_s = (now - cache.eyes_closed_since) if cache.eyes_closed_since else 0.0
+        eyes_closed_s = float(cache.eyes_closed_accum_seconds or 0.0)
         possible_after = float(getattr(self.settings, "drowsiness_possible_after_seconds", 6) or 6)
-        probable_after = float(getattr(self.settings, "drowsiness_probable_after_seconds", 10) or 10)
+        probable_after = float(getattr(self.settings, "drowsiness_probable_after_seconds", 30) or 30)
         cooldown = float(getattr(self.settings, "drowsiness_cooldown_seconds", 20) or 20)
 
-        # Sonolência: exige olhos observáveis; cabeça baixa sozinha NÃO gera possible/probable
+        # SonolÃªncia: exige olhos observÃ¡veis; cabeÃ§a baixa sozinha NÃƒO gera possible/probable
         if ear is None:
             drow = {
                 "state": "inconclusive",
                 "confidence": 0.2,
-                "duration_seconds": 0.0,
+                "duration_seconds": round(eyes_closed_s, 2),
                 "sample_count": len(cache.attn_samples),
                 "reasons": ["eyes_not_observable"],
+                "observation_paused": True,
             }
         elif overall < min_q_dr:
             drow = {
@@ -1158,9 +1407,13 @@ class RealtimeAnalyticsEngine:
                 "duration_seconds": round(eyes_closed_s, 2),
                 "sample_count": len(cache.attn_samples),
                 "reasons": ["insufficient_observation_quality"],
+                "observation_paused": True,
             }
         else:
             head_supported = head_st == "head_supported"
+            prev_drow = cache.drowsiness_state
+            # Cooldown sÃ³ apÃ³s ABRIR os olhos (evita rebaixar probableâ†’possible a cada frame)
+            cooldown_active = (now < cache.drowsiness_cooldown_until) and (not eyes_closed)
             st = evaluate_apparent_drowsiness(
                 eyes_closed_seconds=eyes_closed_s,
                 head_pitch=float(pitch or 0.0),
@@ -1169,22 +1422,32 @@ class RealtimeAnalyticsEngine:
                 sample_count=max(5, len(cache.attn_samples)),
                 observation_quality=overall,
                 min_duration_seconds=probable_after,
+                possible_after_seconds=possible_after,
                 min_samples=5,
                 min_quality=min_q_dr,
-                cooldown_active=now < cache.drowsiness_cooldown_until,
+                cooldown_active=cooldown_active,
             )
             if eyes_closed_s < 2.5:
                 st.state = "none"
                 st.reasons = ["brief_blink_or_closed"]
             elif not eyes_closed:
-                # sem olhos fechados → nunca possible/probable só por cabeça
+                # sem olhos fechados â†’ nunca possible/probable sÃ³ por cabeÃ§a
                 st.state = "none"
                 if head_down:
                     st.reasons = ["head_down_without_closed_eyes_not_drowsiness"]
+            elif eyes_closed_s >= probable_after:
+                st.state = "probable"
+                if "eyes_closed_duration" not in (st.reasons or []):
+                    st.reasons = list(st.reasons or []) + ["eyes_closed_duration"]
+                st.confidence = max(float(st.confidence or 0.0), 0.75)
             elif st.state == "none" and eyes_closed_s >= possible_after:
                 st.state = "possible"
-                st.reasons.append("eyes_closed_duration")
-            if st.state in ("possible", "probable"):
+                st.reasons = list(st.reasons or []) + ["eyes_closed_duration"]
+            elif 2.5 <= eyes_closed_s < possible_after and eyes_closed:
+                st.state = "none"
+                st.reasons = ["prolonged_eye_closure_observed"]
+            # Armar cooldown apenas ao sair de sonolÃªncia (olhos abrem)
+            if prev_drow in ("possible", "probable") and st.state == "none" and not eyes_closed:
                 cache.drowsiness_cooldown_until = now + cooldown
             drow = {
                 "state": st.state,
@@ -1193,8 +1456,25 @@ class RealtimeAnalyticsEngine:
                 "sample_count": len(cache.attn_samples),
                 "reasons": st.reasons,
                 "contributing_signals": st.contributing_signals,
+                "descriptive_label": (
+                    "prolonged_eye_closure_observed"
+                    if 2.5 <= eyes_closed_s < possible_after and eyes_closed
+                    else None
+                ),
             }
         cache.drowsiness_state = drow["state"]
+
+        # PERCLOS experimental (nÃ£o altera decisor)
+        if bool(getattr(self.settings, "experimental_perclos_enabled", False)):
+            if ear is not None and overall >= min_q_dr:
+                cache.perclos_samples.append((now, bool(eyes_closed)))
+            drow["perclos"] = self._compute_perclos(cache, now)
+        else:
+            drow["perclos"] = {
+                "perclos_experimental": True,
+                "perclos_enabled": False,
+                "perclos_state": "disabled",
+            }
 
         if overall < min_q_attn:
             attn = {
@@ -1222,14 +1502,14 @@ class RealtimeAnalyticsEngine:
             min_quality=min_q_attn,
         )
 
-        # cabeça baixa curta não vira low
+        # cabeÃ§a baixa curta nÃ£o vira low
         if head_st == "head_down_short" or (
             head_down and cache.head_down_since and (now - cache.head_down_since) < 2.5
         ):
             if attn_eval.state == "low":
                 attn_eval.state = "moderate"
                 attn_eval.reasons = list(attn_eval.reasons) + ["short_look_down"]
-        # cabeça baixa persistente: sinal descritivo, não forçar low automático
+        # cabeÃ§a baixa persistente: sinal descritivo, nÃ£o forÃ§ar low automÃ¡tico
         if head_st == "head_down_persistent" and attn_eval.state == "low":
             attn_eval.reasons = list(attn_eval.reasons) + ["head_down_persistent_descriptive"]
 
@@ -1256,10 +1536,51 @@ class RealtimeAnalyticsEngine:
                 else None,
                 "observation_quality": round(overall, 3),
                 "head_state": head_st,
+                "head_down_duration_seconds": round(float(cache.head_down_accum_seconds or 0.0), 2),
             },
             "reasons": attn_eval.reasons,
         }
         return attn, drow
+
+    def _compute_perclos(self, cache: TrackAnalyticsCache, now: float) -> Dict[str, Any]:
+        window = float(getattr(self.settings, "experimental_perclos_window_seconds", 60) or 60)
+        min_cov = float(getattr(self.settings, "experimental_perclos_min_coverage", 0.50) or 0.50)
+        while cache.perclos_samples and now - cache.perclos_samples[0][0] > window:
+            cache.perclos_samples.popleft()
+        if len(cache.perclos_samples) < 2:
+            return {
+                "perclos_experimental": True,
+                "perclos_enabled": True,
+                "perclos_60s": None,
+                "perclos_valid_coverage": 0.0,
+                "perclos_observable_seconds": 0.0,
+                "perclos_window_seconds": window,
+                "perclos_state": "inconclusive",
+            }
+        samples = list(cache.perclos_samples)
+        obs = 0.0
+        closed = 0.0
+        for i in range(1, len(samples)):
+            dt = max(0.0, samples[i][0] - samples[i - 1][0])
+            obs += dt
+            if samples[i - 1][1]:
+                closed += dt
+        coverage = obs / window if window > 0 else 0.0
+        if coverage < min_cov or obs <= 0:
+            state = "inconclusive"
+            ratio = None
+        else:
+            ratio = closed / obs
+            state = "computed"
+        return {
+            "perclos_experimental": True,
+            "perclos_enabled": True,
+            "perclos_60s": None if ratio is None else round(ratio, 4),
+            "perclos_valid_coverage": round(coverage, 3),
+            "perclos_observable_seconds": round(obs, 2),
+            "perclos_window_seconds": window,
+            "perclos_state": state,
+        }
 
     def _update_phones(
         self,
@@ -1395,13 +1716,96 @@ class RealtimeAnalyticsEngine:
             except Exception as e:
                 logger.warning("analytics_event_sink_error", error=str(e))
 
-    def _sync_temporal_events(self, track: Dict[str, Any], now: float) -> None:
-        """Abre/atualiza/fecha eventos a partir dos estados do motor (sem duplicar legado)."""
-        tid = str(track.get("track_id") or "unknown")
-        sid = track.get("student_id")
+    SENSITIVE_EVENT_TYPES = frozenset(
+        {
+            "possible_drowsiness",
+            "probable_drowsiness",
+            "possible_phone_interaction",
+            "probable_phone_interaction",
+            "low_visual_attention",
+            "head_down_persistent",
+        }
+    )
+    TECHNICAL_EVENT_TYPES = frozenset({"face_occluded_persistent"})
+
+    def _attribution_for_track(self, track, etype):
+        identity = track.get("identity") or {}
+        id_state = str(identity.get("identity_state") or "unknown")
+        sid = identity.get("student_id") or track.get("student_id")
+        bcc = float(identity.get("body_continuity_confidence") or 0.0)
+        ambiguous = bool(identity.get("ambiguity_reasons") or identity.get("revalidation_required"))
+        conf = float(identity.get("confidence") or identity.get("identity_confidence") or 0.0)
+        now_ts = time.time()
+        if etype in self.TECHNICAL_EVENT_TYPES or etype not in self.SENSITIVE_EVENT_TYPES:
+            return {
+                "attribution_status": "track_only",
+                "candidate_student_id": sid,
+                "confirmed_student_id": None,
+                "attribution_confidence": conf,
+                "attribution_updated_at": now_ts,
+                "identity_state": id_state,
+            }
+        confirmable = id_state == "face_confirmed" or (
+            id_state == "body_continuity" and bcc >= 0.45 and not ambiguous
+        )
+        if confirmable and sid:
+            return {
+                "attribution_status": "confirmed",
+                "candidate_student_id": sid,
+                "confirmed_student_id": sid,
+                "attribution_confidence": conf if id_state == "face_confirmed" else bcc,
+                "attribution_updated_at": now_ts,
+                "identity_state": id_state,
+            }
+        if id_state in ("uncertain", "body_continuity", "face_confirmed") and sid:
+            return {
+                "attribution_status": "pending",
+                "candidate_student_id": sid,
+                "confirmed_student_id": None,
+                "attribution_confidence": conf,
+                "attribution_updated_at": now_ts,
+                "identity_state": id_state,
+            }
+        return {
+            "attribution_status": "track_only",
+            "candidate_student_id": None,
+            "confirmed_student_id": None,
+            "attribution_confidence": 0.0,
+            "attribution_updated_at": now_ts,
+            "identity_state": id_state,
+        }
+
+    def live_event_buffer_snapshot(self):
+        open_ev = [dict(e) for e in self._open_events.values()]
+        closed = list(getattr(self, "_live_event_buffer", []))[-50:]
+        return open_ev + closed
+
+    def _sync_temporal_events(self, track, now):
+        """Abre/atualiza/fecha eventos; attribution pendente se identity uncertain."""
+        tid = str(track.get("track_id") or track.get("person_track_id") or "unknown")
         q = (track.get("observation_quality") or {}).get("status")
         quality = q or "unknown"
-        candidates: List[Tuple[str, str, float, List[str]]] = []
+        identity = track.get("identity") or {}
+        id_state = str(identity.get("identity_state") or "unknown")
+        candidates = []
+
+        cache = self._cache.get(tid)
+        if cache and getattr(cache, "force_close_observation_gap", False):
+            for key in list(self._open_events.keys()):
+                if not key.startswith(tid + ":"):
+                    continue
+                etype = key.split(":", 1)[1]
+                if "drowsiness" in etype or etype.startswith("possible_") or etype.startswith("probable_"):
+                    ev = self._open_events.pop(key)
+                    ev["ended_at"] = now
+                    ev["closed_at"] = now
+                    ev["duration_seconds"] = round(now - ev["started_at"], 2)
+                    ev["lifecycle"] = "closed"
+                    ev["end_reason"] = "inconclusive_observation_gap"
+                    ev["is_inconclusive"] = True
+                    self._emit_event("closed", ev)
+                    self._live_event_buffer.append(dict(ev))
+            cache.force_close_observation_gap = False
 
         dr = track.get("drowsiness") or {}
         if dr.get("state") == "possible":
@@ -1461,7 +1865,6 @@ class RealtimeAnalyticsEngine:
             )
 
         active_types = {c[0] for c in candidates}
-        # close missing
         for key in list(self._open_events.keys()):
             if not key.startswith(tid + ":"):
                 continue
@@ -1469,43 +1872,76 @@ class RealtimeAnalyticsEngine:
             if etype not in active_types:
                 ev = self._open_events.pop(key)
                 ev["ended_at"] = now
+                ev["closed_at"] = now
                 ev["duration_seconds"] = round(now - ev["started_at"], 2)
                 ev["lifecycle"] = "closed"
+                ev.setdefault("end_reason", "state_cleared")
                 self._emit_event("closed", ev)
+                self._live_event_buffer.append(dict(ev))
 
         for etype, status, conf, reasons in candidates:
             key = f"{tid}:{etype}"
+            attr = self._attribution_for_track(track, etype)
             if key not in self._open_events:
                 from app.utils.ids import generate_event_id
 
+                prov = self._provenance()
                 ev = {
                     "event_id": generate_event_id(),
                     "event_type": etype,
+                    "person_track_id": tid,
                     "track_id": tid,
-                    "student_id": sid,
+                    "student_id": attr.get("confirmed_student_id"),
+                    "identity_state": id_state,
+                    "opened_at": now,
                     "started_at": now,
+                    "updated_at": now,
+                    "closed_at": None,
                     "ended_at": None,
                     "duration_seconds": 0.0,
+                    "severity": "attention"
+                    if ("drowsiness" in etype or "phone" in etype)
+                    else "informational",
                     "confidence": conf,
+                    "quality": quality,
                     "observation_quality": quality,
                     "status": status,
                     "lifecycle": "opened",
                     "reasons": reasons,
-                    "provenance": self._provenance(),
-                    "requires_human_review": etype.endswith("phone_interaction")
-                    or "drowsiness" in etype,
+                    "end_reason": None,
+                    "is_inconclusive": False,
+                    "runtime_mode": prov.get("runtime_mode"),
+                    "is_simulated": prov.get("is_simulated"),
+                    "provenance": prov,
+                    "requires_human_review": etype.endswith("phone_interaction") or "drowsiness" in etype,
+                    "storage": "live_event_buffer",
+                    **attr,
                 }
                 self._open_events[key] = ev
                 self._emit_event("opened", ev)
+                self._live_event_buffer.append(dict(ev))
+                if cache is not None:
+                    cache.episode_counts[etype] = int(cache.episode_counts.get(etype, 0)) + 1
+                    ev["episode_index"] = cache.episode_counts[etype]
             else:
                 ev = self._open_events[key]
+                ev["updated_at"] = now
                 ev["ended_at"] = now
-                ev["duration_seconds"] = round(now - ev["started_at"], 2)
+                ev["duration_seconds"] = round(now - float(ev.get("started_at") or now), 2)
                 ev["confidence"] = conf
                 ev["observation_quality"] = quality
+                ev["quality"] = quality
                 ev["reasons"] = reasons
                 ev["lifecycle"] = "updated"
-                # throttle updates ~2s
+                ev["identity_state"] = id_state
+                if attr.get("attribution_status") == "confirmed" and ev.get("person_track_id") == tid:
+                    ev.update(attr)
+                    ev["student_id"] = attr.get("confirmed_student_id")
+                elif ev.get("attribution_status") != "confirmed":
+                    ev["candidate_student_id"] = attr.get("candidate_student_id")
+                    ev["confirmed_student_id"] = None
+                    ev["attribution_status"] = attr.get("attribution_status")
+                    ev["student_id"] = None
                 last_u = float(ev.get("_last_update_emit") or 0)
                 if now - last_u >= 2.0:
                     ev["_last_update_emit"] = now

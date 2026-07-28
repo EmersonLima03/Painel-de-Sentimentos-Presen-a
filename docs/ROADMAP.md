@@ -32,17 +32,45 @@
 
 - Presença isolada de analytics  
 - Person track ≠ face track ≠ identidade  
+- **Confirmação facial (12s) ≠ expiração de identidade**; body_continuity sem TTL oculto por decay  
 - Margem de identidade nunca inventada  
 - Cabeça baixa / celular visível / rosto oculto ≠ labels automáticos de sono/desatenção/uso  
+- Observabilidade **por módulo**; temporarily_lost ≠ body_observable  
+- Eventos sensíveis com `attribution_status`; uncertain → pending no track  
 - Providers pluggable + lazy import  
 - Shadow antes de production  
 - Baixa qualidade → inconclusivo (não baixo engajamento)  
 - Celular nunca confirmado automaticamente  
+
+## Levantamento complementar ao P0 (somente documentação)
+
+Inventário abrangente de cenários reais de sala **ainda não cobertos** ou cobertos só parcialmente. **Não** faz parte da implementação P0; **não** altera thresholds nem detectores.
+
+| Documento | Conteúdo |
+|-----------|----------|
+| [`MODULAR_CLASSROOM_SCENARIOS.md`](MODULAR_CLASSROOM_SCENARIOS.md) | Fato × temporal × contexto × interpretação × ação; 30 perfis de aula; catálogo A–P; matriz de status; P1/P2/P3; checklist de promoção |
+| [`LESSON_CONTEXT_CONFIGURATION.md`](LESSON_CONTEXT_CONFIGURATION.md) | Modelo conceitual de `lesson_context` (YAML ilustrativo); escopos global/escola/turma/aula/fase/exceção |
+
+Fórmula adotada: `observação visual + duração + contexto da aula + configuração + qualidade = interpretação`.
+
+Qualquer item desses docs só vira código após o checklist de promoção (objetivo, detector, temporal, qualidade, inconclusivo, testes, copy, alerta, storage, revisão humana, aprovação de produto).
+
+## Módulos futuros (configuráveis por aula — fora do P0)
+
+Resumo operacional (detalhamento e status por cenário → docs acima):
+
+- Contexto de aula: celular/tablet permitido|obrigatório|proibido; etapa da aula  
+- ROI professor / quadro / material / porta  
+- Caderno, livro, escrita, leitura, mão levantada  
+- Áudio / turnos de fala / colaboração  
+- Presença temporal de aula (entrada/saída/retorno/% acompanhado) — **não** tratar “não visível na câmera” como “fora da sala”  
+- Baseline individual; PERCLOS decisório após validação própria  
 - LXP sem HttpClient até spec  
 - Demo isolado do banco real  
 - FusionEngine oficial; agregador legado depreciado como primário  
 - Thresholds de presença congelados (`presence-yaml-2026-07-23`)  
 - Tags `baseline-fase-0` e `pre-spike-sanitized` preservadas  
+- Segurança / fraude / multicâmera fundida: **P3** (alto risco; sem promessa)  
 
 ## Débitos técnicos
 

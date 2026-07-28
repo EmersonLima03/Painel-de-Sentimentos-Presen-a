@@ -11,13 +11,12 @@ cameras:
     rtsp_url: rtsp://admin:PASSWORD@192.168.100.133:554/cam/realmonitor?channel=1&subtype=1
     enabled: false
 
-  # Webcam do notebook. Índice 0 neste PC entrega frame PRETO; use "1".
-  # Se falhar, teste "0" ou "2" (Iriun/USB).
+  # Webcam USB XWF-1080P (OpenCV idx 2). idx 0=Iriun preto, idx 1=Integrated Camera notebook.
   - camera_id: cam-web
     room_id: DEV
-    rtsp_url: "1"
-    webcam_width: 1280
-    webcam_height: 720
+    rtsp_url: "2"
+    webcam_width: 1920
+    webcam_height: 1080
     enabled: true
 
   # DVR Intelbras (canal 10) — outro equipamento na rede
@@ -112,6 +111,9 @@ runtime:
 experimental:
   sqlite_005_enabled: false
   longitudinal_approval_recorded: false
+  perclos_enabled: false
+  perclos_window_seconds: 60
+  perclos_min_coverage: 0.50
 
 # Modos: disabled | debug | shadow | production
 # Inferência real: máx. shadow até aprovação longitudinal. Em demo os módulos aparecem como "demo".
@@ -138,19 +140,23 @@ analytics:
   landmarks_interval_seconds: 0.5
 
 # Person-first (analytics). Não altera thresholds de presença FaceNet.
+# face_missing_ttl_seconds = idade da confirmação facial (stale UI/decay facial).
+# NÃO expira identidade nem força uncertain sozinho — ver body_continuity.
 identity_binding:
-  face_missing_ttl_seconds: 12
+  face_missing_ttl_seconds: 12  # face_confirmation_stale_seconds (semântica)
   minimum_new_identity_confidence: 0.75
   minimum_identity_margin: 0.10   # só se top1/top2 reais no runtime
   confirmations_before_switch: 3
   identity_switch_cooldown_seconds: 10
-  confidence_decay_per_second: 0.04
+  confidence_decay_per_second: 0.04  # só face_confirmation_confidence
+  body_continuity_uncertain_threshold: 0.45
+  temporarily_lost_uncertain_seconds: 4.0
 
 person_tracking:
   enabled: true
   prefer_bytetrack: true
   model_path: data/models/yolov8n.pt
-  # Continuidade corporal (segundos). Independente do identity TTL (12s).
+  # Continuidade corporal (segundos). Independente da confirmação facial (12s).
   ttl_seconds: 8.0
   max_time_lost_seconds: 8.0
   minimum_detection_confidence: 0.25
@@ -162,6 +168,10 @@ pose_body:
   enabled: true
   model_path: data/mediapipe_models/pose_landmarker_lite.task
 
+phone:
+  possible_after_seconds: 5
+  probable_after_seconds: 12
+
 visual_attention:
   window_seconds: 10
   minimum_samples: 5
@@ -169,10 +179,12 @@ visual_attention:
 
 drowsiness:
   possible_after_seconds: 6
-  probable_after_seconds: 10
-  eye_closed_ratio_threshold: 0.70
+  probable_after_seconds: 30   # olhos fechados sozinhos ≥30s → probable
+  eye_closed_ear_threshold: 0.18  # EAR runtime (fonte única)
+  # eye_closed_ratio_threshold: deprecated — não usado pelo motor RT
   minimum_observation_quality: 0.60
   cooldown_seconds: 20
+  observation_gap_inconclusive_seconds: 8
 
 provenance:
   rule_engine_version: rules-v0-baseline

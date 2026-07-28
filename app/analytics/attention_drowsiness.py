@@ -29,7 +29,8 @@ def evaluate_apparent_drowsiness(
     low_motion: bool = False,
     sample_count: int = 0,
     observation_quality: float = 1.0,
-    min_duration_seconds: float = 8.0,
+    min_duration_seconds: float = 30.0,
+    possible_after_seconds: float = 6.0,
     min_samples: int = 5,
     min_quality: float = 0.55,
     cooldown_active: bool = False,
@@ -37,6 +38,7 @@ def evaluate_apparent_drowsiness(
     """
     Dois segundos de olhos fechados NÃO geram evento persistente.
     Baixa qualidade → inconclusivo. Nunca diagnóstico clínico.
+    Thresholds alinhados ao runtime: possible ≥ possible_after (6s), probable ≥ min_duration (30s).
     """
     reasons: List[str] = []
     signals = {
@@ -55,26 +57,27 @@ def evaluate_apparent_drowsiness(
         return DrowsinessState("none", 0.1, ["brief_blink_or_closed"], signals)
 
     score = 0.0
+    # Olhos fechados sustentados sozinhos bastam para probable
     if eyes_closed_seconds >= min_duration_seconds:
-        score += 0.45
+        score += 0.75
         reasons.append("eyes_closed_duration")
-    elif eyes_closed_seconds >= 4.0:
-        score += 0.25
+    elif eyes_closed_seconds >= possible_after_seconds:
+        score += 0.35
         reasons.append("eyes_partially_prolonged")
     if head_pitch > 0.25:
-        score += 0.2
+        score += 0.15
         reasons.append("head_down")
     if head_supported:
-        score += 0.15
+        score += 0.1
         reasons.append("head_supported")
     if low_motion:
-        score += 0.1
+        score += 0.05
         reasons.append("low_motion")
 
     if score >= 0.7 and eyes_closed_seconds >= min_duration_seconds:
         return DrowsinessState("probable", min(0.95, score), reasons, signals)
-    if score >= 0.4 and eyes_closed_seconds >= 4.0:
-        return DrowsinessState("possible", score, reasons, signals)
+    if score >= 0.35 and eyes_closed_seconds >= possible_after_seconds:
+        return DrowsinessState("possible", min(0.95, score), reasons, signals)
     return DrowsinessState("none", score, reasons or ["below_threshold"], signals)
 
 

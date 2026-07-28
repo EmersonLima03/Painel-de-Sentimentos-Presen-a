@@ -43,7 +43,7 @@ def facial_features_from_roi(
         average_eye_openness=ear,
         blink_score=None,
         mouth_open_score=mouth,
-        smile_score=None,
+        smile_score=None if getattr(sample, "smile_score", None) is None else float(sample.smile_score),
         brow_tension_score=None,
         gaze_horizontal=getattr(sample, "yaw", None),
         gaze_vertical=getattr(sample, "pitch", None),

@@ -1,332 +1,1216 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8" />
-  <title>Debug Vision — técnico</title>
-  <style>
-    :root { --bg:#0f1419; --panel:#1a2332; --text:#e7ecf3; --muted:#8b9bb4; --ok:#3d9a6a; --warn:#c9a227; --err:#e76f51; --line:#2a3548; --accent:#4a90d9; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family: "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); }
-    header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
-    h1 { font-size:1.1rem; margin:0; font-weight:600; }
-    .badge { font-size:0.75rem; color:var(--muted); }
-    .tabs { display:flex; gap:4px; margin-left:auto; }
-    .tab { background:transparent; border:1px solid var(--line); color:var(--muted); padding:6px 14px; border-radius:6px; cursor:pointer; font-size:0.85rem; }
-    .tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-    .view { display:none; }
-    .view.active { display:block; }
-    main.live-grid { display:grid; grid-template-columns: 1.1fr 1.2fr; gap:12px; padding:12px; }
-    @media (max-width: 1000px) { main.live-grid { grid-template-columns: 1fr; } }
-    .panel { background:var(--panel); border-radius:8px; padding:12px; min-height:120px; }
-    .panel h2 { margin:0 0 8px; font-size:0.9rem; color:var(--muted); font-weight:600; }
-    img#preview { width:100%; max-height:420px; object-fit:contain; background:#000; border-radius:6px; }
-    pre { font-size:0.72rem; overflow:auto; max-height:280px; margin:0; white-space:pre-wrap; }
-    .warn { color:var(--warn); font-size:0.8rem; }
-    .ok { color:var(--ok); }
-    .track { border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px; }
-    .track h3 { margin:0 0 8px; font-size:0.95rem; }
-    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:6px 12px; font-size:0.82rem; }
-    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.7rem; margin-right:4px; border:1px solid var(--line); }
-    .pill.ok { background:#1b3a2f; color:#8fd6b5; }
-    .pill.warn { background:#3a3218; color:#e9c46a; }
-    .pill.err { background:#3a1f1a; color:#f4a261; }
-    .pill.muted { color:var(--muted); }
-    details { margin-top:8px; }
-    .manual { font-size:0.78rem; color:var(--muted); margin-top:8px; }
-    #val-root { padding:12px; display:grid; grid-template-columns: 1fr 1.4fr; gap:12px; }
-    @media (max-width: 1100px) { #val-root { grid-template-columns: 1fr; } }
-    .scenario { border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:8px; }
-    .scenario.active { border-color:var(--accent); }
-    .scenario h3 { margin:0 0 4px; font-size:0.9rem; }
-    .scenario p { margin:0 0 6px; font-size:0.78rem; color:var(--muted); }
-    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px; }
-    button.btn { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; font-size:0.8rem; }
-    button.btn.secondary { background:#2a3548; }
-    button.btn:disabled { opacity:0.45; cursor:not-allowed; }
-    input, textarea, select { background:#0f1419; border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px 8px; font-size:0.8rem; }
-    textarea { width:100%; min-height:52px; }
-    .timer { font-variant-numeric: tabular-nums; font-size:1.1rem; color:var(--ok); }
-    .report-box { font-size:0.82rem; }
-    .kpi { display:inline-block; margin-right:12px; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Monitoramento de visão em tempo real</title>
+<style>
+  :root{
+    --bg:#080D16; --card:#101827; --card2:#151F30; --border:#243247;
+    --text:#F8FAFC; --muted:#94A3B8; --muted-2:#5B6B84;
+    --cyan:#38BDF8; --green:#34D399; --yellow:#FBBF24; --red:#FB7185;
+    --cyan-bg:rgba(56,189,248,0.12); --green-bg:rgba(52,211,153,0.12);
+    --yellow-bg:rgba(251,191,36,0.12); --red-bg:rgba(251,113,133,0.12);
+    --muted-bg:rgba(148,163,184,0.10);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;line-height:1.45;}
+  a{color:var(--cyan);}
+  .wrap{max-width:1360px;margin:0 auto;padding:20px 24px 60px;}
+
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap;margin-bottom:18px;}
+  .htitle{font-size:22px;font-weight:700;margin:0 0 4px;}
+  .hsub{font-size:14px;color:var(--muted);margin:0 0 8px;max-width:560px;}
+  .hmeta{font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;font-size:11px;color:var(--muted-2);}
+  .mode-toggle{display:flex;gap:8px;flex-shrink:0;}
+  .mode-btn{background:var(--card2);color:var(--muted);border:1px solid var(--border);padding:9px 16px;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer;}
+  .mode-btn.active{background:var(--cyan);color:#04121C;border-color:var(--cyan);}
+  .mode-btn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;}
+
+  .status-bar{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px;}
+  @media(max-width:1100px){.status-bar{grid-template-columns:repeat(3,1fr);}}
+  @media(max-width:620px){.status-bar{grid-template-columns:repeat(2,1fr);}}
+  .status-chip{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;}
+  .status-chip .label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+  .status-chip .value{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px;}
+  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .dot.green{background:var(--green);box-shadow:0 0 6px var(--green);}
+  .dot.yellow{background:var(--yellow);box-shadow:0 0 6px var(--yellow);}
+  .dot.red{background:var(--red);box-shadow:0 0 6px var(--red);}
+  .dot.cyan{background:var(--cyan);box-shadow:0 0 6px var(--cyan);}
+  .dot.muted{background:var(--muted-2);}
+
+  .main-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;align-items:start;margin-bottom:16px;}
+  @media(max-width:980px){.main-grid{grid-template-columns:1fr;}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+  .card-head{padding:16px 18px 4px;}
+  .card-head h2{font-size:15px;margin:0 0 2px;font-weight:700;}
+  .card-head p{font-size:12.5px;color:var(--muted);margin:0;}
+  .card-body{padding:14px 18px 18px;}
+
+  .cam-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:20px;border:1px solid var(--border);}
+  .badge.green{background:var(--green-bg);color:var(--green);border-color:rgba(52,211,153,0.35);}
+  .badge.yellow{background:var(--yellow-bg);color:var(--yellow);border-color:rgba(251,191,36,0.35);}
+  .badge.red{background:var(--red-bg);color:var(--red);border-color:rgba(251,113,133,0.35);}
+  .badge.cyan{background:var(--cyan-bg);color:var(--cyan);border-color:rgba(56,189,248,0.35);}
+  .badge.muted{background:var(--muted-bg);color:var(--muted);border-color:var(--border);}
+
+  .cam-frame{border-radius:10px;overflow:hidden;background:#000;border:1px solid var(--border);}
+  .cam-frame img{width:100%;display:block;max-height:440px;object-fit:contain;background:#000;}
+  .cam-footnote{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--muted);}
+  .cam-footnote.privacy{color:var(--green);}
+  .cam-note{font-size:11.5px;color:var(--muted-2);margin-top:6px;}
+
+  .events-title{font-size:13px;font-weight:700;margin:0 0 8px;}
+  .event-row{display:flex;gap:10px;align-items:flex-start;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px;}
+  .event-row.warn{border-color:rgba(251,191,36,0.4);}
+  .event-empty{font-size:13px;color:var(--muted);}
+
+  .person-block{border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;background:var(--card2);transition:opacity .15s,filter .15s;}
+  .person-block:last-child{margin-bottom:0;}
+  .person-block.stale{opacity:0.55;filter:grayscale(0.65);border-color:rgba(251,191,36,0.35);}
+  .person-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .person-name{font-size:16px;font-weight:700;margin:0;}
+  .person-sub{font-size:12.5px;color:var(--muted);margin-top:2px;}
+  .person-tags{display:flex;gap:6px;flex-wrap:wrap;}
+
+  .metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px;}
+  @media(max-width:520px){.metric-grid{grid-template-columns:1fr;}}
+  .metric{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 13px;}
+  .metric .mlabel{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:5px;margin-bottom:5px;}
+  .metric .mvalue{font-size:14.5px;font-weight:700;margin-bottom:3px;}
+  .metric .minterp{font-size:11.5px;color:var(--muted);}
+  .metric.smoothed-hold{border-color:rgba(56,189,248,0.35);}
+  .metric.smoothed-hold .minterp .hold-tag{color:var(--cyan);font-size:10.5px;}
+  .bar-track{height:5px;border-radius:3px;background:var(--border);overflow:hidden;margin:6px 0 2px;}
+  .bar-fill{height:100%;border-radius:3px;}
+  .bar-fill.green{background:var(--green);}
+  .bar-fill.yellow{background:var(--yellow);}
+  .bar-fill.red{background:var(--red);}
+  .bar-fill.muted{background:var(--muted-2);}
+
+  .mod-row{font-size:11.5px;color:var(--muted);margin-top:10px;padding-top:8px;border-top:1px solid var(--border);}
+
+  .tip{position:relative;display:inline-flex;}
+  .tip button{background:none;border:none;color:var(--muted);cursor:pointer;width:15px;height:15px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;}
+  .tip button:hover,.tip button:focus{color:var(--cyan);}
+  .tip .tip-bubble{position:absolute;bottom:130%;left:50%;transform:translateX(-50%);background:#020507;border:1px solid var(--border);color:var(--text);font-size:11.5px;font-weight:400;line-height:1.4;padding:8px 10px;border-radius:8px;width:220px;opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:20;}
+  .tip button:hover+.tip-bubble,.tip button:focus+.tip-bubble{opacity:1;}
+
+  details.howto{margin-top:14px;}
+  details.howto summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--cyan);list-style:none;display:flex;align-items:center;gap:6px;}
+  details.howto summary::-webkit-details-marker{display:none;}
+  details.howto[open] summary .chev{transform:rotate(90deg);}
+  .chev{display:inline-block;transition:transform .12s ease;font-size:10px;}
+  details.howto .howto-body{font-size:12.5px;color:var(--muted);margin-top:8px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+
+  .tech-card{margin-top:16px;}
+  details.tech{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+  details.tech summary{cursor:pointer;padding:16px 18px;font-size:14px;font-weight:700;list-style:none;display:flex;align-items:center;gap:8px;justify-content:space-between;}
+  details.tech summary::-webkit-details-marker{display:none;}
+  details.tech summary .left{display:flex;align-items:center;gap:8px;}
+  details.tech[open] summary .chev{transform:rotate(90deg);}
+  .tech-body{padding:0 18px 18px;border-top:1px solid var(--border);}
+  .tech-tabs{display:flex;gap:4px;flex-wrap:wrap;padding-top:14px;margin-bottom:12px;}
+  .tech-tab{background:var(--card2);border:1px solid var(--border);color:var(--muted);font-size:12px;padding:6px 12px;border-radius:8px;cursor:pointer;}
+  .tech-tab.active{background:var(--cyan);color:#04121C;border-color:var(--cyan);}
+  .tech-pane{display:none;}
+  .tech-pane.active{display:block;}
+  .tech-block{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--card2);}
+  .tech-block h4{margin:0 0 8px;font-size:13px;}
+  .tech-kv{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;}
+  @media(max-width:600px){.tech-kv{grid-template-columns:1fr;}}
+  .tech-kv .k{color:var(--muted-2);}
+  .tech-kv .v{color:var(--text);word-break:break-word;}
+
+  .json-toolbar{display:flex;gap:8px;margin-bottom:8px;}
+  .json-btn{background:var(--card2);border:1px solid var(--border);color:var(--text);font-size:11.5px;padding:5px 10px;border-radius:7px;cursor:pointer;}
+  .json-btn:hover{border-color:var(--cyan);}
+  pre.json{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.6;background:#020507;border:1px solid var(--border);border-radius:10px;padding:14px;max-height:320px;overflow:auto;margin:0;color:#C7D2E0;white-space:pre-wrap;}
+  pre.json.expanded{max-height:640px;}
+
+  #view-validation,#view-live{display:none;}
+  #view-validation.active,#view-live.active{display:block;}
+  .val-grid{display:grid;grid-template-columns:1fr 1.3fr;gap:16px;}
+  @media(max-width:1000px){.val-grid{grid-template-columns:1fr;}}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;}
+  label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;}
+  input,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 9px;font-size:12.5px;}
+  textarea{width:100%;min-height:52px;font-family:inherit;}
+  button.btn{background:var(--cyan);color:#04121C;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:12.5px;font-weight:600;}
+  button.btn.secondary{background:var(--card2);color:var(--text);border:1px solid var(--border);}
+  button.btn:disabled{opacity:0.4;cursor:not-allowed;}
+  .scenario{border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--card2);}
+  .scenario.active{border-color:var(--cyan);}
+  .scenario h3{margin:0 0 4px;font-size:13.5px;}
+  .scenario p{margin:0 0 6px;font-size:12px;color:var(--muted);}
+  .timer{font-variant-numeric:tabular-nums;font-size:18px;color:var(--green);font-weight:700;}
+  .report-box{font-size:13px;}
+  .kpi{display:inline-block;margin-right:14px;font-size:13px;}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:0.7rem;margin-right:4px;border:1px solid var(--border);}
+  .pill.ok,.pill.green{background:var(--green-bg);color:var(--green);}
+  .pill.warn,.pill.yellow{background:var(--yellow-bg);color:var(--yellow);}
+  .pill.err,.pill.red{background:var(--red-bg);color:var(--red);}
+  .pill.muted{background:var(--muted-bg);color:var(--muted);}
+</style>
 </head>
 <body>
+<div class="wrap">
+
   <header>
-    <h1>/debug/vision</h1>
-    <span class="badge">localhost · UTF-8 · sem embeddings · sem frames persistidos</span>
-    <span id="status" class="badge">…</span>
-    <div class="tabs">
-      <button class="tab active" data-tab="live">Live</button>
-      <button class="tab" data-tab="validation">Validação controlada</button>
+    <div>
+      <p class="htitle">Monitoramento de visão em tempo real</p>
+      <p class="hsub">Acompanhe o que a câmera e os módulos de análise estão identificando neste momento.</p>
+      <p class="hmeta">/debug/vision · localhost · UTF-8 · sem embeddings · sem frames persistidos · <span id="status-clock">…</span></p>
+    </div>
+    <div class="mode-toggle" role="tablist" aria-label="Modo de visualização">
+      <button class="mode-btn active" data-tab="live" role="tab" aria-selected="true">Ao vivo</button>
+      <button class="mode-btn" data-tab="validation" role="tab" aria-selected="false">Validação controlada</button>
     </div>
   </header>
 
-  <div id="view-live" class="view active">
-    <main class="live-grid">
-      <section class="panel">
-        <h2>Preview (MJPEG)</h2>
-        <img id="preview" alt="preview" src="/debug/mjpeg?camera_id=cam-web&overlay=1&fps=15" />
-        <p class="warn">Overlay em ASCII (cv2.putText). API/HTML em UTF-8.</p>
-      </section>
-      <section class="panel">
-        <h2>Tracks analíticos</h2>
-        <div id="cards">Carregando…</div>
-        <details>
-          <summary>JSON bruto</summary>
-          <pre id="payload"></pre>
-        </details>
-      </section>
-    </main>
+  <div id="view-live" class="active">
+    <div class="status-bar" id="status-bar"></div>
+
+    <div class="main-grid">
+      <div class="card">
+        <div class="card-head">
+          <h2>Visão da câmera</h2>
+          <p>Detecção e acompanhamento das pessoas presentes no enquadramento.</p>
+        </div>
+        <div class="card-body">
+          <div class="cam-badges" id="cam-badges"></div>
+          <div class="cam-frame">
+            <img id="preview" alt="Imagem da câmera com marcações de detecção" src="/debug/mjpeg?camera_id=cam-web&overlay=1&fps=15" />
+          </div>
+          <p class="cam-note">Overlay desenhado no stream (cv2.putText). API/HTML em UTF-8.</p>
+          <div class="cam-footnote privacy">
+            <span>🔒</span>
+            <span id="recording-note">Imagem atual — nenhuma imagem está sendo gravada ou armazenada</span>
+          </div>
+          <details class="howto">
+            <summary><span class="chev">▸</span> Como interpretar estes dados?</summary>
+            <div class="howto-body">
+              Os indicadores exibidos são estimativas produzidas a partir da imagem da câmera. Eles não representam
+              diagnóstico, avaliação pedagógica, emoção real ou confirmação de comportamento. Quando a imagem não possuir
+              qualidade suficiente, o resultado é apresentado como inconclusivo.
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2 id="person-panel-title">Pessoas detectadas</h2>
+          <p>Resumo do que o sistema está observando agora.</p>
+        </div>
+        <div class="card-body">
+          <div class="events-title">Eventos importantes agora</div>
+          <div id="important-events"></div>
+          <div id="person-sections" style="margin-top:12px;">Carregando…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tech-card">
+      <details class="tech" id="tech-panel">
+        <summary>
+          <span class="left"><span class="chev">▸</span> Detalhes técnicos</span>
+          <span class="hmeta" id="tech-provider-label" style="font-size:11px;">provider: —</span>
+        </summary>
+        <div class="tech-body">
+          <div class="tech-tabs" id="tech-tabs">
+            <button type="button" class="tech-tab active" data-pane="rastreamento">Rastreamento</button>
+            <button type="button" class="tech-tab" data-pane="identidade">Identidade</button>
+            <button type="button" class="tech-tab" data-pane="face">Face e pose</button>
+            <button type="button" class="tech-tab" data-pane="desempenho">Desempenho</button>
+            <button type="button" class="tech-tab" data-pane="json">Dados JSON</button>
+          </div>
+          <div class="tech-pane active" id="pane-rastreamento"></div>
+          <div class="tech-pane" id="pane-identidade"></div>
+          <div class="tech-pane" id="pane-face"></div>
+          <div class="tech-pane" id="pane-desempenho"></div>
+          <div class="tech-pane" id="pane-json">
+            <div class="json-toolbar">
+              <button type="button" class="json-btn" id="btn-copy-json">Copiar JSON</button>
+              <button type="button" class="json-btn" id="btn-expand-json">Expandir</button>
+            </div>
+            <pre class="json" id="payload">…</pre>
+          </div>
+        </div>
+      </details>
+    </div>
   </div>
 
-  <div id="view-validation" class="view">
-    <div id="val-root">
-      <section class="panel">
-        <h2>Sessão de validação</h2>
-        <div class="row">
-          <label>Operador <input id="val-operator" value="operador" /></label>
-          <label>Câmera <input id="val-camera" value="cam-web" /></label>
-          <label>student_id <input id="val-student" placeholder="auto" /></label>
-          <button class="btn" id="btn-new-session">Nova sessão</button>
-          <button class="btn secondary" id="btn-report">Gerar relatório</button>
+  <div id="view-validation">
+    <div class="val-grid">
+      <section class="card">
+        <div class="card-head"><h2>Sessão de validação</h2><p>Executar cenários controlados e registrar resultados.</p></div>
+        <div class="card-body">
+          <div class="row">
+            <label>Operador <input id="val-operator" value="operador" /></label>
+            <label>Câmera <input id="val-camera" value="cam-web" /></label>
+            <label>ID do aluno <input id="val-student" placeholder="automático" /></label>
+          </div>
+          <div class="row">
+            <button class="btn" id="btn-new-session">Nova sessão</button>
+            <button class="btn secondary" id="btn-report">Gerar relatório</button>
+          </div>
+          <p class="hmeta" id="val-session-meta" style="margin-top:10px;">Nenhuma sessão ativa</p>
+          <div class="row">
+            <span class="timer" id="val-timer">00:00</span>
+            <span class="hmeta" id="val-sample-count">amostras: 0</span>
+          </div>
+          <h2 style="font-size:14px;margin-top:16px;">Cenários</h2>
+          <div id="scenario-list"></div>
         </div>
-        <p class="badge" id="val-session-meta">Nenhuma sessão ativa</p>
-        <div class="row">
-          <span class="timer" id="val-timer">00:00</span>
-          <span class="badge" id="val-sample-count">amostras: 0</span>
-        </div>
-        <h2 style="margin-top:14px">Cenários</h2>
-        <div id="scenario-list"></div>
       </section>
-      <section class="panel">
-        <h2>Resultado / relatório</h2>
-        <div id="val-report" class="report-box">Inicie uma sessão e execute os cenários.</div>
-        <div class="row" style="margin-top:10px">
-          <a class="btn secondary" id="link-json" href="#" style="text-decoration:none;display:none">Export JSON</a>
-          <a class="btn secondary" id="link-csv" href="#" style="text-decoration:none;display:none">Export CSV</a>
+      <section class="card">
+        <div class="card-head"><h2>Resultado / relatório</h2></div>
+        <div class="card-body">
+          <div id="val-report" class="report-box">Inicie uma sessão e execute os cenários.</div>
+          <div class="row">
+            <a class="btn secondary" id="link-json" href="#" style="text-decoration:none;display:none">Exportar JSON</a>
+            <a class="btn secondary" id="link-csv" href="#" style="text-decoration:none;display:none">Exportar CSV</a>
+          </div>
+          <details class="howto" style="margin-top:12px">
+            <summary><span class="chev">▸</span> Snapshot ao vivo (mesma fonte do runtime)</summary>
+            <div class="howto-body"><pre class="json" id="val-live-snap" style="margin-top:8px;">…</pre></div>
+          </details>
         </div>
-        <details style="margin-top:12px">
-          <summary>Live snapshot (mesma fonte do runtime)</summary>
-          <pre id="val-live-snap">…</pre>
-        </details>
       </section>
     </div>
   </div>
 
-  <script>
-    const token = localStorage.getItem("api_token") || new URLSearchParams(location.search).get("api_token") || "";
-    const headers = () => {
-      const h = { "Content-Type": "application/json" };
-      if (token) h["X-API-Token"] = token;
-      return h;
+</div>
+
+<script>
+const token = localStorage.getItem("api_token") || new URLSearchParams(location.search).get("api_token") || "";
+const headers = () => {
+  const h = { "Content-Type": "application/json" };
+  if (token) h["X-API-Token"] = token;
+  return h;
+};
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+  if (r.status === 401) throw new Error("401 — autenticação necessária");
+  const ct = r.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return r.json();
+  return r.text();
+}
+const POLL_MS = 1500;
+
+const IDENTITY_STATE = {
+  face_confirmed: { label: "Identidade confirmada pelo rosto", color: "green" },
+  body_continuity: { label: "Identidade mantida por continuidade", color: "cyan" },
+  uncertain: { label: "Aguardando nova confirmação", color: "yellow" },
+  unknown: { label: "Não identificada", color: "muted" },
+};
+const TRACKING_STATE = {
+  active: { label: "Sendo acompanhada", color: "green" },
+  temporarily_lost: { label: "Temporariamente fora de vista", color: "yellow" },
+  reassociated: { label: "Reencontrada agora", color: "cyan" },
+  expired: { label: "Acompanhamento encerrado", color: "muted" },
+};
+const UI_BODY_LABEL = {
+  body_observable: { label: "Corpo observável", color: "green" },
+  body_continuity_temporarily_interrupted: { label: "Continuidade temporariamente interrompida", color: "yellow" },
+  body_not_observable: { label: "Corpo não observável", color: "muted" },
+};
+const ATTENTION_STATE = {
+  high: { label: "Alta", color: "green" },
+  moderate: { label: "Moderada", color: "yellow" },
+  low: { label: "Baixa", color: "yellow" },
+  inconclusive: { label: "Inconclusiva", color: "muted" },
+};
+const DROWSINESS_STATE = {
+  none: { label: "Nenhum sinal detectado", color: "green" },
+  possible: { label: "Possíveis sinais leves", color: "yellow" },
+  probable: { label: "Sinais mais consistentes", color: "yellow" },
+  inconclusive: { label: "Inconclusivo", color: "muted" },
+};
+const PHONE_STATE = {
+  not_detected: { label: "Celular não detectado", color: "muted" },
+  phone_visible: { label: "Celular visível (não indica uso)", color: "yellow" },
+  phone_near_person: { label: "Celular próximo (não indica uso)", color: "yellow" },
+  phone_in_hand: { label: "Celular na mão (não confirma uso)", color: "yellow" },
+  possible_phone_interaction: { label: "Possível interação com celular", color: "yellow" },
+  probable_phone_interaction: { label: "Provável interação com celular", color: "yellow" },
+};
+const HEAD_STATE = {
+  head_forward: "Cabeça voltada para frente",
+  head_down_short: "Cabeça baixa (breve)",
+  head_down_persistent: "Cabeça baixa por período prolongado",
+  head_supported: "Cabeça apoiada",
+  pose_inconclusive: "Postura inconclusiva",
+};
+const OCCLUSION_STATE = {
+  none: "Sem oclusão facial",
+  possible_face_occlusion_by_hand: "Possível oclusão do rosto pela mão",
+  persistent_possible_face_occlusion: "Rosto ocluído pela mão (persistente)",
+};
+const EVENT_TYPE_PT = {
+  face_occluded_persistent: "Rosto ocluído pela mão",
+  head_down_persistent: "Cabeça baixa prolongada",
+  low_visual_attention: "Atenção visual baixa",
+  possible_drowsiness: "Possíveis sinais de sonolência",
+  probable_drowsiness: "Sinais mais consistentes de sonolência",
+  possible_phone_interaction: "Possível interação com celular",
+  probable_phone_interaction: "Provável interação com celular",
+};
+const OBS_QUALITY_STATUS = {
+  observable: { label: "Boa", color: "green", note: "Imagem adequada para análise" },
+  partially_observable: { label: "Moderada", color: "yellow", note: "Imagem parcialmente observável" },
+  low_quality: { label: "Baixa", color: "red", note: "Qualidade insuficiente para leitura confiável" },
+  inconclusive: { label: "Inconclusiva", color: "muted", note: "Sem qualidade suficiente para concluir" },
+  not_visible: { label: "Não visível", color: "muted", note: "Pessoa não visível no momento" },
+};
+const IDENTITY_SOURCE = {
+  face_recognition: "Reconhecimento facial",
+  body_continuity: "Continuidade corporal",
+  spatial_reassociation: "Reassociação espacial",
+  unknown: "Desconhecida",
+};
+const REASONS_PT = {
+  gaze_used: "uso do olhar como sinal",
+  head_away: "cabeça afastada",
+  probable_phone: "provável interação com celular",
+  face_not_observable: "rosto não observável",
+  short_look_down: "olhar baixo breve",
+  head_down_persistent_descriptive: "cabeça baixa por período prolongado",
+  insufficient_observation_quality: "qualidade de imagem insuficiente",
+  apparent_drowsiness: "possível sonolência aparente",
+  recurrent_low: "padrão de baixa atenção recorrente",
+  low_coverage: "poucos dados coletados",
+  eyes_closed_duration: "fechamento prolongado dos olhos",
+  prolonged_eye_closure_observed: "fechamento prolongado observado",
+  brief_blink_or_closed: "piscada / fechamento breve",
+  head_down_without_closed_eyes_not_drowsiness: "cabeça baixa sem olhos fechados",
+};
+const OP_STATE = {
+  live: { label: "Operando normalmente", color: "green" },
+  delayed: { label: "Leve atraso na atualização", color: "yellow" },
+  stale: { label: "Dados desatualizados", color: "yellow" },
+  unavailable: { label: "Sem conexão com o sistema", color: "red" },
+  recovering: { label: "Conexão restabelecida", color: "cyan" },
+  no_tracks: { label: "Operando normalmente", color: "green" },
+};
+
+function fmtPct(v, d = 1) {
+  if (v === null || v === undefined) return "—";
+  return (v * 100).toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d }) + "%";
+}
+function fmtMs(v) {
+  if (v === null || v === undefined) return "—";
+  return Math.round(v) + " ms";
+}
+function fmtNum(v, d = 3) {
+  if (v === null || v === undefined) return "—";
+  return v.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function fmtDur(s) {
+  if (s === null || s === undefined) return "—";
+  s = Math.round(s);
+  if (s < 60) return s + " s";
+  return Math.floor(s / 60) + " min " + (s % 60) + " s";
+}
+function fmtTime(ts) {
+  if (!ts) return "—";
+  return new Date(ts * 1000).toLocaleTimeString("pt-BR");
+}
+function esc(s) {
+  return String(s == null ? "—" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function reasonsPt(list) {
+  return (list || []).map((r) => REASONS_PT[r] || r).join(", ");
+}
+function badge(color, text) {
+  return `<span class="badge ${color}">${esc(text)}</span>`;
+}
+function tip(text) {
+  return `<span class="tip"><button type="button" aria-label="Ajuda">ⓘ</button><span class="tip-bubble" role="tooltip">${esc(text)}</span></span>`;
+}
+function moduleStatusLabel(st) {
+  if (st === "available") return "operacional";
+  return st || "—";
+}
+
+let freshnessState = { consecutiveFails: 0, lastValidAt: null, lastData: null, wasUnavailable: false };
+let activeTechPane = "rastreamento";
+
+/** Suavização só na UI — não altera snapshot/API. */
+const UI_SMOOTH = { holdMs: 4000, confirmBadPolls: 3 };
+const smoothCache = Object.create(null);
+
+function trackKey(t) {
+  return String(t.person_track_id || t.track_id || "unknown");
+}
+
+function cloneTrack(t) {
+  return JSON.parse(JSON.stringify(t));
+}
+
+function isTransientOcclusion(t) {
+  const occ = ((t.face_occlusion || {}).state) || "none";
+  return occ === "possible_face_occlusion_by_hand" || occ === "persistent_possible_face_occlusion";
+}
+
+function isGoodSnapshot(t) {
+  const q = t.observation_quality || {};
+  const a = t.visual_attention || {};
+  const e = t.expression || {};
+  const d = t.drowsiness || {};
+  return (
+    q.status === "observable" &&
+    a.state !== "inconclusive" &&
+    e.status !== "inconclusive" &&
+    d.state !== "inconclusive"
+  );
+}
+
+function isFlickerBad(t) {
+  const occ = ((t.face_occlusion || {}).state) || "none";
+  // Persistente (≥3s no backend): mostrar estado real + duração / evento — não segurar "boa".
+  if (occ === "persistent_possible_face_occlusion") return false;
+  if (occ !== "possible_face_occlusion_by_hand") return false;
+  const q = t.observation_quality || {};
+  const a = t.visual_attention || {};
+  const e = t.expression || {};
+  const score = Number(q.overall_score || q.overall_observability || 0);
+  return (
+    q.status === "partially_observable" ||
+    a.state === "inconclusive" ||
+    e.status === "inconclusive" ||
+    (score >= 0.45 && q.status !== "inconclusive" && q.status !== "not_visible")
+  );
+}
+
+function smoothTrackForDisplay(raw) {
+  const key = trackKey(raw);
+  const now = Date.now();
+  let cache = smoothCache[key];
+  if (!cache) {
+    cache = smoothCache[key] = { display: cloneTrack(raw), badStreak: 0, lastGoodAt: now };
+    cache.display._ui_smoothed = false;
+    return cache.display;
+  }
+
+  if (isGoodSnapshot(raw)) {
+    cache.badStreak = 0;
+    cache.lastGoodAt = now;
+    cache.display = cloneTrack(raw);
+    cache.display._ui_smoothed = false;
+    return cache.display;
+  }
+
+  if (isFlickerBad(raw)) {
+    cache.badStreak += 1;
+    const withinHold = now - cache.lastGoodAt < UI_SMOOTH.holdMs;
+    const notConfirmed = cache.badStreak < UI_SMOOTH.confirmBadPolls;
+    if (withinHold || notConfirmed) {
+      const out = cloneTrack(raw);
+      const prev = cache.display;
+      if (prev.observation_quality && (raw.observation_quality || {}).status === "partially_observable") {
+        out.observation_quality = { ...out.observation_quality, status: prev.observation_quality.status };
+      }
+      if ((raw.visual_attention || {}).state === "inconclusive" && prev.visual_attention) {
+        out.visual_attention = {
+          ...prev.visual_attention,
+          duration_seconds: Math.max(
+            Number(prev.visual_attention.duration_seconds || 0),
+            Number((raw.visual_attention || {}).duration_seconds || 0)
+          ),
+        };
+      }
+      if ((raw.expression || {}).status === "inconclusive" && prev.expression && prev.expression.status !== "inconclusive") {
+        out.expression = { ...prev.expression };
+      }
+      if ((raw.drowsiness || {}).state === "inconclusive" && prev.drowsiness && prev.drowsiness.state === "none") {
+        out.drowsiness = { ...prev.drowsiness };
+      }
+      out._ui_smoothed = true;
+      out._ui_hold_reason = ((raw.face_occlusion || {}).state) || "oclusão breve";
+      return out;
+    }
+    cache.display = cloneTrack(raw);
+    cache.display._ui_smoothed = false;
+    return cache.display;
+  }
+
+  cache.badStreak = 0;
+  cache.display = cloneTrack(raw);
+  cache.display._ui_smoothed = false;
+  return cache.display;
+}
+
+function pruneSmoothCache(tracks) {
+  const active = new Set((tracks || []).map(trackKey));
+  for (const k of Object.keys(smoothCache)) {
+    if (!active.has(k)) delete smoothCache[k];
+  }
+}
+
+function holdTag(smoothed) {
+  return smoothed ? '<span class="hold-tag"> · leitura estabilizada (instantâneo abaixo)</span>' : "";
+}
+
+function computeFreshness(data, fetchOk) {
+  const now = Date.now() / 1000;
+  if (!fetchOk) {
+    freshnessState.consecutiveFails += 1;
+    if (freshnessState.consecutiveFails >= 3) return "unavailable";
+    if (freshnessState.lastValidAt) {
+      const age = now - freshnessState.lastValidAt;
+      if (age > 4 * (POLL_MS / 1000)) return "stale";
+      if (age > 2 * (POLL_MS / 1000)) return "delayed";
+    }
+    return freshnessState.consecutiveFails >= 1 ? "delayed" : "unavailable";
+  }
+  freshnessState.consecutiveFails = 0;
+  const updated = Number(data.updated_at || 0);
+  if (updated) freshnessState.lastValidAt = updated;
+  freshnessState.lastData = data;
+  const age = updated ? now - updated : 999;
+  const tracks = data.tracks || [];
+  let state;
+  if (freshnessState.wasUnavailable) {
+    state = "recovering";
+    freshnessState.wasUnavailable = false;
+  } else if (age <= 2 * (POLL_MS / 1000)) state = "live";
+  else if (age <= 4 * (POLL_MS / 1000)) state = "delayed";
+  else state = "stale";
+  if (state === "live" && tracks.length === 0) state = "no_tracks";
+  return state;
+}
+
+function nameFor(t) {
+  const id = t.identity || {};
+  return t.full_name || id.full_name || id.student_id || t.student_id || "Pessoa não identificada";
+}
+
+function identityLabel(t) {
+  const id = t.identity || {};
+  const name = nameFor(t);
+  const st = id.identity_state || "unknown";
+  const since = id.seconds_since_face_confirmation;
+  if (st === "face_confirmed") return name + " — identidade confirmada pelo rosto";
+  if (st === "body_continuity")
+    return name + " — identidade mantida por continuidade corporal (rosto não visível há " + fmtNum(since, 1) + "s)";
+  if (st === "uncertain") return "Possível " + name + " — aguardando nova confirmação facial";
+  return "Pessoa não identificada";
+}
+
+function drowLabel(state, dur, descriptive) {
+  let base;
+  if (state === "possible") base = "Possíveis sinais visuais de sonolência · olhos fechados há " + fmtDur(dur);
+  else if (state === "probable") base = "Sinais visuais prováveis de sonolência aparente · olhos fechados há " + fmtDur(dur);
+  else if (state === "none") base = "Sem sonolência aparente · " + fmtDur(dur);
+  else if (descriptive === "eyes_not_observable_drowsiness_paused")
+    base = "Sonolência não observável (rosto ocluído) — sem EAR não se afirma sono";
+  else base = "Sonolência: observação inconclusiva";
+  if (descriptive && descriptive !== "eyes_not_observable_drowsiness_paused")
+    base += " · " + (REASONS_PT[descriptive] || descriptive);
+  return base;
+}
+
+function phoneLabel(p) {
+  const det = p.status === "available" ? "Detector: operacional" : "Detector: " + (p.status || "—");
+  const st = p.state || "not_detected";
+  const info = PHONE_STATE[st] || { label: st };
+  return det + " · " + info.label + " · " + fmtDur(p.duration_seconds);
+}
+
+function resolveProvider(tracks, root) {
+  for (const t of tracks || []) {
+    const p = (t.facial_features || {}).provider;
+    if (p && p !== "unavailable") return p;
+  }
+  const mm = (root && root.module_modes) || {};
+  if (mm.face_landmarks && mm.face_landmarks !== "disabled") return "face_landmarks:" + mm.face_landmarks;
+  return "—";
+}
+
+function renderStatusBar(data, fr) {
+  const op = OP_STATE[fr] || { label: fr, color: "muted" };
+  const tracks = (data && data.tracks) || [];
+  const recording = data && data.security ? data.security.stores_frames : false;
+  const totalMs =
+    (data && data.latencies_ms && data.latencies_ms.total_analytics) ||
+    (tracks[0] && tracks[0].latencies_ms && tracks[0].latencies_ms.total_analytics) ||
+    null;
+  const camOk = fr !== "unavailable";
+  const ageSec = data && data.updated_at ? (Date.now() / 1000 - Number(data.updated_at)).toFixed(1) : "—";
+
+  const chips = [
+    { label: "Sistema", value: op.label, color: op.color },
+    { label: "Câmera", value: camOk ? "Conectada" : "Desconectada", color: camOk ? "green" : "red" },
+    { label: "Pessoas detectadas", value: String(tracks.length), color: tracks.length ? "green" : "muted" },
+    { label: "Última atualização", value: data ? fmtTime(data.updated_at) + " (" + ageSec + "s)" : "—", color: "muted" },
+    { label: "Processamento total", value: fmtMs(totalMs), color: "muted" },
+    { label: "Gravação", value: recording ? "Ativada" : "Desativada", color: recording ? "yellow" : "muted" },
+  ];
+  document.getElementById("status-bar").innerHTML = chips
+    .map(
+      (c) =>
+        `<div class="status-chip"><div class="label">${esc(c.label)}</div><div class="value"><span class="dot ${c.color}"></span>${esc(c.value)}</div></div>`
+    )
+    .join("");
+}
+
+function renderCamBadges(data, fr) {
+  const tracks = (data && data.tracks) || [];
+  const recording = data && data.security ? data.security.stores_frames : false;
+  const liveBadge =
+    fr === "unavailable" ? badge("red", "Sem sinal") : fr === "stale" || fr === "delayed" ? badge("yellow", "Ao vivo (atrasado)") : badge("green", "Ao vivo");
+  const parts = [
+    liveBadge,
+    tracks.length
+      ? badge("cyan", tracks.length + " pessoa" + (tracks.length > 1 ? "s" : "") + " detectada" + (tracks.length > 1 ? "s" : ""))
+      : badge("muted", "Nenhuma pessoa detectada"),
+    recording ? badge("yellow", "Gravando") : badge("muted", "Não está gravando"),
+  ];
+  document.getElementById("cam-badges").innerHTML = parts.join("");
+  document.getElementById("recording-note").textContent = recording
+    ? "Atenção: a gravação está ativada para esta sessão."
+    : "Imagem atual — nenhuma imagem está sendo gravada ou armazenada";
+}
+
+function renderImportantEvents(tracks, fr) {
+  const items = [];
+  if (["stale", "unavailable"].includes(fr)) {
+    const age = freshnessState.lastValidAt ? Math.round(Date.now() / 1000 - freshnessState.lastValidAt) : "?";
+    items.push(`<div class="event-row warn"><span>⚠</span><span>Dados desatualizados — última resposta válida há ${age}s.</span></div>`);
+  }
+  (tracks || []).forEach((t) => {
+    const name = nameFor(t);
+    const seen = new Set();
+    const pushEv = (key, html) => {
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push(html);
     };
-    async function api(path, opts = {}) {
-      const r = await fetch(path, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
-      if (r.status === 401) throw new Error("401 — autenticação necessária");
-      const ct = r.headers.get("content-type") || "";
-      if (ct.includes("application/json")) return r.json();
-      return r.text();
+
+    (t.active_events || []).forEach((ev) => {
+      const et = ev.event_type || "";
+      if (!["face_occluded_persistent", "head_down_persistent", "low_visual_attention", "possible_drowsiness", "probable_drowsiness", "possible_phone_interaction", "probable_phone_interaction"].includes(et))
+        return;
+      const label = EVENT_TYPE_PT[et] || et;
+      const icon = et.includes("phone") ? "📱" : et.includes("drowsiness") ? "👁" : et.includes("occlud") ? "🖐️" : "⬇";
+      pushEv(
+        et + ":" + (ev.event_id || ""),
+        `<div class="event-row warn"><span>${icon}</span><span><strong>${esc(name)}:</strong> ${esc(label)} · ${fmtDur(ev.duration_seconds)}</span></div>`
+      );
+    });
+
+    const occ = t.face_occlusion || {};
+    if (occ.state === "persistent_possible_face_occlusion") {
+      pushEv(
+        "occ",
+        `<div class="event-row warn"><span>🖐️</span><span><strong>${esc(name)}:</strong> ${esc(OCCLUSION_STATE[occ.state])} · ${fmtDur(occ.duration_seconds || (t.visual_attention || {}).unobservable_seconds || (t.visual_attention || {}).duration_seconds)}</span></div>`
+      );
+    }
+    const hs = (t.head_state || {}).state;
+    if (hs === "head_down_persistent") {
+      pushEv(
+        "head",
+        `<div class="event-row"><span>⬇</span><span><strong>${esc(name)}:</strong> ${esc(HEAD_STATE[hs] || hs)}</span></div>`
+      );
     }
 
-    function pill(status) {
-      const s = (status || "sem_dado").toLowerCase();
-      let cls = "muted";
-      if (["available", "observable", "high", "none", "ok", "pass"].includes(s)) cls = "ok";
-      else if (["inconclusive", "low_quality", "moderate", "possible", "low", "inconclusivo"].includes(s)) cls = "warn";
-      else if (["unavailable", "error", "disabled", "not_implemented", "fail"].includes(s)) cls = "err";
-      return `<span class="pill ${cls}">${status || "sem dado"}</span>`;
+    const d = t.drowsiness || {};
+    if (d.state === "possible" || d.state === "probable") {
+      pushEv("drow", `<div class="event-row warn"><span>👁</span><span><strong>${esc(name)}:</strong> ${esc(drowLabel(d.state, d.duration_seconds, d.descriptive_label))}</span></div>`);
     }
-    function fmt(v) {
-      if (v === null || v === undefined) return "null";
-      if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(3);
-      return String(v);
+    const p = t.phone || {};
+    if (p.state === "possible_phone_interaction" || p.state === "probable_phone_interaction") {
+      pushEv("phone", `<div class="event-row warn"><span>📱</span><span><strong>${esc(name)}:</strong> ${esc(phoneLabel(p))}</span></div>`);
     }
-    function renderTrack(t) {
-      const q = t.observation_quality || {};
-      const f = t.facial_features || {};
-      const e = t.expression || {};
+    const idSt = (t.identity || {}).identity_state;
+    if (idSt === "uncertain") {
+      pushEv("id", `<div class="event-row"><span>❔</span><span>${esc(identityLabel(t))}</span></div>`);
+    }
+  });
+  document.getElementById("important-events").innerHTML = items.length
+    ? items.join("")
+    : `<div class="event-empty">Nenhum evento relevante no momento.</div>`;
+}
+
+function metricCard(label, value, note, tipText, pct, barColor, smoothed) {
+  const bar =
+    pct === null || pct === undefined
+      ? ""
+      : `<div class="bar-track"><div class="bar-fill ${barColor || "cyan"}" style="width:${Math.max(0, Math.min(100, pct * 100))}%"></div></div>`;
+  const noteHtml = esc(note || "") + holdTag(smoothed);
+  return `<div class="metric${smoothed ? " smoothed-hold" : ""}">
+    <div class="mlabel">${esc(label)} ${tipText ? tip(tipText) : ""}</div>
+    <div class="mvalue">${value}</div>${bar}
+    <div class="minterp">${noteHtml}</div>
+  </div>`;
+}
+
+function renderPersonBlock(display, staleUi, raw) {
+  const id = display.identity || {};
+  const idSt = id.identity_state || "unknown";
+  const idInfo = IDENTITY_STATE[idSt] || IDENTITY_STATE.unknown;
+  const trkInfo = TRACKING_STATE[display.tracking_state] || { label: display.tracking_state || "—", color: "muted" };
+  const bodyInfo = UI_BODY_LABEL[(display.observability || {}).ui_body_label] || { label: "—", color: "muted" };
+  const q = display.observation_quality || {};
+  const qInfo = OBS_QUALITY_STATUS[q.status] || { label: q.status || "—", color: "muted", note: "" };
+  const a = display.visual_attention || {};
+  const aInfo = ATTENTION_STATE[a.state] || { label: a.state || "—", color: "muted" };
+  const e = display.expression || {};
+  const f = display.facial_features || {};
+  const d = display.drowsiness || {};
+  const dInfo = DROWSINESS_STATE[d.state] || { label: d.state || "—", color: "muted" };
+  const p = display.phone || {};
+  const pInfo = PHONE_STATE[p.state] || { label: p.state || "—", color: "muted" };
+  const hInfo = HEAD_STATE[(display.head_state || {}).state] || (display.head_state || {}).state || "—";
+  const qLabel = q.status === "observable" ? "Qualidade adequada" : "Qualidade: " + (q.status || "—");
+  const smoothed = !!display._ui_smoothed;
+  const rawA = (raw || display).visual_attention || {};
+  const rawD = (raw || display).drowsiness || {};
+  const rawP = (raw || display).phone || {};
+  const rawQ = (raw || display).observation_quality || {};
+
+  let nameLine, subLine;
+  if (idSt === "unknown") {
+    nameLine = "Pessoa não identificada";
+    subLine = "O sistema acompanha a pessoa, mas ainda não encontrou identidade com confiança suficiente.";
+  } else if (idSt === "uncertain") {
+    nameLine = "Possível " + nameFor(display);
+    subLine = "Aguardando nova confirmação facial.";
+  } else {
+    nameLine = nameFor(display);
+    subLine =
+      idSt === "body_continuity"
+        ? "Identidade mantida sem ver o rosto há " + fmtDur(id.seconds_since_face_confirmation) + "."
+        : "Confiança da identidade: " + fmtPct(id.confidence, 1);
+  }
+
+  const drowNote = drowLabel(d.state, d.duration_seconds, d.descriptive_label);
+  const phoneNote = phoneLabel(p);
+  let attnNote;
+  if (a.observation_paused) {
+    const pauseSec = a.unobservable_seconds != null ? a.unobservable_seconds : a.duration_seconds;
+    const occLabel = OCCLUSION_STATE[((raw || display).face_occlusion || {}).state] || reasonsPt(a.reasons);
+    attnNote =
+      "Observação pausada · " +
+      (occLabel || "rosto não observável") +
+      " há " +
+      fmtDur(pauseSec) +
+      ". Corpo ainda pode estar presente — não confirma sonolência nem desatenção.";
+  } else {
+    attnNote =
+      "Observada por " +
+      fmtDur(a.duration_seconds) +
+      (a.reasons && a.reasons.length ? ". Motivos: " + reasonsPt(a.reasons) : "") +
+      ". Não representa aprendizagem.";
+  }
+
+  return `
+  <div class="person-block ${staleUi ? "stale" : ""}">
+    <div class="person-top">
+      <div>
+        <p class="person-name">${esc(nameLine)}</p>
+        <p class="person-sub">${esc(subLine)} · Acompanhamento há ${fmtDur(display.track_age_seconds)}</p>
+      </div>
+      <div class="person-tags">
+        ${badge(idInfo.color, idInfo.label)}
+        ${badge(trkInfo.color, trkInfo.label)}
+      </div>
+    </div>
+    <div class="metric-grid">
+      ${metricCard(
+        "Qualidade da observação",
+        fmtPct(q.overall_score, 1),
+        qInfo.note,
+        "Considera iluminação, nitidez, tamanho do rosto, posição e obstruções.",
+        q.overall_score,
+        qInfo.color === "red" ? "red" : qInfo.color === "yellow" ? "yellow" : "green",
+        smoothed && rawQ.status !== q.status
+      )}
+      ${metricCard(
+        "Atenção visual estimada",
+        aInfo.label,
+        attnNote,
+        "Estimativa por direção do olhar e postura — não mede compreensão.",
+        null,
+        null,
+        smoothed && rawA.state !== a.state
+      )}
+      ${metricCard(
+        "Expressão aparente",
+        e.smoothed_display_pt || e.smoothed_state || "—",
+        fmtPct(e.confidence, 1) + " · " + (e.sample_count ?? "—") + " obs. Não representa emoção real.",
+        "Leitura visual da face — não é diagnóstico emocional.",
+        null,
+        null,
+        smoothed && (raw || display).expression?.status !== e.status
+      )}
+      ${metricCard(
+        "Sinais de sonolência",
+        dInfo.label,
+        drowNote,
+        "Sinais visuais apenas — não confirma sono real.",
+        null,
+        null,
+        smoothed && rawD.state !== d.state
+      )}
+      ${metricCard(
+        "Celular",
+        pInfo.label,
+        phoneNote,
+        "Celular visível não confirma uso do aparelho.",
+        null,
+        null
+      )}
+      ${metricCard("Processamento", fmtMs((display.latencies_ms || {}).total_analytics), "Análise em tempo real", null, null, null, false)}
+    </div>
+    <div class="metric-grid" style="margin-top:10px;">
+      ${metricCard("Cabeça", hInfo, "", null, null, null, false)}
+      ${metricCard("Corpo / continuidade", bodyInfo.label, "", null, null, null, false)}
+    </div>
+    <div class="mod-row">
+      Módulo facial: ${esc(moduleStatusLabel(f.status))} · ${esc(qLabel)} ·
+      Detector celular: ${esc(moduleStatusLabel(p.status))} ·
+      raw attn/drow/phone: ${esc(rawA.state)}/${esc(rawD.state)}/${esc(rawP.state)}${smoothed ? " · instantâneo q=" + esc(rawQ.status) + " occ=" + esc(((raw || display).face_occlusion || {}).state || "none") : ""}
+    </div>
+  </div>`;
+}
+
+function renderPersonSections(data, fr) {
+  const tracks = (data && data.tracks) || [];
+  pruneSmoothCache(tracks);
+  const staleUi = ["stale", "unavailable"].includes(fr);
+  const titleEl = document.getElementById("person-panel-title");
+  titleEl.textContent = tracks.length ? "Pessoas detectadas (" + tracks.length + ")" : "Pessoas detectadas";
+
+  const el = document.getElementById("person-sections");
+  if (!tracks.length) {
+    el.innerHTML =
+      fr === "no_tracks"
+        ? `<div class="event-empty" style="padding:20px 0;text-align:center;">Nenhuma pessoa detectada no enquadramento (API ok).</div>`
+        : `<div class="event-empty" style="padding:20px 0;text-align:center;">Nenhuma pessoa detectada no enquadramento.</div>`;
+    return;
+  }
+  el.innerHTML = tracks.map((raw) => renderPersonBlock(smoothTrackForDisplay(raw), staleUi, raw)).join("");
+}
+
+function kv(k, v) {
+  return `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`;
+}
+
+function renderTechRastreamento(tracks) {
+  if (!tracks.length) return "<p class='hmeta'>Nenhuma pessoa no frame.</p>";
+  return tracks
+    .map((t) => {
       const a = t.visual_attention || {};
       const d = t.drowsiness || {};
       const p = t.phone || {};
-      const lat = t.latencies_ms || {};
-      return `<div class="track">
-        <h3>${t.full_name || t.student_id || t.track_id || "?"}
-          ${pill(q.status)} ${pill(f.status)} ${pill(e.status)} ${pill(a.state || a.status)} ${pill(d.state || d.status)} ${pill(p.status)}
-        </h3>
-        <div class="grid">
-          <div>identidade: <strong>${t.student_id || "—"}</strong> (${fmt(t.identity_confidence ?? t.confidence)})</div>
-          <div>provider landmarks: ${f.provider || "—"}</div>
-          <div>overall quality: ${fmt(q.overall_score)}</div>
-          <div>olhos: L ${fmt(f.left_eye_openness)} R ${fmt(f.right_eye_openness)}</div>
-          <div>boca: ${fmt(f.mouth_open_score)}</div>
-          <div>pose: yaw ${fmt(f.yaw)} pitch ${fmt(f.pitch)} roll ${fmt(f.roll)}</div>
-          <div>expressão: ${e.smoothed_display_pt || e.smoothed_state || e.status || "—"} conf ${fmt(e.confidence)} n=${e.sample_count ?? "—"}</div>
-          <div>atenção: ${a.state || a.status || "—"} · ${fmt(a.duration_seconds)}s</div>
-          <div>sonolência: ${d.state || d.status || "—"} · ${fmt(d.duration_seconds)}s</div>
-          <div>celular: ${p.status || "—"} / ${p.state || "—"}</div>
-          <div>latências ms: q ${fmt(lat.quality)} · lm ${fmt(lat.landmarks)} · expr ${fmt(lat.expression)} · total ${fmt(lat.total_analytics)}</div>
-        </div>
-      </div>`;
-    }
+      return `<div class="tech-block"><h4>${esc(nameFor(t))} — ${esc(t.person_track_id)}</h4><div class="tech-kv">
+        ${kv("raw_tracker_id", t.raw_tracker_id)}
+        ${kv("tracking_state", t.tracking_state)}
+        ${kv("track_confidence", fmtNum(t.track_confidence))}
+        ${kv("track_age_seconds", fmtNum(t.track_age_seconds, 2))}
+        ${kv("seconds_since_person_detection", t.seconds_since_person_detection)}
+        ${kv("missed_detections", t.missed_detections)}
+        ${kv("expire_reason", t.expire_reason)}
+        ${kv("reassociation_score", fmtNum(t.reassociation_score))}
+        ${kv("person_bbox", JSON.stringify(t.person_bbox))}
+        ${kv("face_bbox", JSON.stringify(t.face_bbox))}
+        ${kv("raw attn/drow/phone", a.state + "/" + d.state + "/" + p.state)}
+        ${kv("active_events", JSON.stringify(t.active_events || []))}
+      </div></div>`;
+    })
+    .join("");
+}
 
-    async function refreshLive() {
-      try {
-        const data = await api("/api/v1/live/debug-snapshot?camera_id=cam-web");
-        document.getElementById("status").textContent = "ok · " + new Date().toLocaleTimeString();
-        const tracks = data.tracks || [];
-        document.getElementById("cards").innerHTML = tracks.length
-          ? tracks.map(renderTrack).join("")
-          : "<p class='warn'>Nenhum track.</p>";
-        document.getElementById("payload").textContent = JSON.stringify(data, null, 2);
-        const vs = document.getElementById("val-live-snap");
-        if (vs) vs.textContent = JSON.stringify(data, null, 2);
-      } catch (e) {
-        document.getElementById("status").textContent = "erro: " + e.message;
-      }
-    }
+function renderTechIdentidade(tracks) {
+  if (!tracks.length) return "<p class='hmeta'>Nenhuma pessoa no frame.</p>";
+  return tracks
+    .map((t) => {
+      const id = t.identity || {};
+      return `<div class="tech-block"><h4>${esc(nameFor(t))}</h4><div class="tech-kv">
+        ${kv("identity_state", id.identity_state)}
+        ${kv("identity_source", IDENTITY_SOURCE[id.identity_source] || id.identity_source || id.source)}
+        ${kv("confidence", fmtNum(id.confidence))}
+        ${kv("body_continuity_confidence", fmtNum(id.body_continuity_confidence))}
+        ${kv("seconds_since_face_confirmation", id.seconds_since_face_confirmation)}
+        ${kv("margin", fmtNum(id.margin))}
+        ${kv("pending_switch", id.pending_switch)}
+        ${kv("confirmation_count", id.confirmation_count)}
+        ${kv("cooldown_until", id.cooldown_until)}
+        ${kv("revalidation_required", id.revalidation_required)}
+        ${kv("ambiguity_reasons", JSON.stringify(id.ambiguity_reasons || []))}
+        ${kv("observability", JSON.stringify(t.observability || {}))}
+      </div></div>`;
+    })
+    .join("");
+}
 
-    // Tabs
-    document.querySelectorAll(".tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
-        document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-        btn.classList.add("active");
-        document.getElementById("view-" + btn.dataset.tab).classList.add("active");
-      });
+function renderTechFace(tracks) {
+  if (!tracks.length) return "<p class='hmeta'>Nenhuma pessoa no frame.</p>";
+  return tracks
+    .map((t) => {
+      const f = t.facial_features || {};
+      const d = t.drowsiness || {};
+      return `<div class="tech-block"><h4>${esc(nameFor(t))}</h4><div class="tech-kv">
+        ${kv("provider", f.provider)}
+        ${kv("status", f.status)}
+        ${kv("left_eye_openness (EAR L)", fmtNum(f.left_eye_openness))}
+        ${kv("right_eye_openness (EAR R)", fmtNum(f.right_eye_openness))}
+        ${kv("mouth_open_score", fmtNum(f.mouth_open_score))}
+        ${kv("yaw", fmtNum(f.yaw))}
+        ${kv("pitch", fmtNum(f.pitch))}
+        ${kv("roll", fmtNum(f.roll))}
+        ${kv("head_state.state", (t.head_state || {}).state)}
+        ${kv("drowsiness.descriptive_label", d.descriptive_label)}
+        ${kv("face_occlusion", JSON.stringify(t.face_occlusion || {}))}
+      </div></div>`;
+    })
+    .join("");
+}
+
+function renderTechDesempenho(tracks, root) {
+  const rootLat = (root && root.latencies_ms) || {};
+  let html = `<div class="tech-block"><h4>Latências globais</h4><div class="tech-kv">${kv("total_analytics", fmtMs(rootLat.total_analytics))}</div></div>`;
+  html += tracks
+    .map((t) => {
+      const l = t.latencies_ms || {};
+      return `<div class="tech-block"><h4>${esc(nameFor(t))}</h4><div class="tech-kv">
+        ${kv("quality", fmtMs(l.quality))}
+        ${kv("landmarks", fmtMs(l.landmarks))}
+        ${kv("expression", fmtMs(l.expression))}
+        ${kv("total_analytics", fmtMs(l.total_analytics))}
+      </div></div>`;
+    })
+    .join("");
+  if (root && root.module_modes) {
+    html += `<div class="tech-block"><h4>module_modes</h4><div class="tech-kv">${Object.entries(root.module_modes)
+      .map(([k, v]) => kv(k, v))
+      .join("")}</div></div>`;
+  }
+  return html;
+}
+
+function renderTechPanes(tracks, root) {
+  document.getElementById("pane-rastreamento").innerHTML = renderTechRastreamento(tracks);
+  document.getElementById("pane-identidade").innerHTML = renderTechIdentidade(tracks);
+  document.getElementById("pane-face").innerHTML = renderTechFace(tracks);
+  document.getElementById("pane-desempenho").innerHTML = renderTechDesempenho(tracks, root);
+  document.getElementById("tech-provider-label").textContent = "provider: " + resolveProvider(tracks, root);
+}
+
+async function refreshLive() {
+  let data, fetchOk = false, errMsg = "";
+  try {
+    data = await api("/api/v1/live/debug-snapshot?camera_id=cam-web");
+    fetchOk = true;
+  } catch (e) {
+    errMsg = e.message || String(e);
+    if (e.message && e.message.includes("unavailable")) freshnessState.wasUnavailable = true;
+  }
+
+  const fr = computeFreshness(fetchOk ? data : null, fetchOk);
+  if (fr === "unavailable") freshnessState.wasUnavailable = true;
+
+  const shownData = fetchOk ? data : freshnessState.lastData;
+  const tracks = shownData ? shownData.tracks || [] : [];
+
+  document.getElementById("status-clock").textContent = new Date().toLocaleTimeString("pt-BR") + " · poll " + POLL_MS + "ms · " + fr;
+
+  renderStatusBar(shownData, fr);
+  renderCamBadges(shownData, fr);
+  renderImportantEvents(tracks, fr);
+  renderPersonSections({ tracks }, fr);
+  renderTechPanes(tracks, shownData);
+
+  const payloadEl = document.getElementById("payload");
+  if (shownData) payloadEl.textContent = JSON.stringify(shownData, null, 2);
+  else payloadEl.textContent = errMsg ? "Erro: " + errMsg : "Sem dados";
+
+  const vs = document.getElementById("val-live-snap");
+  if (vs) vs.textContent = payloadEl.textContent;
+}
+
+document.querySelectorAll(".mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mode-btn").forEach((b) => {
+      b.classList.remove("active");
+      b.setAttribute("aria-selected", "false");
     });
+    btn.classList.add("active");
+    btn.setAttribute("aria-selected", "true");
+    document.getElementById("view-live").classList.remove("active");
+    document.getElementById("view-validation").classList.remove("active");
+    document.getElementById("view-" + btn.dataset.tab).classList.add("active");
+  });
+});
 
-    // Validation state
-    let session = null;
-    let activeStep = null;
-    let sampleTimer = null;
-    let clockTimer = null;
-    let startedAt = null;
+document.querySelectorAll(".tech-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    activeTechPane = btn.dataset.pane;
+    document.querySelectorAll(".tech-tab").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".tech-pane").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("pane-" + activeTechPane).classList.add("active");
+  });
+});
 
-    function stopTimers() {
-      if (sampleTimer) clearInterval(sampleTimer);
-      if (clockTimer) clearInterval(clockTimer);
-      sampleTimer = null;
-      clockTimer = null;
-    }
+document.getElementById("btn-copy-json").addEventListener("click", () => {
+  const t = document.getElementById("payload").textContent;
+  if (navigator.clipboard) navigator.clipboard.writeText(t).catch(() => {});
+});
+document.getElementById("btn-expand-json").addEventListener("click", (e) => {
+  const pre = document.getElementById("payload");
+  pre.classList.toggle("expanded");
+  e.target.textContent = pre.classList.contains("expanded") ? "Recolher" : "Expandir";
+});
 
-    function renderScenarios() {
-      if (!session) {
-        document.getElementById("scenario-list").innerHTML = "<p class='badge'>Crie uma sessão.</p>";
-        return;
-      }
-      const steps = session.steps || [];
-      document.getElementById("scenario-list").innerHTML = steps.map((s) => {
-        const isActive = activeStep && activeStep.id === s.id;
-        const res = s.result ? pill(s.result) : pill("pendente");
-        return `<div class="scenario ${isActive ? "active" : ""}" data-step="${s.id}">
-          <h3>${s.sort_order + 1}. ${s.scenario_name} ${res}</h3>
-          <p>${s.instruction || ""}</p>
-          <p>Duração esperada: <strong>${s.duration_expected ?? "—"}s</strong></p>
-          <div class="row">
-            <button class="btn" data-act="start" data-id="${s.id}" ${activeStep && !isActive ? "disabled" : ""}>Iniciar</button>
-            <button class="btn secondary" data-act="finish" data-id="${s.id}" ${isActive ? "" : "disabled"}>Finalizar</button>
-          </div>
-          <textarea data-obs="${s.id}" placeholder="Observação manual">${s.observation || ""}</textarea>
-        </div>`;
-      }).join("");
-      document.querySelectorAll("[data-act=start]").forEach((b) => b.addEventListener("click", () => startStep(b.dataset.id)));
-      document.querySelectorAll("[data-act=finish]").forEach((b) => b.addEventListener("click", () => finishStep(b.dataset.id)));
-    }
+function pillLegacy(status) {
+  const s = (status || "sem_dado").toLowerCase();
+  let cls = "muted";
+  if (["available", "observable", "high", "none", "ok", "pass"].includes(s)) cls = "ok";
+  else if (["inconclusive", "low_quality", "moderate", "possible", "low", "inconclusivo"].includes(s)) cls = "warn";
+  else if (["unavailable", "error", "disabled", "not_implemented", "fail"].includes(s)) cls = "err";
+  return `<span class="pill ${cls}">${esc(status || "sem dado")}</span>`;
+}
 
-    async function newSession() {
-      stopTimers();
-      activeStep = null;
-      const body = {
-        operator: document.getElementById("val-operator").value || "operador",
-        camera_id: document.getElementById("val-camera").value || "cam-web",
-        student_id: document.getElementById("val-student").value || null,
-      };
-      session = await api("/api/v1/validation/sessions", { method: "POST", body: JSON.stringify(body) });
-      document.getElementById("val-session-meta").textContent =
-        `Sessão ${session.id} · camera ${session.camera_id} · student ${session.student_id || "auto"} · ${session.runtime_mode}`;
-      document.getElementById("link-json").style.display = "none";
-      document.getElementById("link-csv").style.display = "none";
-      document.getElementById("val-report").textContent = "Sessão criada. Execute os cenários na ordem.";
-      renderScenarios();
-    }
+let session = null,
+  activeStep = null,
+  sampleTimer = null,
+  clockTimer = null,
+  startedAt = null;
 
-    async function startStep(stepId) {
-      if (!session) return;
-      stopTimers();
-      activeStep = await api(`/api/v1/validation/sessions/${session.id}/steps/start`, {
-        method: "POST",
-        body: JSON.stringify({ step_id: stepId }),
-      });
-      startedAt = Date.now();
-      document.getElementById("val-sample-count").textContent = "amostras: " + (activeStep.sample_count || 1);
-      clockTimer = setInterval(() => {
-        const sec = Math.floor((Date.now() - startedAt) / 1000);
-        const mm = String(Math.floor(sec / 60)).padStart(2, "0");
-        const ss = String(sec % 60).padStart(2, "0");
-        document.getElementById("val-timer").textContent = `${mm}:${ss}`;
-      }, 200);
-      // amostra na frequência do analytics (~0.5s)
-      sampleTimer = setInterval(async () => {
-        try {
-          await api(`/api/v1/validation/sessions/${session.id}/steps/${stepId}/sample`, { method: "POST", body: "{}" });
-          const st = await api(`/api/v1/validation/sessions/${session.id}`);
-          session = st;
-          const step = (st.steps || []).find((x) => x.id === stepId);
-          document.getElementById("val-sample-count").textContent = "amostras: " + (step?.sample_count ?? "?");
-        } catch (_) {}
-      }, 500);
-      session = await api(`/api/v1/validation/sessions/${session.id}`);
-      renderScenarios();
-    }
+function stopTimers() {
+  if (sampleTimer) clearInterval(sampleTimer);
+  if (clockTimer) clearInterval(clockTimer);
+  sampleTimer = null;
+  clockTimer = null;
+}
 
-    async function finishStep(stepId) {
-      if (!session) return;
-      stopTimers();
-      const obs = document.querySelector(`textarea[data-obs="${stepId}"]`)?.value || "";
-      activeStep = await api(`/api/v1/validation/sessions/${session.id}/steps/${stepId}/finish`, {
-        method: "POST",
-        body: JSON.stringify({ observation: obs }),
-      });
-      const finished = activeStep;
-      activeStep = null;
-      session = await api(`/api/v1/validation/sessions/${session.id}`);
-      renderScenarios();
-      if (finished) {
-        document.getElementById("val-report").innerHTML =
-          `<p><strong>${finished.scenario_name || ""}</strong> → ${pill(finished.result)}</p>
-           <pre>${finished.evidence_json || finished.received_json || ""}</pre>`;
-      }
-    }
+function renderScenarios() {
+  if (!session) {
+    document.getElementById("scenario-list").innerHTML = "<p class='hmeta'>Crie uma sessão.</p>";
+    return;
+  }
+  const steps = session.steps || [];
+  document.getElementById("scenario-list").innerHTML = steps
+    .map((s) => {
+      const isActive = activeStep && activeStep.id === s.id;
+      const res = s.result ? pillLegacy(s.result) : pillLegacy("pendente");
+      return `<div class="scenario ${isActive ? "active" : ""}" data-step="${s.id}">
+        <h3>${s.sort_order + 1}. ${esc(s.scenario_name)} ${res}</h3>
+        <p>${esc(s.instruction || "")}</p>
+        <p>Duração esperada: <strong>${s.duration_expected ?? "—"}s</strong></p>
+        <div class="row">
+          <button class="btn" data-act="start" data-id="${s.id}" ${activeStep && !isActive ? "disabled" : ""}>Iniciar</button>
+          <button class="btn secondary" data-act="finish" data-id="${s.id}" ${isActive ? "" : "disabled"}>Finalizar</button>
+        </div>
+        <textarea data-obs="${s.id}" placeholder="Observação manual">${esc(s.observation || "")}</textarea>
+      </div>`;
+    })
+    .join("");
+  document.querySelectorAll("[data-act=start]").forEach((b) => b.addEventListener("click", () => startStep(b.dataset.id)));
+  document.querySelectorAll("[data-act=finish]").forEach((b) => b.addEventListener("click", () => finishStep(b.dataset.id)));
+}
 
-    async function genReport() {
-      if (!session) return;
-      const report = await api(`/api/v1/validation/sessions/${session.id}/report`);
-      const c = report.counts || {};
-      document.getElementById("val-report").innerHTML = `
-        <div class="kpi">PASS: <strong class="ok">${c.PASS || 0}</strong></div>
-        <div class="kpi">FAIL: <strong style="color:var(--err)">${c.FAIL || 0}</strong></div>
-        <div class="kpi">INCONCLUSIVO: <strong style="color:var(--warn)">${c.INCONCLUSIVO || 0}</strong></div>
-        <div class="kpi">PENDING: ${c.PENDING || 0}</div>
-        <p>Resultado geral: ${pill(report.overall_result)}</p>
-        <p>Latências total p50/p95: ${fmt(report.latencies_ms?.p50)} / ${fmt(report.latencies_ms?.p95)} ms (n=${report.latencies_ms?.n})</p>
-        <p>Presença: ${report.presence?.note || "—"}</p>
-        <ul>${(report.steps || []).map((s) => `<li>${s.name}: ${s.result || "pendente"}</li>`).join("")}</ul>
-        <p class="badge">${(report.limitations || []).join(" · ")}</p>
-        <pre>${JSON.stringify(report, null, 2)}</pre>`;
-      const q = token ? `?api_token=${encodeURIComponent(token)}` : "";
-      const j = document.getElementById("link-json");
-      const csv = document.getElementById("link-csv");
-      j.href = `/api/v1/validation/sessions/${session.id}/report${q}`;
-      j.style.display = "inline-block";
-      csv.href = `/api/v1/validation/sessions/${session.id}/report.csv${q}`;
-      csv.style.display = "inline-block";
-    }
+async function newSession() {
+  stopTimers();
+  activeStep = null;
+  const body = {
+    operator: document.getElementById("val-operator").value || "operador",
+    camera_id: document.getElementById("val-camera").value || "cam-web",
+    student_id: document.getElementById("val-student").value || null,
+  };
+  session = await api("/api/v1/validation/sessions", { method: "POST", body: JSON.stringify(body) });
+  document.getElementById("val-session-meta").textContent =
+    "Sessão " + session.id + " · câmera " + session.camera_id + " · aluno " + (session.student_id || "auto") + " · " + session.runtime_mode;
+  document.getElementById("link-json").style.display = "none";
+  document.getElementById("link-csv").style.display = "none";
+  document.getElementById("val-report").textContent = "Sessão criada. Execute os cenários na ordem.";
+  renderScenarios();
+}
 
-    document.getElementById("btn-new-session").addEventListener("click", () => newSession().catch((e) => alert(e.message)));
-    document.getElementById("btn-report").addEventListener("click", () => genReport().catch((e) => alert(e.message)));
+async function startStep(stepId) {
+  if (!session) return;
+  stopTimers();
+  activeStep = await api("/api/v1/validation/sessions/" + session.id + "/steps/start", {
+    method: "POST",
+    body: JSON.stringify({ step_id: stepId }),
+  });
+  startedAt = Date.now();
+  document.getElementById("val-sample-count").textContent = "amostras: " + (activeStep.sample_count || 1);
+  clockTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - startedAt) / 1000);
+    document.getElementById("val-timer").textContent =
+      String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0");
+  }, 200);
+  sampleTimer = setInterval(async () => {
+    try {
+      await api("/api/v1/validation/sessions/" + session.id + "/steps/" + stepId + "/sample", { method: "POST", body: "{}" });
+      const st = await api("/api/v1/validation/sessions/" + session.id);
+      session = st;
+      const step = (st.steps || []).find((x) => x.id === stepId);
+      document.getElementById("val-sample-count").textContent = "amostras: " + (step && step.sample_count != null ? step.sample_count : "?");
+    } catch (_) {}
+  }, 500);
+  session = await api("/api/v1/validation/sessions/" + session.id);
+  renderScenarios();
+}
 
-    refreshLive();
-    setInterval(refreshLive, 1500);
-  </script>
+async function finishStep(stepId) {
+  if (!session) return;
+  stopTimers();
+  const obs = document.querySelector('textarea[data-obs="' + stepId + '"]');
+  activeStep = await api("/api/v1/validation/sessions/" + session.id + "/steps/" + stepId + "/finish", {
+    method: "POST",
+    body: JSON.stringify({ observation: obs ? obs.value : "" }),
+  });
+  const finished = activeStep;
+  activeStep = null;
+  session = await api("/api/v1/validation/sessions/" + session.id);
+  renderScenarios();
+  if (finished) {
+    document.getElementById("val-report").innerHTML =
+      "<p><strong>" +
+      esc(finished.scenario_name || "") +
+      "</strong> → " +
+      pillLegacy(finished.result) +
+      "</p><pre class=\"json\">" +
+      esc(finished.evidence_json || finished.received_json || "") +
+      "</pre>";
+  }
+}
+
+async function genReport() {
+  if (!session) return;
+  const report = await api("/api/v1/validation/sessions/" + session.id + "/report");
+  const c = report.counts || {};
+  document.getElementById("val-report").innerHTML = `
+    <div class="kpi">PASS: <strong style="color:var(--green)">${c.PASS || 0}</strong></div>
+    <div class="kpi">FAIL: <strong style="color:var(--red)">${c.FAIL || 0}</strong></div>
+    <div class="kpi">INCONCLUSIVO: <strong style="color:var(--yellow)">${c.INCONCLUSIVO || 0}</strong></div>
+    <div class="kpi">PENDING: ${c.PENDING || 0}</div>
+    <p>Resultado geral: ${pillLegacy(report.overall_result)}</p>
+    <p>Latências total p50/p95: ${fmtMs(report.latencies_ms && report.latencies_ms.p50)} / ${fmtMs(report.latencies_ms && report.latencies_ms.p95)} (n=${(report.latencies_ms && report.latencies_ms.n) || 0})</p>
+    <p>Presença: ${esc((report.presence && report.presence.note) || "—")}</p>
+    <ul>${(report.steps || []).map((s) => "<li>" + esc(s.name) + ": " + esc(s.result || "pendente") + "</li>").join("")}</ul>
+    <p class="hmeta">${esc((report.limitations || []).join(" · "))}</p>
+    <pre class="json">${esc(JSON.stringify(report, null, 2))}</pre>`;
+  const q = token ? "?api_token=" + encodeURIComponent(token) : "";
+  document.getElementById("link-json").href = "/api/v1/validation/sessions/" + session.id + "/report" + q;
+  document.getElementById("link-json").style.display = "inline-block";
+  document.getElementById("link-csv").href = "/api/v1/validation/sessions/" + session.id + "/report.csv" + q;
+  document.getElementById("link-csv").style.display = "inline-block";
+}
+
+document.getElementById("btn-new-session").addEventListener("click", () => newSession().catch((e) => alert(e.message)));
+document.getElementById("btn-report").addEventListener("click", () => genReport().catch((e) => alert(e.message)));
+
+refreshLive();
+setInterval(refreshLive, POLL_MS);
+</script>
 </body>
 </html>

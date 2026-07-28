@@ -34,7 +34,7 @@ _history_max = 5
 _soft_negative_min_conf = 0.58
 _weak_pred_min_conf = 0.40
 _happy_prob_min = 0.14          # FER raramente dá happy como 1º na webcam
-_smile_heuristic_threshold = 0.45
+_smile_heuristic_threshold = 0.28  # webcam + fone; reforço principal agora é MediaPipe smile_score
 
 _model = None
 _model_lock = threading.Lock()
@@ -99,7 +99,7 @@ def _preprocess_face_gray(face_bgr: np.ndarray) -> np.ndarray:
 
 def _smile_heuristic_score(face_bgr: np.ndarray) -> float:
     """
-    Sorriso via região da boca (webcam 48px do FER perde sorriso).
+    Sorriso via região da boca (webcam 48/64px do FER perde sorriso).
     Boca mais larga + contraste (dentes) → score alto.
     """
     if face_bgr is None or face_bgr.size == 0:
@@ -108,25 +108,66 @@ def _smile_heuristic_score(face_bgr: np.ndarray) -> float:
     h, w = gray.shape[:2]
     if h < 24 or w < 24:
         return 0.0
-    mouth = gray[int(h * 0.58) : int(h * 0.94), int(w * 0.12) : int(w * 0.88)]
+    mouth = gray[int(h * 0.55) : int(h * 0.95), int(w * 0.10) : int(w * 0.90)]
     if mouth.size == 0:
         return 0.0
     mh, mw = mouth.shape[:2]
     aspect = mw / max(mh, 1)
     std = float(np.std(mouth))
     mean_b = float(np.mean(mouth))
+    # dentes = pixels claros na faixa inferior da boca
+    bright_frac = float(np.mean(mouth > 140))
     score = 0.0
-    if aspect >= 2.4:
-        score += 0.30
-    if aspect >= 3.2:
-        score += 0.15
-    if std >= 22:
-        score += 0.25
-    if std >= 32:
+    if aspect >= 2.2:
+        score += 0.28
+    if aspect >= 3.0:
+        score += 0.12
+    if std >= 18:
+        score += 0.22
+    if std >= 28:
         score += 0.10
-    if mean_b >= 85:
-        score += 0.15
+    if mean_b >= 75:
+        score += 0.12
+    if bright_frac >= 0.08:
+        score += 0.18
+    if bright_frac >= 0.18:
+        score += 0.12
     return min(1.0, score)
+
+
+def apply_smile_boost_to_fer_probs(
+    face_bgr: np.ndarray,
+    raw_probs: Dict[str, float],
+    *,
+    raw_label: Optional[str] = None,
+) -> Tuple[Dict[str, float], str, str]:
+    """
+    Aplica heurística de sorriso sobre probs FER (TF ou ONNX).
+    Retorna (probs_ajustadas, raw_label_efetivo, source).
+    source: model|smile|happy_prob
+    """
+    probs = dict(raw_probs or {})
+    smile_s = _smile_heuristic_score(face_bgr)
+    happy = float(probs.get("happy", 0.0) or 0.0)
+    source = "model"
+    label = (raw_label or "").strip().lower() or "neutral"
+
+    if smile_s >= _smile_heuristic_threshold:
+        probs["happy"] = max(happy, smile_s)
+        # reduz empate com neutral (FER+ tende a neutro em sorriso)
+        if float(probs.get("neutral", 0.0) or 0.0) > 0:
+            probs["neutral"] = float(probs["neutral"]) * 0.45
+        label = "happy"
+        source = "smile"
+    elif happy >= _happy_prob_min:
+        # happy forte no top (mesmo se não for argmax)
+        top = max(probs.values()) if probs else 0.0
+        if happy >= top * 0.45 or happy >= 0.22:
+            probs["happy"] = max(happy, float(probs.get("happy", 0.0)))
+            label = "happy"
+            source = "happy_prob"
+
+    return probs, label, source
 
 
 def _resolve_label_from_probs(pred: np.ndarray, face_bgr: np.ndarray) -> Tuple[str, float, str]:
@@ -280,14 +321,20 @@ def _analyze_face(face_bgr: np.ndarray) -> Tuple[str, float, str, str, str]:
     backend = health.get("backend") or health.get("provider")
 
     if health.get("provider") == "fer_onnx" or health.get("model_name") == "emotion-ferplus-8":
-        from app.vision.fer_onnx import predict_emotion_onnx
+        from app.vision.fer_onnx import FERPLUS_LABELS, _TO_FER2013, predict_emotion_onnx
 
-        label, conf, _probs = predict_emotion_onnx(face_bgr)
-        # smile heuristic still helps webcam
-        smile_s = _smile_heuristic_score(face_bgr)
-        source = "onnx"
-        if smile_s >= _smile_heuristic_threshold:
-            label, conf, source = "happy", max(conf, smile_s), "smile"
+        label, conf, probs_arr = predict_emotion_onnx(face_bgr)
+        raw_probs = {}
+        for i, name in enumerate(FERPLUS_LABELS):
+            if i < len(probs_arr):
+                fer = _TO_FER2013.get(name, name)
+                raw_probs[fer] = raw_probs.get(fer, 0.0) + float(probs_arr[i])
+        raw_probs, label, source = apply_smile_boost_to_fer_probs(
+            face_bgr, raw_probs, raw_label=label
+        )
+        conf = float(raw_probs.get(label, conf) if label in raw_probs else conf)
+        if source == "smile":
+            conf = max(conf, float(raw_probs.get("happy", conf)))
         raw_state = _map_emotion_to_state(label, conf, smile_boost=source == "smile")
         state = _smooth_state(raw_state)
         if source == "smile" and state == "neutral":
