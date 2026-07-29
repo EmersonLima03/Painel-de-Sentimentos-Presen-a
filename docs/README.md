@@ -27,7 +27,7 @@ Indicadores são **estimativas a partir de sinais visuais**. **Não** constituem
 
 ## Estado atual (honesto)
 
-**Checkpoint jul/2026 (branch `feat/painel-de-sentimentos`):** ver [ESTAGIO_ATUAL.md](ESTAGIO_ATUAL.md) — inclui lacuna cabeça baixa vs oclusão facial.
+**Checkpoint jul/2026 (branch `feat/painel-de-sentimentos`):** ver [ESTAGIO_ATUAL.md](ESTAGIO_ATUAL.md) — oclusão vs cabeça baixa calibrada em [CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md](CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md).
 
 | Módulo | Estado | Modo típico | Validação | Observações |
 |--------|--------|-------------|-----------|-------------|

@@ -1830,7 +1830,13 @@ class RealtimeAnalyticsEngine:
         head_st = str((cache.head_state or {}).get("state") or "")
         hd_min = float(getattr(self.settings, "head_down_event_min_seconds", 8.0) or 8.0)
         hd_accum = float(cache.head_down_accum_seconds or 0.0)
-        if head_st in ("head_down_persistent", "head_supported") or hd_accum >= hd_min:
+        occ_st = str((cache.face_occlusion or {}).get("state") or "none")
+        if bool(getattr(self.settings, "head_down_suppress_when_occlusion", True)) and occ_st in (
+            "possible_face_occlusion_by_hand",
+            "persistent_possible_face_occlusion",
+        ):
+            pass  # oclusão: não derivar baixa atenção de cabeça baixa
+        elif head_st in ("head_down_persistent", "head_supported") or hd_accum >= hd_min:
             derived.append("derived_from_head_down")
         return derived
 
@@ -1964,6 +1970,13 @@ class RealtimeAnalyticsEngine:
                     "reasons": [str(e)],
                 }
 
+    def _short_to_persistent_seconds(self) -> float:
+        return float(
+            getattr(self.settings, "head_down_short_to_persistent_seconds", None)
+            or getattr(self.settings, "head_down_event_min_seconds", 8.0)
+            or 8.0
+        )
+
     def _tick_head_down_duration(self, cache: TrackAnalyticsCache, *, now: float) -> None:
         """Alinha head_down_since ao estado do pose (mesmo sem face)."""
         hs = str((cache.head_state or {}).get("state") or "")
@@ -1973,41 +1986,56 @@ class RealtimeAnalyticsEngine:
             dur = now - float(cache.head_down_since)
             cache.head_down_accum_seconds = dur
             cache.head_down_last_tick = now
-            if hs == "head_down_short" and dur >= 2.5:
+            promote_after = self._short_to_persistent_seconds()
+            if hs == "head_down_short" and dur >= promote_after:
                 cache.head_state = {
                     **dict(cache.head_state or {}),
                     "state": "head_down_persistent",
                     "duration_seconds": round(dur, 2),
                 }
-        elif hs in ("head_forward", "head_turned"):
-            cache.head_down_since = None
-            cache.head_down_accum_seconds = 0.0
-            cache.head_down_last_tick = None
+        elif hs in ("head_forward", "head_turned", "pose_inconclusive"):
+            # pose_inconclusive após oclusão: zera acumulador para não reabrir evento
+            if hs == "pose_inconclusive" and "suppressed_by_face_occlusion" in list(
+                (cache.head_state or {}).get("reasons") or []
+            ):
+                cache.head_down_since = None
+                cache.head_down_accum_seconds = 0.0
+                cache.head_down_last_tick = None
+            elif hs in ("head_forward", "head_turned"):
+                cache.head_down_since = None
+                cache.head_down_accum_seconds = 0.0
+                cache.head_down_last_tick = None
 
-    def _apply_face_not_observable_occlusion(
+    def _body_head_geom_active(self, cache: TrackAnalyticsCache) -> bool:
+        """True se pose corporal (nariz+ombros) indica look-down — não face mesh ausente."""
+        reasons = list((cache.head_state or {}).get("reasons") or [])
+        pose_reasons = list((cache.pose or {}).get("reasons") or [])
+        all_r = reasons + pose_reasons
+        if "face_missing_look_down_proxy" in all_r:
+            return False
+        if "wrist_near_prefer_occlusion" in all_r or "suppressed_by_face_occlusion" in all_r:
+            return False
+        return any(str(r).startswith("nose_shoulder_ratio=") for r in all_r) or (
+            "body_geom_look_down" in all_r
+        )
+
+    def _arbitrate_occlusion_vs_head(
         self, cache: TrackAnalyticsCache, *, face_visible: bool, now: float
     ) -> None:
-        """
-        Rosto sumiu + corpo presente:
-        - com evidência de punho → mantém oclusão (mão / objeto);
-        - sem punho → preferir cabeça baixa (look-down / topo da cabeça),
-          sem rotular como 'rosto coberto'.
-        """
-        occ = str((cache.face_occlusion or {}).get("state") or "none")
-        reasons = list((cache.face_occlusion or {}).get("reasons") or [])
-        has_wrist = any("wrist" in str(r) for r in reasons)
+        """Porta única: oclusão > inconclusivo > cabeça baixa (ver occlusion_head_arbitration)."""
+        from app.pipeline.occlusion_head_arbitration import resolve_occlusion_vs_head_down
 
-        # Oclusão por punho — não sobrescrever
-        if occ in ("possible_face_occlusion_by_hand", "persistent_possible_face_occlusion") and has_wrist:
-            return
-
-        hs = str((cache.head_state or {}).get("state") or "")
-        head_downish = hs in ("head_down_short", "head_down_persistent", "head_supported")
-
-        if face_visible:
-            # Face voltou: limpa só oclusão genérica "rosto sumiu"
+        if not face_visible:
+            if cache.eyes_unobservable_since is None:
+                cache.eyes_unobservable_since = now
+        else:
+            # Face voltou: limpa oclusão genérica sem punho
+            occ = cache.face_occlusion or {}
+            reasons = list(occ.get("reasons") or [])
+            has_wrist = any("wrist" in str(r) for r in reasons)
             if (
-                occ in ("possible_face_occlusion_by_hand", "persistent_possible_face_occlusion")
+                str(occ.get("state") or "none")
+                in ("possible_face_occlusion_by_hand", "persistent_possible_face_occlusion")
                 and not has_wrist
                 and any("face_not_observable" in str(r) for r in reasons)
             ):
@@ -2016,49 +2044,53 @@ class RealtimeAnalyticsEngine:
                     "confidence": 0.0,
                     "reasons": ["cleared_face_visible"],
                 }
-            return
 
-        unobs_since = cache.eyes_unobservable_since
-        if unobs_since is None:
-            cache.eyes_unobservable_since = now
-            unobs_since = now
-        unobs = now - float(unobs_since)
+        result = resolve_occlusion_vs_head_down(
+            face_visible=face_visible,
+            head_state=dict(cache.head_state or {}),
+            face_occlusion=dict(cache.face_occlusion or {}),
+            facial_features=cache.facial_features,
+            hands=cache.hands,
+            body_head_geom=self._body_head_geom_active(cache),
+            now=now,
+            head_down_since=cache.head_down_since,
+            head_down_accum_seconds=float(cache.head_down_accum_seconds or 0.0),
+            short_to_persistent_seconds=self._short_to_persistent_seconds(),
+            require_landmarks_quality=float(
+                getattr(self.settings, "head_down_require_landmarks_quality", 0.45) or 0.45
+            ),
+            suppress_when_occlusion=bool(
+                getattr(self.settings, "head_down_suppress_when_occlusion", True)
+            ),
+            allow_face_missing_proxy=bool(
+                getattr(self.settings, "head_down_allow_face_missing_proxy", False)
+            ),
+        )
+        cache.head_state = dict(result.head_state)
+        cache.face_occlusion = dict(result.face_occlusion)
+        if result.suppressed_head_down:
+            cache.head_down_since = None
+            cache.head_down_accum_seconds = 0.0
+            cache.head_down_last_tick = None
+        elif str((cache.head_state or {}).get("state") or "") in (
+            "head_down_short",
+            "head_down_persistent",
+            "head_supported",
+        ):
+            if cache.head_down_since is None and result.decision in (
+                "head_down_body_geom",
+                "legacy_face_missing_proxy",
+            ):
+                cache.head_down_since = float(cache.eyes_unobservable_since or now)
+            dur = float((cache.head_state or {}).get("duration_seconds") or 0.0)
+            if dur > 0:
+                cache.head_down_accum_seconds = max(float(cache.head_down_accum_seconds or 0.0), dur)
 
-        # Sem punho: rosto sumiu = proxy de cabeça baixa (não oclusão)
-        if unobs >= 1.0:
-            if occ in ("possible_face_occlusion_by_hand", "persistent_possible_face_occlusion") and not has_wrist:
-                cache.face_occlusion = {
-                    "state": "none",
-                    "confidence": 0.0,
-                    "reasons": ["cleared_prefer_head_down"],
-                    "note": "face_missing_without_wrist",
-                }
-
-            if cache.head_down_since is None:
-                # Credita desde o momento em que o rosto sumiu
-                cache.head_down_since = float(unobs_since)
-            dur = now - float(cache.head_down_since)
-            cache.head_down_accum_seconds = max(float(cache.head_down_accum_seconds or 0.0), dur)
-            cache.head_down_last_tick = now
-            new_state = "head_down_persistent" if dur >= 2.5 else "head_down_short"
-            prev_reasons = list((cache.head_state or {}).get("reasons") or [])
-            if "face_missing_look_down_proxy" not in prev_reasons:
-                prev_reasons = prev_reasons + ["face_missing_look_down_proxy"]
-            cache.head_state = {
-                **dict(cache.head_state or {}),
-                "state": new_state,
-                "confidence": max(0.55, float((cache.head_state or {}).get("confidence") or 0.0)),
-                "reasons": prev_reasons,
-                "duration_seconds": round(dur, 2),
-                "note": "face_not_observable_without_wrist",
-            }
-            return
-
-        # unobs < 1s: ainda não decide — e nunca cria oclusão sem punho
-        if head_downish:
-            return
-        # Mantém face_occlusion=none para ausência breve de face
-        return
+    def _apply_face_not_observable_occlusion(
+        self, cache: TrackAnalyticsCache, *, face_visible: bool, now: float
+    ) -> None:
+        """Compat: delega à arbitragem única oclusão vs cabeça baixa."""
+        self._arbitrate_occlusion_vs_head(cache, face_visible=face_visible, now=now)
 
     def _suppress_false_occlusion_if_face_clear(
         self, cache: TrackAnalyticsCache, *, face_visible: bool
@@ -2100,20 +2132,28 @@ class RealtimeAnalyticsEngine:
     ) -> None:
         if not face_visible:
             return
-        ff = cache.facial_features or {}
-        pitch = ff.get("pitch")
-        if pitch is None or ff.get("status") != "available":
+        # Oclusão ativa: pitch não promove cabeça baixa
+        occ = str((cache.face_occlusion or {}).get("state") or "none")
+        if occ in ("possible_face_occlusion_by_hand", "persistent_possible_face_occlusion"):
             return
+        from app.pipeline.occlusion_head_arbitration import pitch_may_promote_head_down
+
         thr = float(getattr(self.settings, "head_down_pitch_threshold", 0.45) or 0.45)
-        hs = str((cache.head_state or {}).get("state") or "pose_inconclusive")
-        if float(pitch) <= thr:
+        min_lq = float(getattr(self.settings, "head_down_require_landmarks_quality", 0.45) or 0.45)
+        ff = cache.facial_features or {}
+        if not pitch_may_promote_head_down(
+            ff, pitch_threshold=thr, require_landmarks_quality=min_lq
+        ):
             return
+        hs = str((cache.head_state or {}).get("state") or "pose_inconclusive")
         if hs in ("head_down_short", "head_down_persistent", "head_supported"):
             return
+        pitch = float(ff.get("pitch") or 0.0)
         dur = (now - cache.head_down_since) if cache.head_down_since else 0.0
-        new_state = "head_down_persistent" if dur >= 2.5 else "head_down_short"
+        promote_after = self._short_to_persistent_seconds()
+        new_state = "head_down_persistent" if dur >= promote_after else "head_down_short"
         reasons = list((cache.head_state or {}).get("reasons") or [])
-        reasons.append(f"facial_pitch={float(pitch):.2f}")
+        reasons.append(f"facial_pitch={pitch:.2f}")
         cache.head_state = {
             **dict(cache.head_state or {}),
             "state": new_state,
@@ -2367,7 +2407,20 @@ class RealtimeAnalyticsEngine:
         hs = track.get("head_state") or {}
         hd_dur = float(hs.get("duration_seconds") or 0.0)
         hd_min = float(getattr(self.settings, "head_down_event_min_seconds", 8.0) or 8.0)
-        if hs.get("state") in ("head_down_short", "head_down_persistent", "head_supported") and hd_dur >= hd_min:
+        occ = track.get("face_occlusion") or {}
+        occ_state = str(occ.get("state") or "none")
+        occ_reasons = list(occ.get("reasons") or [])
+        occ_has_wrist = any("wrist" in str(r) for r in occ_reasons)
+        suppress_hd = bool(getattr(self.settings, "head_down_suppress_when_occlusion", True))
+        occlusion_blocks_head_down = suppress_hd and occ_state in (
+            "possible_face_occlusion_by_hand",
+            "persistent_possible_face_occlusion",
+        )
+        if (
+            hs.get("state") in ("head_down_short", "head_down_persistent", "head_supported")
+            and hd_dur >= hd_min
+            and not occlusion_blocks_head_down
+        ):
             candidates.append(
                 (
                     "head_down_persistent",
@@ -2377,11 +2430,8 @@ class RealtimeAnalyticsEngine:
                 )
             )
 
-        occ = track.get("face_occlusion") or {}
         occ_dur = float(occ.get("duration_seconds") or 0.0)
         occ_persist = float(getattr(self.settings, "face_occlusion_persistent_seconds", 5.0) or 5.0)
-        occ_reasons = list(occ.get("reasons") or [])
-        occ_has_wrist = any("wrist" in str(r) for r in occ_reasons)
         # Só evento de oclusão com evidência de punho (sem “rosto sumiu” sozinho)
         if (
             occ.get("state") == "persistent_possible_face_occlusion"

@@ -148,6 +148,21 @@ class Settings(BaseSettings):
     )
     head_down_pitch_threshold: float = Field(default=0.45, env="HEAD_DOWN_PITCH_THRESHOLD")
     head_down_event_min_seconds: float = Field(default=8.0, env="HEAD_DOWN_EVENT_MIN_SECONDS")
+    # Alinha short→persistent ao evento (antes hardcoded 2.5s → FP "prolongada" cedo)
+    head_down_short_to_persistent_seconds: float = Field(
+        default=8.0, env="HEAD_DOWN_SHORT_TO_PERSISTENT_SECONDS"
+    )
+    # Visibility gate (DMS/DashSentinel): pitch só com landmarks confiáveis
+    head_down_require_landmarks_quality: float = Field(
+        default=0.45, env="HEAD_DOWN_REQUIRE_LANDMARKS_QUALITY"
+    )
+    head_down_suppress_when_occlusion: bool = Field(
+        default=True, env="HEAD_DOWN_SUPPRESS_WHEN_OCCLUSION"
+    )
+    # Desligado: "rosto sumiu" ≠ cabeça baixa (mão/objeto/fora de campo)
+    head_down_allow_face_missing_proxy: bool = Field(
+        default=False, env="HEAD_DOWN_ALLOW_FACE_MISSING_PROXY"
+    )
 
     # Runtime: demo | offline | rtsp
     runtime_mode: str = Field(default="demo", env="RUNTIME_MODE")
@@ -605,6 +620,30 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "head_down_pitch_threshold", float(hd["pitch_threshold"]))
             if "event_min_seconds" in hd:
                 object.__setattr__(self, "head_down_event_min_seconds", float(hd["event_min_seconds"]))
+            if "short_to_persistent_seconds" in hd:
+                object.__setattr__(
+                    self,
+                    "head_down_short_to_persistent_seconds",
+                    float(hd["short_to_persistent_seconds"]),
+                )
+            if "require_landmarks_quality" in hd:
+                object.__setattr__(
+                    self,
+                    "head_down_require_landmarks_quality",
+                    float(hd["require_landmarks_quality"]),
+                )
+            if "suppress_when_occlusion" in hd:
+                object.__setattr__(
+                    self,
+                    "head_down_suppress_when_occlusion",
+                    bool(hd["suppress_when_occlusion"]),
+                )
+            if "allow_face_missing_proxy" in hd:
+                object.__setattr__(
+                    self,
+                    "head_down_allow_face_missing_proxy",
+                    bool(hd["allow_face_missing_proxy"]),
+                )
         if "pose_body" in config and isinstance(config["pose_body"], dict):
             pb = config["pose_body"]
             if "enabled" in pb:

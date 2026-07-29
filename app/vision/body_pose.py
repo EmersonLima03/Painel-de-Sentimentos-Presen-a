@@ -283,16 +283,21 @@ def estimate_body_pose(
                 head_supported = True
 
         if head_down_geom:
-            dur = (now - head_down_since) if head_down_since else 0.0
-            if dur >= 2.5:
-                head_state = "head_down_persistent"
-            else:
-                head_state = "head_down_short"
-            head_conf = min(0.95, 0.55 + abs(nose_to_shoulder) * 0.3)
-            reasons.append(f"nose_shoulder_ratio={nose_to_shoulder:.2f}")
+            # Mão perto da cabeça/rosto: não rotular como cabeça baixa —
+            # prioridade oclusão (DMS: visibility/occlusion gates).
             if head_supported:
-                head_state = "head_supported"
-                reasons.append("wrist_near_head")
+                head_state = "pose_inconclusive"
+                head_conf = 0.35
+                reasons.append("wrist_near_prefer_occlusion")
+            else:
+                dur = (now - head_down_since) if head_down_since else 0.0
+                # short→persistent alinhado ao evento (≥8s); evita "prolongada" em 2.5s
+                if dur >= 8.0:
+                    head_state = "head_down_persistent"
+                else:
+                    head_state = "head_down_short"
+                head_conf = min(0.95, 0.55 + abs(nose_to_shoulder) * 0.3)
+                reasons.append(f"nose_shoulder_ratio={nose_to_shoulder:.2f}")
         elif head_turned:
             head_state = "head_turned"
             head_conf = 0.6
@@ -378,6 +383,11 @@ def estimate_body_pose(
                     "duration_seconds": round(dur_h, 2),
                 }
             hands["state"] = "hand_near_face"
+            # Oclusão ativa: não emitir cabeça baixa no mesmo frame
+            if head_state in ("head_down_short", "head_down_persistent", "head_supported"):
+                head_state = "pose_inconclusive"
+                head_conf = min(head_conf, 0.35)
+                reasons.append("wrist_near_prefer_occlusion")
 
     pose_vis = 0.0
     visible_n = sum(1 for v in (nose, ls, rs, lw, rw) if v is not None)

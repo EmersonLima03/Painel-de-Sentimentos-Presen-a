@@ -9,7 +9,7 @@ Sistema **edge** de visão para salas de aula: presença facial (YuNet + FaceNet
 - **Dashboard React unificado** + WebSocket ao vivo (`/dashboard`, `/debug/vision`)
 - **Presença + identidade** por track (continuidade quando rosto some)
 - **Indicadores estimados:** atenção, expressão aparente, sonolência, celular — com estado **inconclusivo** quando rosto ocluído
-- **Instabilidade conhecida:** diferenciar **cabeça baixa** vs **rosto tampado** (mão/objeto) — em calibração
+- **Calibração oclusão vs cabeça baixa:** prioridade punho → inconclusivo → pitch/geom (ver docs/CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md)
 - Providers de expressão: **experimentais** — não aprovados para produção
 - **LXP / Intelbras campo:** pendente
 

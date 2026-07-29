@@ -54,23 +54,18 @@ Estamos no **Módulo de Emoções e Dashboard (~40% do MVP maior)**, com pipelin
 
 ### Cabeça baixa vs rosto ocluído (mão/objeto na frente)
 
-**Problema:** o sistema ainda **não separa com confiança estável**:
+**Status (jul/2026):** calibrado com regras fundamentadas — ver [CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md](CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md).
 
-| Situação real | Comportamento desejado | Comportamento atual |
-|---------------|------------------------|---------------------|
-| Lendo / escrevendo (cabeça baixa, rosto parcialmente visível) | `head_down_short` / leitura — **não** alerta | Pode virar “cabeça baixa prolongada” cedo |
-| Mão/objeto tampando rosto | `face_occlusion` → métricas **inconclusivas** | Parcialmente OK, mas pode misturar com head_down |
-| Corpo visível, rosto sumiu | Identidade por continuidade + inconclusivo | OK |
-| Cabeça baixa prolongada real (sono/leitura longa) | Evento após N segundos + revisão humana | Limiar de tempo ainda sendo calibrado |
+| Situação real | Comportamento |
+|---------------|---------------|
+| Lendo / escrevendo (cabeça baixa, rosto parcial) | `head_down_*` após limiar; **não** oclusão |
+| Mão/objeto tampando rosto | `face_occlusion` → métricas **inconclusivas**; head_down **suprimido** |
+| Corpo visível, rosto sumiu (sem punho) | Identidade por continuidade + **inconclusivo** (não inventa head_down) |
+| Cabeça baixa prolongada real | Evento após `event_min_seconds` (8s) + revisão humana |
 
-**Causa técnica:** head pose + oclusão de pulso/mão usam sinais independentes com histerese curta; quando landmarks falham, o fallback não distingue bem “pitch alto” de “face mesh indisponível”.
+**Causa antiga:** proxy “rosto sumiu ⇒ cabeça baixa” + promoção a `persistent` em 2.5s.
 
-**Próximo passo de engenharia (não bloqueia este checkpoint):**
-
-1. Exigir landmarks faciais mínimos antes de emitir `head_down_persistent`.
-2. Priorizar `face_occlusion` sobre `head_down` quando pulso/mão próximo ao rosto.
-3. Aumentar `head_down_event_min_seconds` (config) após corpus de testes.
-4. Ground truth com professor marcando: leitura / mão na face / sono simulado.
+**Correção:** visibility gate + prioridade oclusão; `allow_face_missing_proxy: false`.
 
 ---
 

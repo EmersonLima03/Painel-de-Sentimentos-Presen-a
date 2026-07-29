@@ -186,8 +186,12 @@ behavioral_events:
   clear_hold_drowsiness_seconds: 4.0  # olhos/celular: evita N episódios por piscar
 
 head_down:
-  pitch_threshold: 0.45            # pitch facial > limiar = cabeça baixa
+  pitch_threshold: 0.45            # ~40° (pitch normalizado / π/2); DMS tipicamente 20–40°
   event_min_seconds: 8.0            # evento após N segundos acumulados
+  short_to_persistent_seconds: 8.0  # alinha "prolongada" ao evento (não 2.5s)
+  require_landmarks_quality: 0.45   # visibility gate: sem landmarks OK → sem pitch
+  suppress_when_occlusion: true     # punho/mão na cara → oclusão ganha de head_down
+  allow_face_missing_proxy: false   # rosto sumiu ≠ cabeça baixa (evita FP com mão)
 
 pose_body:
   enabled: true
