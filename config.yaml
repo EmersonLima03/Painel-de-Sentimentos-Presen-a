@@ -1,3 +1,8 @@
+# config.yaml — default de desenvolvimento / experimentos
+# Entrega TRI (FER+ ONNX): use o overlay config.tri.yaml
+#   $env:PRESENCA_CONFIG_OVERLAY = "config.tri.yaml"
+# Não altere o provider abaixo só para a entrega — preserve HSEmotion experimental.
+
 device:
   device_id: edge-001
   school_id: 1
@@ -168,8 +173,9 @@ person_tracking:
   model_path: data/models/yolov8n.pt
   # Continuidade corporal (segundos). Independente da confirmação facial (12s).
   ttl_seconds: 8.0
-  max_time_lost_seconds: 8.0
-  minimum_detection_confidence: 0.25
+  max_time_lost_seconds: 8.0          # tracks fortes (conf ≥ 0.45)
+  weak_max_time_lost_seconds: 2.0     # detecções fracas / fantasmas YOLO → expiram rápido
+  minimum_detection_confidence: 0.40  # reduz caixas vazias (parede/porta)
   minimum_reassociation_iou: 0.30
   maximum_center_distance_ratio: 0.35
   bytetrack_yaml: data/trackers/bytetrack_person.yaml
@@ -177,9 +183,9 @@ person_tracking:
 face_occlusion:
   wrist_near_ratio: 0.65          # punho perto do rosto (face diag.) — evita FP headset/mic
   confirm_seconds: 0.7             # exige punho perto antes de contar oclusão
-  clear_hold_seconds: 0.5          # libera rápido ao normalizar (~0.5s, não 30s)
-  persistent_seconds: 5.0            # evento persistente só após 5s reais
-  suppress_when_landmarks_clear: true  # EAR/landmarks ok → ignora punho espúrio
+  clear_hold_seconds: 4.0          # mantém oclusão ~4s mesmo com flicker de pose (era 0.5)
+  persistent_seconds: 5.0          # evento persistente só após 5s reais
+  suppress_when_landmarks_clear: true  # só limpa se SEM evidência de punho recente
 
 behavioral_events:
   clear_hold_seconds: 0.5          # base: fecha rápido ao normalizar

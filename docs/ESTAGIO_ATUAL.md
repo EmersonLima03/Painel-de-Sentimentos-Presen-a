@@ -2,13 +2,15 @@
 
 Documento de checkpoint do branch `feat/painel-de-sentimentos`. Descreve **o que já funciona**, **o que está instável** e **o que ainda não entrou**.
 
+> **Fechamento TRI:** ver [ENTREGA_TRI_EMOCOES_DASHBOARD.md](ENTREGA_TRI_EMOCOES_DASHBOARD.md) — perfil `config.tri.yaml` / `fer_onnx`, UI Ao vivo compacta + detalhe, gate de testes e checklist manual.
+
 ---
 
 ## Resumo executivo
 
-Estamos no **Módulo de Emoções e Dashboard (~40% do MVP maior)**, com pipeline edge rodando em **webcam USB / RTSP**, identidade por rosto, dashboard React unificado e sinais comportamentais agregados.
+O **MVP do TRI (emoções aparentes + dashboard unificado)** está em fechamento funcional: pipeline edge (webcam/RTSP), FER+ ONNX via perfil documentado, dashboard React (Ao vivo + Relatório), atenção, clima e qualidade/inconclusivo.
 
-**Não é produto final:** LXP real, OTA, alertas push e compliance LGPD completo ainda não estão fechados.
+**Não é produto final escolar completo:** LXP real, OTA, multi-escola, histórico semanal, contexto pedagógico (P1) e compliance LGPD completo ficam **pós-TRI**.
 
 **Disclaimer permanente:** todas as métricas são **estimativas visuais observáveis** — não diagnóstico emocional, psicológico ou médico.
 
@@ -20,11 +22,14 @@ Estamos no **Módulo de Emoções e Dashboard (~40% do MVP maior)**, com pipelin
 |------|--------|-----------|
 | Presença + identidade | OK | YuNet + FaceNet/FAISS, binding por track, reconfirmação |
 | Pipeline person-first | OK | Detecção de pessoa → rosto → analytics por track |
-| Dashboard unificado | OK | `/dashboard` (React): câmera, KPIs, pessoa, timeline |
+| Dashboard unificado | OK | `/dashboard` (React): Ao vivo + Relatório com abas |
+| Expressão no Ao vivo | OK (TRI) | Grade: “Expressão aparente”; clique → atenção/confiança/amostras |
+| FER+ ONNX (perfil TRI) | OK | `config.tri.yaml` / `EXPRESSION_PROVIDER=fer_onnx` — não altera default HSEmotion |
 | WebSocket ao vivo | OK | `/api/v1/ws/live` + snapshot debug |
 | Qualidade de observação | OK | Score % + texto “imagem adequada / parcialmente observável” |
 | Atenção visual aparente | OK | Alta / baixa / **inconclusiva** quando rosto some |
-| Expressão aparente | Parcial | Providers experimentais (FER+, HSEmotion); muitas vezes **inconclusivo** |
+| Expressão aparente | OK (perfil TRI) | FER+ ONNX; inconclusivo se baixa qualidade |
+| Clima visual aparente | OK | Barras no Ao vivo e Relatório |
 | Sonolência | Parcial | PERCLOS/landmarks quando rosto visível; **inconclusivo** se ocluído |
 | Celular | Parcial | YOLO + filtros; redução de falso positivo em progresso |
 | Sessão + presença periódica | OK | `class_sessions`, sightings na sessão |
@@ -54,7 +59,14 @@ Estamos no **Módulo de Emoções e Dashboard (~40% do MVP maior)**, com pipelin
 
 ### Cabeça baixa vs rosto ocluído (mão/objeto na frente)
 
-**Status (jul/2026):** calibrado com regras fundamentadas — ver [CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md](CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md).
+**Status (jul/2026):** calibrado — ver [CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md](CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md).
+
+### Fantasmas de corpo + oclusão que some (reteste jul/2026)
+
+| Problema | Correção |
+|----------|----------|
+| Vários boxes `temporarily_lost` / `pessoas: 4` com 1 pessoa | Overlay filtra `is_displayable_track`; tracks fracos expiram em 2s; conf mín. YOLO 0.40 |
+| Mão no rosto 1+ min, alerta só ~10s e some | Não anular oclusão por landmarks se há punho; `clear_hold` 4s; evento oclusão hold ≥5s |
 
 | Situação real | Comportamento |
 |---------------|---------------|
@@ -97,19 +109,28 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ## Testes automatizados incluídos neste checkpoint
 
 ```powershell
+pytest tests/test_fer_onnx.py -m tri -q
 pytest tests/test_occlusion_hysteresis.py tests/test_session_aggregator.py tests/test_live_session_dashboard.py -q
+```
+
+Perfil TRI (FER+ ONNX):
+
+```powershell
+$env:PRESENCA_CONFIG_OVERLAY = "config.tri.yaml"
 ```
 
 ---
 
-## Fora de escopo deste checkpoint
+## Fora de escopo deste checkpoint / pós-TRI
 
+- Contexto pedagógico por aula (P1 — pausado)
 - Integração LXP (chamada automática)
 - Cloud Command / OTA
+- Histórico semanal/mensal e multi-escola
 - Alertas e-mail/webhook
 - LGPD operacional completo (consentimento em produção)
 - Ranking ou nota emocional individual
-- DeepFace como motor de produção
+- DeepFace / HSEmotion como motor obrigatório da entrega TRI
 
 ---
 

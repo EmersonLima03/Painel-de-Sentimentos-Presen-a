@@ -481,8 +481,11 @@ class PipelineOrchestrator:
             max_time_lost_seconds=float(
                 getattr(self.settings, "person_tracking_max_time_lost_seconds", 8.0) or 8.0
             ),
+            weak_max_time_lost_seconds=float(
+                getattr(self.settings, "person_tracking_weak_max_time_lost_seconds", 2.0) or 2.0
+            ),
             minimum_detection_confidence=float(
-                getattr(self.settings, "person_tracking_min_detection_confidence", 0.25) or 0.25
+                getattr(self.settings, "person_tracking_min_detection_confidence", 0.40) or 0.40
             ),
             minimum_reassociation_iou=float(
                 getattr(self.settings, "person_tracking_min_reassociation_iou", 0.30) or 0.30

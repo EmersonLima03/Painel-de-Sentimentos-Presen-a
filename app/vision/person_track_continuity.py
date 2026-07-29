@@ -70,6 +70,8 @@ class _StableState:
     raw_tracker_id: Optional[str] = None
     expire_reason: Optional[str] = None
     lost_since: Optional[float] = None
+    # Detecção fraca / nunca confirmada → TTL curto (anti-fantasma YOLO)
+    ever_strong: bool = False
 
 
 class StablePersonTrackManager:
@@ -82,9 +84,13 @@ class StablePersonTrackManager:
         max_time_lost_seconds: float = 8.0,
         minimum_reassociation_iou: float = 0.30,
         maximum_center_distance_ratio: float = 0.35,
+        weak_max_time_lost_seconds: float = 2.0,
+        strong_confidence_threshold: float = 0.45,
     ):
         self.camera_id = camera_id
         self.max_time_lost_seconds = float(max_time_lost_seconds)
+        self.weak_max_time_lost_seconds = float(weak_max_time_lost_seconds)
+        self.strong_confidence_threshold = float(strong_confidence_threshold)
         self.minimum_reassociation_iou = float(minimum_reassociation_iou)
         self.maximum_center_distance_ratio = float(maximum_center_distance_ratio)
         # reclaim mais permissivo (oclusão / bbox oscila)
@@ -229,6 +235,8 @@ class StablePersonTrackManager:
             st.last_detection_ts = now
             st.last_update_ts = now
             st.tracking_confidence = float(raw.tracking_confidence or st.tracking_confidence)
+            if st.tracking_confidence >= self.strong_confidence_threshold:
+                st.ever_strong = True
             st.missed_detections = 0
             st.lost_since = None
             st.expire_reason = None
@@ -290,6 +298,7 @@ class StablePersonTrackManager:
                 continue
 
             sid = self._new_id()
+            conf0 = float(raw.tracking_confidence or 0.5)
             st = _StableState(
                 track_id=sid,
                 camera_id=self.camera_id,
@@ -297,9 +306,10 @@ class StablePersonTrackManager:
                 last_bbox=raw.bounding_box,
                 last_detection_ts=now,
                 last_update_ts=now,
-                tracking_confidence=float(raw.tracking_confidence or 0.5),
+                tracking_confidence=conf0,
                 tracking_state="active",
                 raw_tracker_id=raw.track_id,
+                ever_strong=conf0 >= self.strong_confidence_threshold,
             )
             self._states[sid] = st
             used_stable.add(sid)
@@ -313,9 +323,17 @@ class StablePersonTrackManager:
             gap = now - st.last_detection_ts
             st.missed_detections += 1
             st.last_update_ts = now
-            if gap > self.max_time_lost_seconds:
+            # Fantasmas YOLO fracos: TTL curto; tracks fortes: TTL completo
+            ttl = (
+                self.max_time_lost_seconds
+                if st.ever_strong
+                else min(self.weak_max_time_lost_seconds, self.max_time_lost_seconds)
+            )
+            if gap > ttl:
                 st.tracking_state = "expired"
-                st.expire_reason = "max_time_lost_exceeded"
+                st.expire_reason = (
+                    "max_time_lost_exceeded" if st.ever_strong else "weak_track_expired"
+                )
                 self._emit(
                     "track_expired",
                     person_track_id=sid,
@@ -343,6 +361,7 @@ class StablePersonTrackManager:
             "emitted_tracks": len(out),
             "raw_tracks": len(raw_tracks),
             "max_time_lost_seconds": self.max_time_lost_seconds,
+            "weak_max_time_lost_seconds": self.weak_max_time_lost_seconds,
             "minimum_reassociation_iou": self.minimum_reassociation_iou,
             "maximum_center_distance_ratio": self.maximum_center_distance_ratio,
             "loose_dist": self._loose_dist,

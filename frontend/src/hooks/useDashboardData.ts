@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-type Tab = "overview" | "live" | "students" | "report" | "review" | "system";
+import type { Tab, WsState } from "../types";
+import { toFriendlyError } from "../utils/friendlyError";
 
 function apiHeaders(): HeadersInit {
   const token = localStorage.getItem("api_token") || "";
@@ -14,7 +14,7 @@ async function apiGet(path: string) {
 }
 
 export function useDashboardData() {
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTabRaw] = useState<Tab>("live");
   const [status, setStatus] = useState<any>(null);
   const [summary, setSummary] = useState<any>(null);
   const [tracks, setTracks] = useState<any[]>([]);
@@ -25,10 +25,15 @@ export function useDashboardData() {
   const [perf, setPerf] = useState<any>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
-  const [wsState, setWsState] = useState<"connecting" | "connected" | "disconnected">("connecting");
+  const [wsState, setWsState] = useState<WsState>("connecting");
   const [reviewFilter, setReviewFilter] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const wsRef = useRef<WebSocket | null>(null);
+
+  /** overview → live (compat); demais IDs preservados */
+  const setTab = useCallback((t: Tab) => {
+    setTabRaw(t === "overview" ? "live" : t);
+  }, []);
 
   const sessionId = status?.session?.session_id as string | undefined;
   const isDemo = Boolean(status?.is_simulated || status?.runtime_mode === "demo");
@@ -60,7 +65,7 @@ export function useDashboardData() {
       }
       setLoading(false);
     } catch (e) {
-      setErr(String(e));
+      setErr(toFriendlyError(e));
       setLoading(false);
     }
   }, []);

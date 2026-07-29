@@ -26,8 +26,13 @@ PHONE_OCCLUSION_SUPPRESS_STATES = frozenset(
 )
 
 
-def is_displayable_track(track: dict, *, min_track_confidence: float = 0.2) -> bool:
-    """Tracks exibíveis/contáveis — oculta fantasmas temporarily_lost sem rosto/identidade."""
+def is_displayable_track(
+    track: dict,
+    *,
+    min_track_confidence: float = 0.2,
+    max_lost_display_seconds: float = 2.5,
+) -> bool:
+    """Tracks exibíveis/contáveis — oculta fantasmas temporarily_lost / unknown."""
     tstate = str(track.get("tracking_state") or "active")
     if tstate == "expired":
         return False
@@ -36,14 +41,26 @@ def is_displayable_track(track: dict, *, min_track_confidence: float = 0.2) -> b
     face_vis = bool(ident.get("face_visible"))
     sid = track.get("student_id") or ident.get("student_id")
     id_state = str(ident.get("identity_state") or "unknown")
-    has_identity = bool(sid) or id_state in (
-        "face_confirmed",
-        "body_continuity",
-        "uncertain",
-    )
+    has_strong_identity = bool(sid) or id_state in ("face_confirmed", "body_continuity")
+    secs_lost = float(track.get("seconds_since_person_detection") or 0.0)
 
-    if face_vis or has_identity:
+    # Fantasma típico: temporarily_lost + unknown sem rosto
+    if tstate == "temporarily_lost":
+        if face_vis:
+            return True
+        if has_strong_identity and secs_lost <= max_lost_display_seconds:
+            return True
+        return False
+
+    if face_vis or has_strong_identity:
         return True
+
+    # uncertain sem sid: só se ainda ativo e corpo detectado
+    if id_state == "uncertain" and tstate == "active":
+        obs = track.get("observability") or {}
+        if obs.get("body_detected") or obs.get("body_observable"):
+            return float(track.get("track_confidence") or 0.0) >= max(min_track_confidence, 0.35)
+        return False
 
     if tstate != "active":
         return False
@@ -249,6 +266,7 @@ class RealtimeAnalyticsEngine:
             self._expression_provider = None
             self._expression_provider_secondary = None
             last_reason = None
+            primary_key = primary.strip().lower()
             for name in ordered:
                 try:
                     prov = create_expression_provider(name)
@@ -268,12 +286,35 @@ class RealtimeAnalyticsEngine:
                     continue
                 self._expression_provider = prov
                 self._expression_provider_status = "available"
-                self._expression_health_reason = f"provider={name}"
+                selected = str(getattr(prov, "provider_name", name) or name).lower()
+                used_fallback = selected != primary_key and name.strip().lower() != primary_key
+                self._expression_health_reason = (
+                    f"provider={name};requested={primary_key};fallback={used_fallback}"
+                )
+                if used_fallback:
+                    logger.warning(
+                        "expression_provider_fallback",
+                        requested=primary_key,
+                        selected=selected,
+                        reason="primary_unavailable",
+                    )
+                else:
+                    logger.info(
+                        "expression_provider_selected",
+                        requested=primary_key,
+                        selected=selected,
+                        model_name=getattr(prov, "model_name", None),
+                    )
                 break
 
             if self._expression_provider is None:
                 self._expression_provider_status = "unavailable"
                 self._expression_health_reason = last_reason or "no_provider_available"
+                logger.warning(
+                    "expression_provider_unavailable",
+                    requested=primary_key,
+                    reason=self._expression_health_reason,
+                )
                 return
 
             # A/B secundário (opcional)
@@ -691,7 +732,9 @@ class RealtimeAnalyticsEngine:
                         cache.hands = dict(cache.hands or {})
                         cache.hands["state"] = "hand_near_face"
 
-                    self._suppress_false_occlusion_if_face_clear(cache, face_visible=face_visible)
+                    self._suppress_false_occlusion_if_face_clear(
+                        cache, face_visible=face_visible, now=now
+                    )
                     self._apply_pitch_head_state(cache, face_visible=face_visible, now=now)
                     # Duração cabeça baixa: usar since do pose mesmo sem face (antes só acumulava com face)
                     self._tick_head_down_duration(cache, now=now)
@@ -1620,7 +1663,13 @@ class RealtimeAnalyticsEngine:
             and float(pitch)
             > float(getattr(self.settings, "head_down_pitch_threshold", 0.45) or 0.45)
         )
-        if eyes_closed and ear is not None and overall >= min_q_dr:
+        # Digitação / olhar teclado: pitch alto reduz EAR aparente — não acumular como olhos fechados
+        eyes_closed_valid = eyes_closed and (not head_down) and (
+            pitch is None
+            or float(pitch)
+            <= float(getattr(self.settings, "head_down_pitch_threshold", 0.45) or 0.45) * 0.85
+        )
+        if eyes_closed_valid and ear is not None and overall >= min_q_dr:
             if cache.eyes_last_tick is not None:
                 cache.eyes_closed_accum_seconds += max(0.0, now - cache.eyes_last_tick)
             cache.eyes_last_tick = now
@@ -1631,6 +1680,10 @@ class RealtimeAnalyticsEngine:
                 cache.eyes_closed_accum_seconds = 0.0
                 cache.eyes_closed_since = None
                 cache.eyes_last_tick = None
+            elif eyes_closed and head_down:
+                # pausar acumulador sem zerar (nem contar a favor)
+                cache.eyes_last_tick = None
+                cache.eyes_observation_paused = True
             elif ear is None or overall < min_q_dr:
                 # qualidade baixa com ear: pausar sem zerar
                 cache.eyes_last_tick = None
@@ -2093,27 +2146,47 @@ class RealtimeAnalyticsEngine:
         self._arbitrate_occlusion_vs_head(cache, face_visible=face_visible, now=now)
 
     def _suppress_false_occlusion_if_face_clear(
-        self, cache: TrackAnalyticsCache, *, face_visible: bool
+        self, cache: TrackAnalyticsCache, *, face_visible: bool, now: Optional[float] = None
     ) -> None:
+        """
+        Limpa oclusão só quando landmarks estão claros E não há evidência recente de punho.
+        MediaPipe prevê landmarks mesmo com mão na cara — não usar landmarks sozinhos
+        para anular oclusão confirmada por punho.
+        """
         if not face_visible:
             return
         if not bool(getattr(self.settings, "face_occlusion_suppress_when_landmarks_clear", True)):
             return
-        # Ainda em recuperação de face — não limpar oclusão no blink
         if cache.eyes_unobservable_since is not None:
+            return
+        # Punho ainda confirmado ou no hold → nunca limpar (evita alerta sumir em ~10s)
+        if cache.hand_near_since is not None:
+            return
+        hand_hold = float(
+            getattr(self.settings, "face_occlusion_clear_hold_seconds", 4.0) or 4.0
+        )
+        ts = float(now if now is not None else time.time())
+        if cache.hand_near_last_seen is not None and (ts - float(cache.hand_near_last_seen)) < hand_hold:
+            return
+        if str((cache.hands or {}).get("state") or "") == "hand_near_face":
             return
         ff = cache.facial_features or {}
         if ff.get("status") != "available":
             return
         lq = float(ff.get("landmarks_quality") or 0.0)
         ear = ff.get("average_eye_openness")
-        if lq < 0.42 or ear is None:
+        # Exigir landmarks realmente bons (mão na cara costuma baixar qualidade)
+        if lq < 0.62 or ear is None:
             return
         occ = str((cache.face_occlusion or {}).get("state") or "none")
         if occ not in (
             "possible_face_occlusion_by_hand",
             "persistent_possible_face_occlusion",
         ):
+            return
+        # Só limpa oclusão sem reason de wrist (nunca anular wrist_near com landmarks)
+        reasons = list((cache.face_occlusion or {}).get("reasons") or [])
+        if any("wrist" in str(r) for r in reasons):
             return
         cache.hand_near_since = None
         cache.hand_near_last_seen = None
@@ -2485,6 +2558,13 @@ class RealtimeAnalyticsEngine:
             )
             if "drowsiness" in etype or "phone" in etype:
                 return max(base, float(getattr(self.settings, "behavioral_event_clear_hold_drowsiness_seconds", 4.0) or 4.0))
+            if etype == "face_occluded_persistent":
+                # Mão na cara: não fechar o evento em <~5s por flicker de pose
+                return max(
+                    base,
+                    float(getattr(self.settings, "face_occlusion_clear_hold_seconds", 4.0) or 4.0),
+                    5.0,
+                )
             if etype == "head_down_persistent":
                 return max(base, 1.5)
             return base

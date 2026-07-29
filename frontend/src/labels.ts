@@ -80,13 +80,13 @@ export function fmtDur(sec: number | null | undefined): string {
 
 export function eventTypePt(t: string | undefined): string {
   const map: Record<string, string> = {
-    possible_drowsiness: "Possível sonolência aparente",
-    probable_drowsiness: "Sonolência aparente consistente",
-    possible_phone_interaction: "Possível uso de celular",
-    probable_phone_interaction: "Provável uso de celular",
-    low_visual_attention: "Atenção visual baixa",
-    head_down_persistent: "Cabeça baixa prolongada",
-    face_occluded_persistent: "Rosto ocluído",
+    possible_drowsiness: "Fechamento prolongado dos olhos observado",
+    probable_drowsiness: "Sinais mais consistentes de olhos fechados",
+    possible_phone_interaction: "Possível interação com celular",
+    probable_phone_interaction: "Provável interação com celular",
+    low_visual_attention: "Baixa atenção visual observada",
+    head_down_persistent: "Cabeça baixa ou apoiada",
+    face_occluded_persistent: "Observação inconclusiva (rosto parcialmente coberto)",
   };
   return (t && map[t]) || t || "Evento";
 }

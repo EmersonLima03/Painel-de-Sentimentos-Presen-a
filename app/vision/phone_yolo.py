@@ -51,6 +51,74 @@ def _bbox_plausible(
     return True
 
 
+def _context_reject_reason(
+    phone: Tuple[int, int, int, int, float],
+    person: Tuple[float, float, float, float],
+) -> Optional[str]:
+    """
+    Rejeições geométricas relativas à pessoa (garrafa/térmico e zona de orelha/fone).
+    Não altera conf global do YOLO.
+    """
+    x, y, w, h, conf = phone
+    px, py, pw, ph = person
+    if pw < 8 or ph < 8:
+        return None
+    pcx = x + w / 2.0
+    pcy = y + h / 2.0
+    hw = h / max(w, 1)
+    phone_area = max(1.0, float(w * h))
+    person_area = max(1.0, float(pw * ph))
+
+    # Garrafa/térmico: alto e ocupando fração vertical relevante do corpo
+    if hw >= 1.55 and h >= ph * 0.18:
+        return "bottle_like_relative_height"
+    if hw >= 1.35 and h >= ph * 0.28:
+        return "bottle_like_relative_height"
+
+    # Fone / orelha: caixa pequena no terço superior lateral
+    if phone_area / person_area <= 0.045 and pcy <= py + ph * 0.32:
+        if pcx < px + pw * 0.28 or pcx > px + pw * 0.72:
+            return "ear_region_implausible"
+
+    # Objeto alto lateral no tronco (térmico na mão lateral)
+    if hw >= 1.7 and conf < 0.55 and (pcx < px + pw * 0.22 or pcx > px + pw * 0.78):
+        return "implausible_lateral_tall_object"
+
+    return None
+
+
+def _filter_phones_with_person_context(
+    phones: List[Tuple[int, int, int, int, float]],
+    dets_debug: List[dict],
+    rejected: List[dict],
+    person_boxes: Optional[Dict[str, Tuple[float, float, float, float]]],
+) -> List[Tuple[int, int, int, int, float]]:
+    if not person_boxes or not phones:
+        return phones
+    kept: List[Tuple[int, int, int, int, float]] = []
+    kept_debug: List[dict] = []
+    for i, ph in enumerate(phones):
+        reason = None
+        for pb in person_boxes.values():
+            reason = _context_reject_reason(ph, pb)
+            if reason:
+                break
+        entry = dets_debug[i] if i < len(dets_debug) else {
+            "bbox": list(ph[:4]),
+            "confidence": ph[4],
+            "class_name": "cell phone",
+        }
+        if reason:
+            rej = dict(entry)
+            rej["reject_reason"] = reason
+            rejected.append(rej)
+            continue
+        kept.append(ph)
+        kept_debug.append(entry)
+    dets_debug[:] = kept_debug
+    return kept
+
+
 def _torso_roi(person: Tuple[float, float, float, float]) -> Tuple[int, int, int, int]:
     px, py, pw, ph = person
     return (
@@ -255,6 +323,8 @@ def detect_phones(
                         }
                     )
                 rejected.extend(torso_rej)
+
+        out = _filter_phones_with_person_context(out, dets_debug, rejected, person_boxes)
 
         _last_debug = {
             "provider": "yolo",

@@ -1,0 +1,16 @@
+{
+  "version": "tri-validation-v1",
+  "quality_goal": "100% approval on controlled TRI scenarios with conservative states",
+  "scenarios": [
+    {"id": "A", "name": "clear_bottle_in_hand", "duration_s": 20, "forbid": ["phone_in_hand", "possible_phone_interaction", "probable_phone_interaction"]},
+    {"id": "B", "name": "dark_thermos_in_hand", "duration_s": 20, "forbid": ["phone_in_hand", "possible_phone_interaction", "probable_phone_interaction"]},
+    {"id": "C", "name": "headphones_ear_region", "duration_s": 20, "forbid": ["phone_in_hand", "possible_phone_interaction", "probable_phone_interaction"]},
+    {"id": "D", "name": "real_phone_in_hand", "durations_s": [2, 5, 12, 15], "allow_progress": true, "forbid": ["confirmed_phone_interaction"]},
+    {"id": "E1", "name": "phone_on_table", "duration_s": 30, "allow": ["phone_visible", "phone_near_person"], "forbid": ["phone_in_hand", "possible_phone_interaction", "probable_phone_interaction"]},
+    {"id": "F", "name": "typing_looking_keyboard", "duration_s": 60, "forbid": ["possible_drowsiness", "probable_drowsiness"]},
+    {"id": "G", "name": "eyes_really_closed_frontal", "thresholds_s": {"possible": 6, "probable": 30}, "forbid_below_s": 2.5},
+    {"id": "H", "name": "head_down_partial_face", "event_min_s": 8, "forbid": ["automatic_sleep_from_head_down"]},
+    {"id": "J", "name": "one_hand_face_cover", "persistent_after_s": 5},
+    {"id": "K", "name": "two_hands_face_cover", "duration_s": 20, "repeats": 3}
+  ]
+}

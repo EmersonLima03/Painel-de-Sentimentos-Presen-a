@@ -27,7 +27,7 @@ Indicadores são **estimativas a partir de sinais visuais**. **Não** constituem
 
 ## Estado atual (honesto)
 
-**Checkpoint jul/2026 (branch `feat/painel-de-sentimentos`):** ver [ESTAGIO_ATUAL.md](ESTAGIO_ATUAL.md) — oclusão vs cabeça baixa calibrada em [CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md](CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md).
+**Checkpoint jul/2026 (branch `feat/painel-de-sentimentos`):** ver [ESTAGIO_ATUAL.md](ESTAGIO_ATUAL.md) — oclusão vs cabeça baixa calibrada em [CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md](CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md). **Entrega TRI:** [ENTREGA_TRI_EMOCOES_DASHBOARD.md](ENTREGA_TRI_EMOCOES_DASHBOARD.md).
 
 | Módulo | Estado | Modo típico | Validação | Observações |
 |--------|--------|-------------|-----------|-------------|
@@ -100,6 +100,7 @@ Webcam local: ver [OPERATIONS.md](OPERATIONS.md) (índice OpenCV; neste ambiente
 | [API.md](API.md) | REST v1, WebSocket, schemas |
 | [TESTING.md](TESTING.md) | Testes automatizados e manuais |
 | [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md) | LGPD, ética, segurança |
+| [ENTREGA_TRI_EMOCOES_DASHBOARD.md](ENTREGA_TRI_EMOCOES_DASHBOARD.md) | Fechamento TRI — emoções aparentes + dashboard |
 | [ROADMAP.md](ROADMAP.md) | Pendências, decisões, próximos passos |
 | [MODULAR_CLASSROOM_SCENARIOS.md](MODULAR_CLASSROOM_SCENARIOS.md) | Levantamento de cenários reais além do P0 (somente documentação) |
 | [LESSON_CONTEXT_CONFIGURATION.md](LESSON_CONTEXT_CONFIGURATION.md) | Modelo conceitual de configuração modular da aula |

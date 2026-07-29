@@ -1,0 +1,32 @@
+# =============================================================================
+# Perfil TRI — Emoções + Dashboard (overlay)
+# =============================================================================
+# NÃO substitui config.yaml. Ativar assim (PowerShell, na pasta Presenca):
+#
+#   $env:PRESENCA_CONFIG_OVERLAY = "config.tri.yaml"
+#   $env:RUNTIME_MODE = "rtsp"   # ou "demo"
+#   python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+#
+# Alternativa só por ambiente (sem este arquivo):
+#   $env:EXPRESSION_PROVIDER = "fer_onnx"
+#   $env:EXPRESSION_FALLBACK_CHAIN = "fer_onnx"
+#   $env:MODULE_EXPRESSION_MODE = "debug"
+#
+# Mantém HSEmotion / DeepFace no config.yaml padrão para experimentos.
+# =============================================================================
+
+modules:
+  expression:
+    mode: debug
+
+expression:
+  provider: fer_onnx
+  ab_secondary: null
+  fallback_chain: [fer_onnx]
+  interval_seconds: 1.0
+  window_seconds: 8
+  minimum_samples: 3
+  minimum_confidence: 0.45
+  minimum_confidence_positive: 0.55
+  smile_boost_enabled: false
+  minimum_observation_quality: 0.55

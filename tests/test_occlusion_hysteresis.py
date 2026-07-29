@@ -11,7 +11,7 @@ def _engine(**extra):
     base = {
         "face_occlusion_suppress_when_landmarks_clear": True,
         "face_occlusion_persistent_seconds": 5.0,
-        "face_occlusion_clear_hold_seconds": 0.5,
+        "face_occlusion_clear_hold_seconds": 4.0,
         "head_down_pitch_threshold": 0.45,
         "head_down_event_min_seconds": 8.0,
         "head_down_short_to_persistent_seconds": 8.0,
@@ -27,20 +27,45 @@ def _engine(**extra):
 
 
 def test_suppress_occlusion_when_landmarks_clear():
+    """Só limpa oclusão genérica SEM wrist — landmarks sozinhos não anulam punho."""
     eng = _engine()
     cache = TrackAnalyticsCache(track_key="t1")
-    cache.face_occlusion = {"state": "persistent_possible_face_occlusion", "duration_seconds": 12.0}
+    cache.face_occlusion = {
+        "state": "persistent_possible_face_occlusion",
+        "duration_seconds": 12.0,
+        "reasons": ["generic_blur"],
+    }
     cache.facial_features = {
         "status": "available",
         "landmarks_quality": 0.85,
         "average_eye_openness": 0.28,
         "pitch": 0.3,
     }
-    cache.hands = {"state": "hand_near_face"}
-    eng._suppress_false_occlusion_if_face_clear(cache, face_visible=True)
+    cache.hands = {"state": "not_near_face"}
+    eng._suppress_false_occlusion_if_face_clear(cache, face_visible=True, now=100.0)
     assert cache.face_occlusion["state"] == "none"
-    assert cache.hands["state"] == "not_near_face"
-    assert cache.hand_near_since is None
+
+
+def test_suppress_does_not_clear_wrist_occlusion():
+    """Mão na cara: landmarks 'ok' NÃO devem limpar oclusão por punho (bug do alerta sumindo)."""
+    eng = _engine()
+    cache = TrackAnalyticsCache(track_key="t1")
+    cache.face_occlusion = {
+        "state": "persistent_possible_face_occlusion",
+        "reasons": ["wrist_near_face_persistent"],
+        "duration_seconds": 20.0,
+    }
+    cache.hand_near_since = 80.0
+    cache.hand_near_last_seen = 99.5
+    cache.hands = {"state": "hand_near_face"}
+    cache.facial_features = {
+        "status": "available",
+        "landmarks_quality": 0.9,
+        "average_eye_openness": 0.25,
+    }
+    eng._suppress_false_occlusion_if_face_clear(cache, face_visible=True, now=100.0)
+    assert cache.face_occlusion["state"] == "persistent_possible_face_occlusion"
+    assert cache.hand_near_since == 80.0
 
 
 def test_pitch_promotes_head_down_when_pose_forward():
@@ -167,7 +192,7 @@ def test_suppress_does_not_clear_while_unobservable():
         "landmarks_quality": 0.9,
         "average_eye_openness": 0.3,
     }
-    eng._suppress_false_occlusion_if_face_clear(cache, face_visible=True)
+    eng._suppress_false_occlusion_if_face_clear(cache, face_visible=True, now=60.0)
     assert cache.face_occlusion["state"] == "persistent_possible_face_occlusion"
 
 

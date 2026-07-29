@@ -60,7 +60,8 @@ def test_in_hand_heuristic_phone_on_chest():
     assert "phone_on_chest" in s.reasons
 
 
-def test_in_hand_heuristic_without_wrist_near_face():
+def test_near_face_without_wrist_is_not_in_hand():
+    """Fone/objeto perto do rosto sem punho NÃO vira phone_in_hand (evita FP)."""
     assoc = PersonPhoneAssociator(
         minimum_interaction_seconds=1.0,
         probable_seconds=3.0,
@@ -76,13 +77,30 @@ def test_in_hand_heuristic_without_wrist_near_face():
         wrists={},
         face_bboxes={"p1": face},
     )[0]
-    assert s.phone_in_hand is True
-    assert "phone_in_hand_heuristic" in s.reasons
-    assert s.interaction_level in (
-        "possible_phone_interaction",
-        "probable_phone_interaction",
-        "phone_in_hand",
+    assert s.phone_in_hand is False
+    assert "confirmed" not in s.interaction_level
+    assert s.interaction_level in ("phone_near_person", "phone_visible", "not_detected")
+
+
+def test_real_phone_near_face_with_wrist_still_in_hand():
+    assoc = PersonPhoneAssociator(
+        minimum_interaction_seconds=1.0,
+        probable_seconds=3.0,
+        interaction_requires_in_hand=True,
     )
+    people = {"p1": (0.0, 0.0, 100.0, 200.0)}
+    face = (35.0, 10.0, 30.0, 40.0)
+    phones = [(40.0, 30.0, 22.0, 40.0, 0.9)]
+    wrists = {"p1": [(48.0, 45.0)]}
+    s = assoc.update(
+        now=6.0,
+        person_tracks=people,
+        phone_boxes=phones,
+        wrists=wrists,
+        face_bboxes={"p1": face},
+    )[0]
+    assert s.phone_in_hand is True
+    assert "phone_near_wrist" in s.reasons
 
 
 def test_displayable_track_hides_temporarily_lost_ghost():
@@ -91,6 +109,7 @@ def test_displayable_track_hides_temporarily_lost_ghost():
         "track_confidence": 0.15,
         "identity": {"face_visible": False, "identity_state": "unknown"},
         "observability": {"body_detected": False},
+        "seconds_since_person_detection": 1.8,
     }
     active = {
         "tracking_state": "active",
@@ -101,3 +120,27 @@ def test_displayable_track_hides_temporarily_lost_ghost():
     assert is_displayable_track(ghost) is False
     assert is_displayable_track(active) is True
     assert len(filter_displayable_tracks([ghost, active])) == 1
+
+
+def test_displayable_hides_lost_uncertain_without_student():
+    """uncertain + temporarily_lost sem sid = fantasma (não exibir)."""
+    lost = {
+        "tracking_state": "temporarily_lost",
+        "track_confidence": 0.5,
+        "identity": {"face_visible": False, "identity_state": "uncertain"},
+        "seconds_since_person_detection": 3.0,
+    }
+    assert is_displayable_track(lost) is False
+
+
+def test_displayable_keeps_lost_with_identity_briefly():
+    kept = {
+        "tracking_state": "temporarily_lost",
+        "student_id": "p01",
+        "track_confidence": 0.8,
+        "identity": {"face_visible": False, "identity_state": "body_continuity", "student_id": "p01"},
+        "seconds_since_person_detection": 1.0,
+    }
+    assert is_displayable_track(kept) is True
+    kept["seconds_since_person_detection"] = 5.0
+    assert is_displayable_track(kept) is False

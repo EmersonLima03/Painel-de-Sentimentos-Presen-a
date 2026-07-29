@@ -67,6 +67,9 @@ def _phone_in_lower_body(phone: BBox, person: BBox) -> bool:
     """Celular na região inferior do corpo (punhos indisponíveis no pose lite)."""
     px, py, pw, ph = person
     pcx, pcy = _center(phone)
+    # Abaixo do corpo ≈ mesa — não tratar como in_hand sem punho
+    if pcy > py + ph * 0.90:
+        return False
     lower_y = py + ph * 0.38
     if pcy < lower_y:
         return False
@@ -82,12 +85,33 @@ def _phone_overlaps_lower_torso(phone: BBox, person: BBox) -> bool:
 
 
 def _phone_near_face_region(phone: BBox, face: BBox, person: BBox) -> bool:
-    """Celular próximo ao rosto (segurando na altura da face)."""
+    """Celular próximo ao rosto (altura da face) — usado só como near, não in_hand sozinho."""
     fcx, fcy = _center(face)
     pcx, pcy = _center(phone)
     fdiag = max(1.0, (face[2] ** 2 + face[3] ** 2) ** 0.5)
     dist = ((pcx - fcx) ** 2 + (pcy - fcy) ** 2) ** 0.5 / fdiag
     return dist <= 1.35
+
+
+def _phone_in_ear_zone(phone: BBox, face: Optional[BBox], person: BBox) -> bool:
+    """Fone/orelha: bbox pequena no terço superior lateral da pessoa (ou lateral ao rosto)."""
+    px, py, pw, ph = person
+    pcx, pcy = _center(phone)
+    phone_area = max(1.0, phone[2] * phone[3])
+    person_area = max(1.0, pw * ph)
+    if phone_area / person_area > 0.045:
+        return False
+    if pcy > py + ph * 0.32:
+        return False
+    lateral = pcx < px + pw * 0.28 or pcx > px + pw * 0.72
+    if not lateral:
+        return False
+    if face is not None:
+        fcx, fcy = _center(face)
+        # lateral ao rosto, não na frente
+        if abs(pcx - fcx) < face[2] * 0.35 and abs(pcy - fcy) < face[3] * 0.55:
+            return False
+    return True
 
 
 def _phone_on_chest(phone: BBox, person: BBox) -> bool:
@@ -110,21 +134,18 @@ def _phone_in_hand_heuristic(
     person: BBox,
     face_bbox: Optional[BBox],
 ) -> bool:
+    """
+    Heurística sem punho: peito / tronco inferior.
+    NÃO promover in_hand só por proximidade ao rosto (fone/orelha geram FP).
+    """
+    if face_bbox and _phone_in_ear_zone(phone, face_bbox, person):
+        return False
+    if _phone_in_ear_zone(phone, face_bbox, person):
+        return False
     if _phone_on_chest(phone, person):
         return True
     if _phone_in_lower_body(phone, person) and _phone_overlaps_lower_torso(phone, person):
         return True
-    if face_bbox and _phone_near_face_region(phone, face_bbox, person):
-        return True
-    if face_bbox:
-        expanded = (
-            face_bbox[0] - face_bbox[2] * 0.35,
-            face_bbox[1] - face_bbox[3] * 0.2,
-            face_bbox[2] * 1.7,
-            face_bbox[3] * 1.4,
-        )
-        if _bbox_intersection_area(phone, expanded) / max(1.0, phone[2] * phone[3]) >= 0.18:
-            return True
     return False
 
 

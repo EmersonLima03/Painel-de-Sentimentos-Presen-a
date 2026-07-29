@@ -8,12 +8,23 @@ type Category = {
   disclaimer_pt?: string;
 };
 
+export type SessionAnswersFocus =
+  | "all"
+  | "presence"
+  | "signals"
+  | "attention"
+  | "expression"
+  | "quality";
+
 type Props = {
   report: any;
   students: any[];
+  /** Filtra blocos sem remover o componente — default: tudo. */
+  focus?: SessionAnswersFocus;
+  /** Esconde o título interno quando já há SectionHeader na view. */
+  hideTitle?: boolean;
 };
 
-/** Ordem pedagógica fixa — todos os cenários de evento cobertos hoje. */
 const CATEGORY_ORDER = ["phone", "eyes", "head_down", "face_covered", "low_attention"];
 
 function sortCategories(cats: Category[]): Category[] {
@@ -21,7 +32,11 @@ function sortCategories(cats: Category[]): Category[] {
   return CATEGORY_ORDER.map((id) => map.get(id)).filter(Boolean) as Category[];
 }
 
-export function SessionAnswers({ report, students }: Props) {
+function show(focus: SessionAnswersFocus, block: SessionAnswersFocus | "all"): boolean {
+  return focus === "all" || focus === block;
+}
+
+export function SessionAnswers({ report, students, focus = "all", hideTitle }: Props) {
   const list = report?.students?.length ? report.students : students || [];
   const identified = list.filter((s: any) => s.student_id);
   const lowObs = list.filter((s: any) => s.observability_note_pt);
@@ -41,9 +56,12 @@ export function SessionAnswers({ report, students }: Props) {
     list.length === 0
       ? "Sem dados de presença ainda."
       : list
-          .slice(0, 8)
+          .slice(0, focus === "presence" ? 40 : 8)
           .map((s: any) => `${s.full_name}: ${fmtDur(s.presence_seconds)}`)
-          .join(" · ");
+          .join(" · ") +
+        (list.length > (focus === "presence" ? 40 : 8)
+          ? ` · … (+${list.length - (focus === "presence" ? 40 : 8)} na aba Por aluno)`
+          : "");
 
   const attention =
     report?.attention_label_pt ||
@@ -60,112 +78,130 @@ export function SessionAnswers({ report, students }: Props) {
         : "Sem média de observabilidade ainda.";
 
   return (
-    <div className="answers-panel panel">
-      <h2>Respostas da aula</h2>
-      <p className="panel-sub">
-        Tempos acumulados na sessão — todos os cenários cobertos pelo sistema hoje. Indicadores
-        visuais estimados, não avaliação de alunos.
-      </p>
+    <div className={`answers-panel ${hideTitle ? "embedded" : "panel"}`}>
+      {!hideTitle && (
+        <>
+          <h2>Respostas da aula</h2>
+          <p className="panel-sub">
+            Tempos acumulados na sessão — todos os cenários cobertos pelo sistema hoje. Indicadores
+            visuais estimados, não avaliação de alunos.
+          </p>
+        </>
+      )}
       <dl className="answers-list">
-        <div className="answer-item">
-          <dt>Quem esteve presente?</dt>
-          <dd>{who}</dd>
-        </div>
-        <div className="answer-item">
-          <dt>Por quanto tempo?</dt>
-          <dd>{howLong}</dd>
-        </div>
+        {show(focus, "presence") && (
+          <div className="answer-item">
+            <dt>Quem esteve presente?</dt>
+            <dd>{who}</dd>
+          </div>
+        )}
+        {show(focus, "presence") && (
+          <div className="answer-item">
+            <dt>Por quanto tempo?</dt>
+            <dd>{howLong}</dd>
+          </div>
+        )}
 
-        <div className="answer-item highlight">
-          <dt>Sinais comportamentais (tempo na sessão)</dt>
-          <dd>
-            <ul className="category-totals">
-              {classCats.length === 0 && (
-                <li className="muted">Aguardando agregação…</li>
-              )}
-              {classCats.map((c) => (
-                <li key={c.category_id} className={c.total_seconds > 0 ? "" : "zero"}>
-                  <strong>{c.label_pt}</strong>
-                  <span>{c.total_seconds > 0 ? fmtDur(c.total_seconds) : "0s"}</span>
-                  {c.occurrence_count && c.occurrence_count > 1 ? (
-                    <span className="muted"> · {c.occurrence_count} episódios</span>
-                  ) : null}
+        {show(focus, "signals") && (
+          <div className="answer-item highlight">
+            <dt>Sinais comportamentais (tempo na sessão)</dt>
+            <dd>
+              <ul className="category-totals">
+                {classCats.length === 0 && (
+                  <li className="muted">Aguardando agregação…</li>
+                )}
+                {classCats.map((c) => (
+                  <li key={c.category_id} className={c.total_seconds > 0 ? "" : "zero"}>
+                    <strong>{c.label_pt}</strong>
+                    <span>{c.total_seconds > 0 ? fmtDur(c.total_seconds) : "0s"}</span>
+                    {c.occurrence_count && c.occurrence_count > 1 ? (
+                      <span className="muted"> · {c.occurrence_count} episódios</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+              <p className="muted answers-hint">
+                Inclui: celular possível/provável · olhos parcial/fechados · cabeça baixa/apoiada ·
+                rosto coberto · baixa atenção visual persistente.
+              </p>
+            </dd>
+          </div>
+        )}
+
+        {show(focus, "attention") && (
+          <div className="answer-item">
+            <dt>Atenção visual ao longo da sessão</dt>
+            <dd>
+              <ul className="category-totals compact">
+                <li>
+                  <strong>Alta</strong>
+                  <span>{fmtDur(profile.attention_high_seconds)}</span>
                 </li>
-              ))}
-            </ul>
-            <p className="muted answers-hint">
-              Inclui: celular possível/provável · olhos parcial/fechados · cabeça baixa/apoiada ·
-              rosto coberto · baixa atenção visual persistente.
-            </p>
-          </dd>
-        </div>
+                <li>
+                  <strong>Moderada</strong>
+                  <span>{fmtDur(profile.attention_moderate_seconds)}</span>
+                </li>
+                <li>
+                  <strong>Baixa</strong>
+                  <span>{fmtDur(profile.attention_low_seconds)}</span>
+                </li>
+              </ul>
+              <p className="muted answers-hint">{attention}</p>
+            </dd>
+          </div>
+        )}
 
-        <div className="answer-item">
-          <dt>Atenção visual ao longo da sessão</dt>
-          <dd>
-            <ul className="category-totals compact">
-              <li>
-                <strong>Alta</strong>
-                <span>{fmtDur(profile.attention_high_seconds)}</span>
-              </li>
-              <li>
-                <strong>Moderada</strong>
-                <span>{fmtDur(profile.attention_moderate_seconds)}</span>
-              </li>
-              <li>
-                <strong>Baixa</strong>
-                <span>{fmtDur(profile.attention_low_seconds)}</span>
-              </li>
-            </ul>
-            <p className="muted answers-hint">{attention}</p>
-          </dd>
-        </div>
+        {show(focus, "expression") && (
+          <div className="answer-item">
+            <dt>Expressão aparente ao longo da sessão</dt>
+            <dd>
+              <ul className="category-totals compact">
+                <li>
+                  <strong>Positiva</strong>
+                  <span>{fmtDur(profile.expression_positive_seconds)}</span>
+                </li>
+                <li>
+                  <strong>Neutra</strong>
+                  <span>{fmtDur(profile.expression_neutral_seconds)}</span>
+                </li>
+                <li>
+                  <strong>Negativa</strong>
+                  <span>{fmtDur(profile.expression_negative_seconds)}</span>
+                </li>
+                <li>
+                  <strong>Mista / surpresa</strong>
+                  <span>{fmtDur(profile.expression_mixed_seconds)}</span>
+                </li>
+              </ul>
+              <p className="muted answers-hint">{climate}</p>
+            </dd>
+          </div>
+        )}
 
-        <div className="answer-item">
-          <dt>Expressão aparente ao longo da sessão</dt>
-          <dd>
-            <ul className="category-totals compact">
-              <li>
-                <strong>Positiva</strong>
-                <span>{fmtDur(profile.expression_positive_seconds)}</span>
-              </li>
-              <li>
-                <strong>Neutra</strong>
-                <span>{fmtDur(profile.expression_neutral_seconds)}</span>
-              </li>
-              <li>
-                <strong>Negativa</strong>
-                <span>{fmtDur(profile.expression_negative_seconds)}</span>
-              </li>
-              <li>
-                <strong>Mista / surpresa</strong>
-                <span>{fmtDur(profile.expression_mixed_seconds)}</span>
-              </li>
-            </ul>
-            <p className="muted answers-hint">{climate}</p>
-          </dd>
-        </div>
-
-        <div className="answer-item">
-          <dt>A câmera conseguiu observar bem?</dt>
-          <dd>
-            <ul className="category-totals compact">
-              <li>
-                <strong>Tempo observável</strong>
-                <span>{fmtDur(profile.observable_seconds)}</span>
-              </li>
-              <li>
-                <strong>Tempo inconclusivo</strong>
-                <span>{fmtDur(profile.inconclusive_seconds)}</span>
-              </li>
-            </ul>
-            <p className="muted answers-hint">{obsNote}</p>
-          </dd>
-        </div>
+        {show(focus, "quality") && (
+          <div className="answer-item">
+            <dt>A câmera conseguiu observar bem?</dt>
+            <dd>
+              <ul className="category-totals compact">
+                <li>
+                  <strong>Tempo observável</strong>
+                  <span>{fmtDur(profile.observable_seconds)}</span>
+                </li>
+                <li>
+                  <strong>Tempo inconclusivo</strong>
+                  <span>{fmtDur(profile.inconclusive_seconds)}</span>
+                </li>
+              </ul>
+              <p className="muted answers-hint">{obsNote}</p>
+            </dd>
+          </div>
+        )}
       </dl>
-      <p className="muted answers-hint">
-        Detalhe por aluno (mesmos cenários): clique na linha da tabela abaixo (▸).
-      </p>
+      {focus === "all" && (
+        <p className="muted answers-hint">
+          Detalhe por aluno: use a aba <strong>Por aluno</strong> (busca, ordenação e ▸ para expandir).
+        </p>
+      )}
     </div>
   );
 }

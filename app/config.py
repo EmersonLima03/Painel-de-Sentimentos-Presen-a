@@ -135,7 +135,7 @@ class Settings(BaseSettings):
 
     face_occlusion_wrist_near_ratio: float = Field(default=0.65, env="FACE_OCCLUSION_WRIST_NEAR_RATIO")
     face_occlusion_confirm_seconds: float = Field(default=0.7, env="FACE_OCCLUSION_CONFIRM_SECONDS")
-    face_occlusion_clear_hold_seconds: float = Field(default=0.45, env="FACE_OCCLUSION_CLEAR_HOLD_SECONDS")
+    face_occlusion_clear_hold_seconds: float = Field(default=4.0, env="FACE_OCCLUSION_CLEAR_HOLD_SECONDS")
     face_occlusion_persistent_seconds: float = Field(default=5.0, env="FACE_OCCLUSION_PERSISTENT_SECONDS")
     face_occlusion_suppress_when_landmarks_clear: bool = Field(
         default=True, env="FACE_OCCLUSION_SUPPRESS_LANDMARKS"
@@ -243,7 +243,10 @@ class Settings(BaseSettings):
     person_tracking_model_path: str = Field(default="data/models/yolov8n.pt", env="PERSON_TRACKING_MODEL")
     person_tracking_ttl_seconds: float = Field(default=8.0, env="PERSON_TRACKING_TTL")
     person_tracking_max_time_lost_seconds: float = Field(default=8.0, env="PERSON_TRACKING_MAX_LOST")
-    person_tracking_min_detection_confidence: float = Field(default=0.25, env="PERSON_TRACKING_MIN_CONF")
+    person_tracking_weak_max_time_lost_seconds: float = Field(
+        default=2.0, env="PERSON_TRACKING_WEAK_MAX_LOST"
+    )
+    person_tracking_min_detection_confidence: float = Field(default=0.40, env="PERSON_TRACKING_MIN_CONF")
     person_tracking_min_reassociation_iou: float = Field(default=0.30, env="PERSON_TRACKING_MIN_IOU")
     person_tracking_max_center_distance_ratio: float = Field(default=0.35, env="PERSON_TRACKING_MAX_DIST")
     person_tracking_bytetrack_yaml: str = Field(
@@ -573,6 +576,12 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "person_tracking_ttl_seconds", float(pt["ttl_seconds"]))
             if "max_time_lost_seconds" in pt:
                 object.__setattr__(self, "person_tracking_max_time_lost_seconds", float(pt["max_time_lost_seconds"]))
+            if "weak_max_time_lost_seconds" in pt:
+                object.__setattr__(
+                    self,
+                    "person_tracking_weak_max_time_lost_seconds",
+                    float(pt["weak_max_time_lost_seconds"]),
+                )
             if "minimum_detection_confidence" in pt:
                 object.__setattr__(
                     self, "person_tracking_min_detection_confidence", float(pt["minimum_detection_confidence"])
@@ -680,18 +689,89 @@ class Settings(BaseSettings):
 _settings: Optional[Settings] = None
 
 
+def _resolve_yaml_paths() -> list:
+    """Base config.yaml + overlay opcional (ex.: config.tri.yaml via PRESENCA_CONFIG_OVERLAY)."""
+    import os
+
+    base = os.environ.get("PRESENCA_CONFIG") or os.environ.get("CONFIG_YAML") or "config.yaml"
+    paths = [base]
+    overlay = (os.environ.get("PRESENCA_CONFIG_OVERLAY") or "").strip()
+    if overlay:
+        paths.append(overlay)
+    return paths
+
+
+def _apply_expression_env_overrides(settings: "Settings") -> None:
+    """Reaplica env de expressão após YAML (permite TRI sem editar config.yaml).
+
+    Nomes aceitos (exatos):
+      EXPRESSION_PROVIDER
+      EXPRESSION_FALLBACK_CHAIN
+      MODULE_EXPRESSION_MODE
+    """
+    import os
+
+    prov = os.environ.get("EXPRESSION_PROVIDER")
+    if prov is not None and str(prov).strip() != "":
+        object.__setattr__(settings, "expression_provider", str(prov).strip())
+    mode = os.environ.get("MODULE_EXPRESSION_MODE")
+    if mode is not None and str(mode).strip() != "":
+        object.__setattr__(settings, "module_expression_mode", str(mode).strip().lower())
+    chain = os.environ.get("EXPRESSION_FALLBACK_CHAIN")
+    if chain is not None and str(chain).strip() != "":
+        object.__setattr__(settings, "expression_fallback_chain", str(chain).strip())
+    elif prov is not None and str(prov).strip().lower() in ("fer_onnx", "ferplus", "emotion_ferplus"):
+        # Evita fallback silencioso para HSEmotion/DeepFace quando só o provider TRI é setado via env
+        object.__setattr__(settings, "expression_fallback_chain", "fer_onnx")
+
+
+def _log_settings_loaded(settings: "Settings", paths: list) -> None:
+    """Registra quais YAMLs e provider de expressão ficaram ativos."""
+    import logging
+    from pathlib import Path
+
+    resolved = []
+    missing = []
+    for p in paths:
+        path = Path(p)
+        if path.is_file():
+            resolved.append(str(path.resolve()))
+        else:
+            missing.append(str(p))
+    logging.getLogger("app.config").info(
+        "settings_loaded base_and_overlay=%s missing=%s expression_provider=%s "
+        "expression_fallback_chain=%s module_expression_mode=%s overlay_env=%s",
+        resolved,
+        missing or None,
+        getattr(settings, "expression_provider", None),
+        getattr(settings, "expression_fallback_chain", None),
+        getattr(settings, "module_expression_mode", None),
+        __import__("os").environ.get("PRESENCA_CONFIG_OVERLAY") or None,
+    )
+
+
 def get_settings() -> Settings:
     """Retorna instância singleton das configurações."""
     global _settings
     if _settings is None:
+        paths = _resolve_yaml_paths()
         _settings = Settings()
-        _settings.load_yaml_config()
+        for path in paths:
+            _settings.load_yaml_config(path)
+        _apply_expression_env_overrides(_settings)
+        _settings._validate_inference_module_modes()
+        _log_settings_loaded(_settings, paths)
     return _settings
 
 
 def reload_settings() -> Settings:
     """Recarrega as configurações."""
     global _settings
+    paths = _resolve_yaml_paths()
     _settings = Settings()
-    _settings.load_yaml_config()
+    for path in paths:
+        _settings.load_yaml_config(path)
+    _apply_expression_env_overrides(_settings)
+    _settings._validate_inference_module_modes()
+    _log_settings_loaded(_settings, paths)
     return _settings

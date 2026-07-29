@@ -1,0 +1,27 @@
+:root {
+  --bg: #0a1219;
+  --panel: #121f2b;
+  --panel2: #172636;
+  --panel3: #1a2d3f;
+  --text: #e8eef5;
+  --muted: #8fa3b8;
+  --accent: #38bdf8;
+  --accent2: #2a9d8f;
+  --good: #4ade80;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --line: #243447;
+  --line-soft: rgba(36, 52, 71, 0.7);
+  --radius: 10px;
+  --radius-lg: 12px;
+  --radius-sm: 6px;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  --sidebar-w: 220px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}

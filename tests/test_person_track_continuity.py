@@ -142,6 +142,24 @@ def test_expire_after_real_exit():
     assert again[0].track_id == "cam-web-person-002"
 
 
+def test_weak_false_detection_expires_fast():
+    """Caixa fantasma YOLO fraca some em ~2s, não fica 8s como temporarily_lost."""
+    mgr = StablePersonTrackManager(
+        "cam-web",
+        max_time_lost_seconds=8.0,
+        weak_max_time_lost_seconds=2.0,
+        strong_confidence_threshold=0.45,
+    )
+    mgr.update([_raw("bt-ghost", (10, 10, 40, 80), conf=0.28)], now=1000.0)
+    still = mgr.update([], now=1001.0)
+    assert len(still) == 1
+    assert still[0].tracking_state == "temporarily_lost"
+    gone = mgr.update([], now=1002.5)
+    assert gone == []
+    ev = mgr.drain_events()
+    assert any(e.get("reason") == "weak_track_expired" for e in ev)
+
+
 def test_identity_face_stale_independent_of_person_track(monkeypatch):
     """Confirmação facial envelhece; person_track_id e body_continuity permanecem."""
     from app.vision.identity_binding import IdentityBindingEngine

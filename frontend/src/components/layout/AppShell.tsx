@@ -1,0 +1,48 @@
+import { useState } from "react";
+import { AppSidebar } from "./AppSidebar";
+import type { Tab } from "../../types";
+
+type NavItem = { id: Tab; label: string; badge?: number };
+
+type Props = {
+  active: Tab;
+  onNavigate: (tab: Tab) => void;
+  productItems: NavItem[];
+  qaItems?: NavItem[];
+  demoBanner?: React.ReactNode;
+  children: React.ReactNode;
+};
+
+export function AppShell({
+  active,
+  onNavigate,
+  productItems,
+  qaItems,
+  demoBanner,
+  children,
+}: Props) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <div className="app-shell">
+      {demoBanner}
+      <button
+        type="button"
+        className="menu-toggle"
+        aria-label="Abrir menu"
+        onClick={() => setMenuOpen(true)}
+      >
+        Menu
+      </button>
+      <AppSidebar
+        active={active}
+        onNavigate={onNavigate}
+        productItems={productItems}
+        qaItems={qaItems}
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+      />
+      <div className="app-main">{children}</div>
+    </div>
+  );
+}

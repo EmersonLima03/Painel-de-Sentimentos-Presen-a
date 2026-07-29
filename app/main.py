@@ -1016,9 +1016,12 @@ def _draw_overlay_from_cache(frame: np.ndarray, camera_id: str) -> int:
     fh, fw = frame.shape[:2]
     sx, sy = _overlay_scale_for_frame(camera_id, fw, fh)
     eng_faces = orchestrator.get_overlay_engagement(camera_id)
-    analytics = list(getattr(orchestrator, "_analytics_tracks", {}).get(camera_id) or [])
+    from app.pipeline.analytics_track import filter_displayable_tracks
 
-    # person tracks (ciano)
+    analytics_raw = list(getattr(orchestrator, "_analytics_tracks", {}).get(camera_id) or [])
+    analytics = filter_displayable_tracks(analytics_raw)
+
+    # person tracks (ciano) — só tracks exibíveis (sem fantasmas temporarily_lost)
     for t in analytics:
         pb = t.get("person_bbox") or t.get("bbox")
         if not pb or len(pb) < 4:
