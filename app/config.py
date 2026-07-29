@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     track_ttl_seconds: float = Field(default=2.0, env="TRACK_TTL_SECONDS")
     max_templates_per_student: int = Field(default=7, env="MAX_TEMPLATES_PER_STUDENT")
     default_camera_index: int = Field(default=0, env="DEFAULT_CAMERA_INDEX")
-    camera_connect_timeout_seconds: int = Field(default=3, env="CAMERA_CONNECT_TIMEOUT_SECONDS")
+    camera_connect_timeout_seconds: int = Field(default=15, env="CAMERA_CONNECT_TIMEOUT_SECONDS")
     
     # Presence
     presence_dedup_mode: str = Field(default="day", env="PRESENCE_DEDUP_MODE")
@@ -127,6 +127,27 @@ class Settings(BaseSettings):
     data_retention_days: int = Field(default=90, env="DATA_RETENTION_DAYS")
     phone_yolo_enabled: bool = Field(default=False, env="PHONE_YOLO_ENABLED")
     phone_yolo_model_path: str = Field(default="", env="PHONE_YOLO_MODEL_PATH")
+    phone_yolo_conf_threshold: float = Field(default=0.42, env="PHONE_YOLO_CONF")
+    phone_yolo_max_height_width_ratio: float = Field(default=2.7, env="PHONE_YOLO_MAX_HW_RATIO")
+    phone_yolo_max_width_height_ratio: float = Field(default=4.0, env="PHONE_YOLO_MAX_WH_RATIO")
+    phone_yolo_torso_pass_enabled: bool = Field(default=True, env="PHONE_YOLO_TORSO_PASS")
+    phone_yolo_torso_conf_threshold: float = Field(default=0.30, env="PHONE_YOLO_TORSO_CONF")
+
+    face_occlusion_wrist_near_ratio: float = Field(default=0.65, env="FACE_OCCLUSION_WRIST_NEAR_RATIO")
+    face_occlusion_confirm_seconds: float = Field(default=0.7, env="FACE_OCCLUSION_CONFIRM_SECONDS")
+    face_occlusion_clear_hold_seconds: float = Field(default=0.45, env="FACE_OCCLUSION_CLEAR_HOLD_SECONDS")
+    face_occlusion_persistent_seconds: float = Field(default=5.0, env="FACE_OCCLUSION_PERSISTENT_SECONDS")
+    face_occlusion_suppress_when_landmarks_clear: bool = Field(
+        default=True, env="FACE_OCCLUSION_SUPPRESS_LANDMARKS"
+    )
+    behavioral_event_clear_hold_seconds: float = Field(
+        default=0.5, env="BEHAVIORAL_EVENT_CLEAR_HOLD_SECONDS"
+    )
+    behavioral_event_clear_hold_drowsiness_seconds: float = Field(
+        default=4.0, env="BEHAVIORAL_EVENT_CLEAR_HOLD_DROWSINESS_SECONDS"
+    )
+    head_down_pitch_threshold: float = Field(default=0.45, env="HEAD_DOWN_PITCH_THRESHOLD")
+    head_down_event_min_seconds: float = Field(default=8.0, env="HEAD_DOWN_EVENT_MIN_SECONDS")
 
     # Runtime: demo | offline | rtsp
     runtime_mode: str = Field(default="demo", env="RUNTIME_MODE")
@@ -161,6 +182,14 @@ class Settings(BaseSettings):
     expression_window_seconds: float = Field(default=8.0, env="EXPRESSION_WINDOW")
     expression_minimum_samples: int = Field(default=4, env="EXPRESSION_MIN_SAMPLES")
     expression_minimum_confidence: float = Field(default=0.60, env="EXPRESSION_MIN_CONF")
+    expression_minimum_confidence_positive: float = Field(
+        default=0.55, env="EXPRESSION_MIN_CONF_POSITIVE"
+    )
+    expression_smile_boost_enabled: bool = Field(default=False, env="EXPRESSION_SMILE_BOOST")
+    expression_ab_secondary: Optional[str] = Field(default=None, env="EXPRESSION_AB_SECONDARY")
+    expression_fallback_chain: Optional[str] = Field(
+        default="hsemotion,deepface,fer_legacy", env="EXPRESSION_FALLBACK_CHAIN"
+    )
     expression_minimum_observation_quality: float = Field(default=0.55, env="EXPRESSION_MIN_QUALITY")
     visual_attention_interval_seconds: float = Field(default=0.5, env="ATTENTION_INTERVAL")
     visual_attention_window_seconds: float = Field(default=10.0, env="ATTENTION_WINDOW")
@@ -175,6 +204,7 @@ class Settings(BaseSettings):
     )
     phone_possible_after_seconds: float = Field(default=5.0, env="PHONE_POSSIBLE_AFTER")
     phone_probable_after_seconds: float = Field(default=12.0, env="PHONE_PROBABLE_AFTER")
+    phone_interaction_requires_in_hand: bool = Field(default=True, env="PHONE_INTERACTION_REQUIRES_IN_HAND")
     experimental_perclos_enabled: bool = Field(default=False, env="EXPERIMENTAL_PERCLOS")
     experimental_perclos_window_seconds: float = Field(default=60.0, env="PERCLOS_WINDOW")
     experimental_perclos_min_coverage: float = Field(default=0.50, env="PERCLOS_MIN_COVERAGE")
@@ -235,6 +265,12 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "school_id", str(dev["school_id"]))
             if "default_camera_index" in dev:
                 object.__setattr__(self, "default_camera_index", int(dev["default_camera_index"]))
+            if "camera_connect_timeout_seconds" in dev:
+                object.__setattr__(
+                    self,
+                    "camera_connect_timeout_seconds",
+                    int(dev["camera_connect_timeout_seconds"]),
+                )
         
         # Cameras (rtsp_url pode ser null → usa default_camera_index)
         if "cameras" in config:
@@ -344,6 +380,16 @@ class Settings(BaseSettings):
                     object.__setattr__(self, "phone_yolo_enabled", bool(py["enabled"]))
                 if "model_path" in py:
                     object.__setattr__(self, "phone_yolo_model_path", str(py["model_path"]))
+                if "conf_threshold" in py:
+                    object.__setattr__(self, "phone_yolo_conf_threshold", float(py["conf_threshold"]))
+                if "max_height_width_ratio" in py:
+                    object.__setattr__(self, "phone_yolo_max_height_width_ratio", float(py["max_height_width_ratio"]))
+                if "max_width_height_ratio" in py:
+                    object.__setattr__(self, "phone_yolo_max_width_height_ratio", float(py["max_width_height_ratio"]))
+                if "torso_pass_enabled" in py:
+                    object.__setattr__(self, "phone_yolo_torso_pass_enabled", bool(py["torso_pass_enabled"]))
+                if "torso_conf_threshold" in py:
+                    object.__setattr__(self, "phone_yolo_torso_conf_threshold", float(py["torso_conf_threshold"]))
         
         # Enrollment config
         if "enrollment" in config:
@@ -422,10 +468,25 @@ class Settings(BaseSettings):
                 ("window_seconds", "expression_window_seconds"),
                 ("minimum_samples", "expression_minimum_samples"),
                 ("minimum_confidence", "expression_minimum_confidence"),
+                ("minimum_confidence_positive", "expression_minimum_confidence_positive"),
                 ("minimum_observation_quality", "expression_minimum_observation_quality"),
             ):
                 if yk in ex:
                     object.__setattr__(self, attr, type(getattr(self, attr))(ex[yk]))
+            if "smile_boost_enabled" in ex:
+                object.__setattr__(self, "expression_smile_boost_enabled", bool(ex["smile_boost_enabled"]))
+            if "ab_secondary" in ex:
+                object.__setattr__(
+                    self,
+                    "expression_ab_secondary",
+                    None if ex["ab_secondary"] in (None, "", "none") else str(ex["ab_secondary"]),
+                )
+            if "fallback_chain" in ex:
+                fc = ex["fallback_chain"]
+                if isinstance(fc, (list, tuple)):
+                    object.__setattr__(self, "expression_fallback_chain", ",".join(str(x) for x in fc))
+                else:
+                    object.__setattr__(self, "expression_fallback_chain", str(fc))
         if "analytics" in config and isinstance(config["analytics"], dict):
             an = config["analytics"]
             if "quality_interval_seconds" in an:
@@ -460,6 +521,8 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "phone_possible_after_seconds", float(ph["possible_after_seconds"]))
             if "probable_after_seconds" in ph:
                 object.__setattr__(self, "phone_probable_after_seconds", float(ph["probable_after_seconds"]))
+            if "interaction_requires_in_hand" in ph:
+                object.__setattr__(self, "phone_interaction_requires_in_hand", bool(ph["interaction_requires_in_hand"]))
         if "provenance" in config and isinstance(config["provenance"], dict):
             pr = config["provenance"]
             for k, attr in (
@@ -511,6 +574,37 @@ class Settings(BaseSettings):
                 )
             if "bytetrack_yaml" in pt:
                 object.__setattr__(self, "person_tracking_bytetrack_yaml", str(pt["bytetrack_yaml"]))
+        if "face_occlusion" in config and isinstance(config["face_occlusion"], dict):
+            fo = config["face_occlusion"]
+            mapping = {
+                "wrist_near_ratio": "face_occlusion_wrist_near_ratio",
+                "confirm_seconds": "face_occlusion_confirm_seconds",
+                "clear_hold_seconds": "face_occlusion_clear_hold_seconds",
+                "persistent_seconds": "face_occlusion_persistent_seconds",
+                "suppress_when_landmarks_clear": "face_occlusion_suppress_when_landmarks_clear",
+            }
+            for k, attr in mapping.items():
+                if k in fo:
+                    val = fo[k]
+                    object.__setattr__(self, attr, bool(val) if k.startswith("suppress") else float(val))
+        if "behavioral_events" in config and isinstance(config["behavioral_events"], dict):
+            be = config["behavioral_events"]
+            if "clear_hold_seconds" in be:
+                object.__setattr__(
+                    self, "behavioral_event_clear_hold_seconds", float(be["clear_hold_seconds"])
+                )
+            if "clear_hold_drowsiness_seconds" in be:
+                object.__setattr__(
+                    self,
+                    "behavioral_event_clear_hold_drowsiness_seconds",
+                    float(be["clear_hold_drowsiness_seconds"]),
+                )
+        if "head_down" in config and isinstance(config["head_down"], dict):
+            hd = config["head_down"]
+            if "pitch_threshold" in hd:
+                object.__setattr__(self, "head_down_pitch_threshold", float(hd["pitch_threshold"]))
+            if "event_min_seconds" in hd:
+                object.__setattr__(self, "head_down_event_min_seconds", float(hd["event_min_seconds"]))
         if "pose_body" in config and isinstance(config["pose_body"], dict):
             pb = config["pose_body"]
             if "enabled" in pb:

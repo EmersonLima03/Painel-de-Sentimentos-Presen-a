@@ -62,7 +62,6 @@ class FerLegacyProvider:
             ]
 
         from app.vision.emotion_engagement import (
-            apply_smile_boost_to_fer_probs,
             emotion_backend_health,
             predict_emotion_detail,
         )
@@ -83,15 +82,9 @@ class FerLegacyProvider:
                         if i < len(probs_arr):
                             fer = _TO_FER2013.get(name, name)
                             raw_probs[fer] = raw_probs.get(fer, 0.0) + float(probs_arr[i])
-                    raw_probs, label, smile_src = apply_smile_boost_to_fer_probs(
-                        crop, raw_probs, raw_label=str(label)
-                    )
+                    # Sem smile_boost — FER+ já vaza happy em rosto sério
                     probs = normalize_probabilities(raw_probs)
                     label_n, conf, ok = pick_label(probs, minimum_confidence=self.minimum_confidence)
-                    if smile_src == "smile":
-                        label_n = "positive"
-                        conf = max(conf, float(raw_probs.get("happy", conf)))
-                        ok = True
                     out.append(
                         FacialExpressionPrediction(
                             label=label_n,
@@ -106,24 +99,27 @@ class FerLegacyProvider:
                     )
                     continue
 
-                detail = predict_emotion_detail(crop)
+                detail = predict_emotion_detail(crop, smile_boost=False)
                 if isinstance(detail, (tuple, list)) and len(detail) >= 2:
                     raw_label = detail[0]
                     conf_raw = float(detail[1])
                     source = detail[4] if len(detail) >= 5 else "model"
                     raw_probs = {str(raw_label): conf_raw}
-                    if source == "smile" or str(raw_label).lower() == "happy":
-                        raw_probs = {"happy": max(conf_raw, 0.5), "neutral": 0.2}
                 else:
                     raw_label = None
                     raw_probs = {}
                     source = "model"
                 probs = normalize_probabilities(raw_probs)
                 label, conf, ok = pick_label(probs, minimum_confidence=self.minimum_confidence)
-                if source == "smile" or str(raw_label).lower() == "happy":
+                # Happy só se confiança alta o suficiente
+                if str(raw_label).lower() == "happy" and conf_raw >= 0.70:
                     label = "positive"
-                    conf = max(conf, conf_raw if isinstance(detail, (tuple, list)) else conf)
+                    conf = max(conf, conf_raw)
                     ok = True
+                elif str(raw_label).lower() == "happy" and conf_raw < 0.70:
+                    label = "neutral"
+                    conf = max(conf, 0.45)
+                    ok = conf >= self.minimum_confidence
                 out.append(
                     FacialExpressionPrediction(
                         label=label,

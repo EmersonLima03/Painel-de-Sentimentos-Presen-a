@@ -347,11 +347,11 @@ const HEAD_STATE = {
 };
 const OCCLUSION_STATE = {
   none: "Sem oclusão facial",
-  possible_face_occlusion_by_hand: "Possível oclusão do rosto pela mão",
-  persistent_possible_face_occlusion: "Rosto ocluído pela mão (persistente)",
+  possible_face_occlusion_by_hand: "Possível oclusão / rosto não observável",
+  persistent_possible_face_occlusion: "Rosto não observável (persistente)",
 };
 const EVENT_TYPE_PT = {
-  face_occluded_persistent: "Rosto ocluído pela mão",
+  face_occluded_persistent: "Rosto coberto / não observável",
   head_down_persistent: "Cabeça baixa prolongada",
   low_visual_attention: "Atenção visual baixa",
   possible_drowsiness: "Possíveis sinais de sonolência",
@@ -580,8 +580,31 @@ function computeFreshness(data, fetchOk) {
   } else if (age <= 2 * (POLL_MS / 1000)) state = "live";
   else if (age <= 4 * (POLL_MS / 1000)) state = "delayed";
   else state = "stale";
-  if (state === "live" && tracks.length === 0) state = "no_tracks";
+  if (state === "live" && displayableTracks(tracks).length === 0) state = "no_tracks";
   return state;
+}
+
+function isDisplayableTrack(t) {
+  if (t.displayable === true) return true;
+  if (t.displayable === false) return false;
+  const tstate = t.tracking_state || "active";
+  if (tstate === "expired") return false;
+  const id = t.identity || {};
+  const faceVis = !!id.face_visible;
+  const sid = t.student_id || id.student_id;
+  const idState = id.identity_state || "unknown";
+  const hasIdentity = !!sid || ["face_confirmed", "body_continuity", "uncertain"].includes(idState);
+  if (faceVis || hasIdentity) return true;
+  if (tstate !== "active") return false;
+  const obs = t.observability || {};
+  if (obs.body_detected || obs.body_observable) {
+    return Number(t.track_confidence || 0) >= 0.2;
+  }
+  return false;
+}
+
+function displayableTracks(tracks) {
+  return (tracks || []).filter(isDisplayableTrack);
 }
 
 function nameFor(t) {
@@ -633,7 +656,7 @@ function resolveProvider(tracks, root) {
 
 function renderStatusBar(data, fr) {
   const op = OP_STATE[fr] || { label: fr, color: "muted" };
-  const tracks = (data && data.tracks) || [];
+  const tracks = displayableTracks((data && data.tracks) || []);
   const recording = data && data.security ? data.security.stores_frames : false;
   const totalMs =
     (data && data.latencies_ms && data.latencies_ms.total_analytics) ||
@@ -659,7 +682,7 @@ function renderStatusBar(data, fr) {
 }
 
 function renderCamBadges(data, fr) {
-  const tracks = (data && data.tracks) || [];
+  const tracks = displayableTracks((data && data.tracks) || []);
   const recording = data && data.security ? data.security.stores_frames : false;
   const liveBadge =
     fr === "unavailable" ? badge("red", "Sem sinal") : fr === "stale" || fr === "delayed" ? badge("yellow", "Ao vivo (atrasado)") : badge("green", "Ao vivo");
@@ -880,7 +903,7 @@ function renderPersonBlock(display, staleUi, raw) {
 }
 
 function renderPersonSections(data, fr) {
-  const tracks = (data && data.tracks) || [];
+  const tracks = displayableTracks((data && data.tracks) || []);
   pruneSmoothCache(tracks);
   const staleUi = ["stale", "unavailable"].includes(fr);
   const titleEl = document.getElementById("person-panel-title");
@@ -1016,7 +1039,8 @@ async function refreshLive() {
   if (fr === "unavailable") freshnessState.wasUnavailable = true;
 
   const shownData = fetchOk ? data : freshnessState.lastData;
-  const tracks = shownData ? shownData.tracks || [] : [];
+  const allTracks = shownData ? shownData.tracks || [] : [];
+  const tracks = displayableTracks(allTracks);
 
   document.getElementById("status-clock").textContent = new Date().toLocaleTimeString("pt-BR") + " · poll " + POLL_MS + "ms · " + fr;
 
@@ -1024,7 +1048,7 @@ async function refreshLive() {
   renderCamBadges(shownData, fr);
   renderImportantEvents(tracks, fr);
   renderPersonSections({ tracks }, fr);
-  renderTechPanes(tracks, shownData);
+  renderTechPanes(allTracks, shownData);
 
   const payloadEl = document.getElementById("payload");
   if (shownData) payloadEl.textContent = JSON.stringify(shownData, null, 2);

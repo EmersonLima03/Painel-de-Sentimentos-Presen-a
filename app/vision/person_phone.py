@@ -51,6 +51,83 @@ def _near_wrist(phone: BBox, wrist: Optional[Tuple[float, float]], person: BBox)
     return ((pcx - wrist[0]) ** 2 + (pcy - wrist[1]) ** 2) ** 0.5 / diag <= 0.28
 
 
+def _bbox_intersection_area(a: BBox, b: BBox) -> float:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    x1 = max(ax, bx)
+    y1 = max(ay, by)
+    x2 = min(ax + aw, bx + bw)
+    y2 = min(ay + ah, by + bh)
+    if x2 <= x1 or y2 <= y1:
+        return 0.0
+    return (x2 - x1) * (y2 - y1)
+
+
+def _phone_in_lower_body(phone: BBox, person: BBox) -> bool:
+    """Celular na região inferior do corpo (punhos indisponíveis no pose lite)."""
+    px, py, pw, ph = person
+    pcx, pcy = _center(phone)
+    lower_y = py + ph * 0.38
+    if pcy < lower_y:
+        return False
+    margin = 0.12 * max(pw, ph)
+    return (px - margin) <= pcx <= (px + pw + margin)
+
+
+def _phone_overlaps_lower_torso(phone: BBox, person: BBox) -> bool:
+    px, py, pw, ph = person
+    lower = (px, py + ph * 0.35, pw, ph * 0.65)
+    phone_area = max(1.0, phone[2] * phone[3])
+    return _bbox_intersection_area(phone, lower) / phone_area >= 0.12
+
+
+def _phone_near_face_region(phone: BBox, face: BBox, person: BBox) -> bool:
+    """Celular próximo ao rosto (segurando na altura da face)."""
+    fcx, fcy = _center(face)
+    pcx, pcy = _center(phone)
+    fdiag = max(1.0, (face[2] ** 2 + face[3] ** 2) ** 0.5)
+    dist = ((pcx - fcx) ** 2 + (pcy - fcy) ** 2) ** 0.5 / fdiag
+    return dist <= 1.35
+
+
+def _phone_on_chest(phone: BBox, person: BBox) -> bool:
+    """Celular deitado no peito/torso superior (comum em uso passivo)."""
+    pw_phone, ph_phone = phone[2], phone[3]
+    if pw_phone / max(ph_phone, 1.0) < 1.15:
+        return False
+    px, py, pw, ph = person
+    pcx, pcy = _center(phone)
+    chest_top = py + ph * 0.28
+    chest_bottom = py + ph * 0.58
+    if not (chest_top <= pcy <= chest_bottom):
+        return False
+    margin = 0.12 * pw
+    return (px - margin) <= pcx <= (px + pw + margin)
+
+
+def _phone_in_hand_heuristic(
+    phone: BBox,
+    person: BBox,
+    face_bbox: Optional[BBox],
+) -> bool:
+    if _phone_on_chest(phone, person):
+        return True
+    if _phone_in_lower_body(phone, person) and _phone_overlaps_lower_torso(phone, person):
+        return True
+    if face_bbox and _phone_near_face_region(phone, face_bbox, person):
+        return True
+    if face_bbox:
+        expanded = (
+            face_bbox[0] - face_bbox[2] * 0.35,
+            face_bbox[1] - face_bbox[3] * 0.2,
+            face_bbox[2] * 1.7,
+            face_bbox[3] * 1.4,
+        )
+        if _bbox_intersection_area(phone, expanded) / max(1.0, phone[2] * phone[3]) >= 0.18:
+            return True
+    return False
+
+
 class PersonPhoneAssociator:
     def __init__(
         self,
@@ -59,12 +136,15 @@ class PersonPhoneAssociator:
         probable_seconds: float = 12.0,
         near_dist_norm: float = 0.55,
         ambiguous_gap: float = 0.12,
+        interaction_requires_in_hand: bool = True,
     ):
         self.minimum_interaction_seconds = minimum_interaction_seconds
         self.probable_seconds = probable_seconds
         self.near_dist_norm = near_dist_norm
         self.ambiguous_gap = ambiguous_gap
+        self.interaction_requires_in_hand = interaction_requires_in_hand
         self._near_since: Dict[str, float] = {}
+        self._in_hand_since: Dict[str, float] = {}
 
     def update(
         self,
@@ -74,6 +154,7 @@ class PersonPhoneAssociator:
         phone_boxes: List[Tuple[float, float, float, float, float]],
         wrists: Optional[Dict[str, List[Tuple[float, float]]]] = None,
         head_looking_down: Optional[Dict[str, bool]] = None,
+        face_bboxes: Optional[Dict[str, BBox]] = None,
     ) -> List[PhoneAssociationState]:
         """
         Fluxo: detectado → assoc person → near tronco/mão → phone_in_hand → duração.
@@ -86,6 +167,7 @@ class PersonPhoneAssociator:
         phone_visible = len(phones) > 0
         wrists = wrists or {}
         head_looking_down = head_looking_down or {}
+        face_bboxes = face_bboxes or {}
 
         # por telefone: scores por pessoa (ambiguidade)
         phone_owners: List[Optional[str]] = []
@@ -128,14 +210,22 @@ class PersonPhoneAssociator:
                     ambiguous = True
                     reasons.append("phone_ambiguous_between_persons")
 
+            face_bb = face_bboxes.get(pid)
             for ph in owned:
                 for w in wrists.get(pid) or []:
                     if _near_wrist(ph, w, pb):
                         in_hand = True
                         reasons.append("phone_near_wrist")
+                if not in_hand and _phone_in_hand_heuristic(ph, pb, face_bb):
+                    in_hand = True
+                    if _phone_on_chest(ph, pb):
+                        reasons.append("phone_on_chest")
+                    else:
+                        reasons.append("phone_in_hand_heuristic")
 
             if ambiguous and not owned:
                 self._near_since.pop(pid, None)
+                self._in_hand_since.pop(pid, None)
                 out.append(
                     PhoneAssociationState(
                         person_track_id=pid,
@@ -156,6 +246,13 @@ class PersonPhoneAssociator:
                 if pid not in self._near_since:
                     self._near_since[pid] = now
                 dur = now - self._near_since[pid]
+                if in_hand:
+                    if pid not in self._in_hand_since:
+                        self._in_hand_since[pid] = now
+                    in_hand_dur = now - self._in_hand_since[pid]
+                else:
+                    self._in_hand_since.pop(pid, None)
+                    in_hand_dur = 0.0
                 reasons.append(f"near_dist_norm={best:.2f}")
                 if in_hand:
                     level = "phone_in_hand"
@@ -164,20 +261,32 @@ class PersonPhoneAssociator:
                     level = "phone_near_person"
                     conf = 0.35
                 looking = bool(head_looking_down.get(pid))
-                if in_hand and looking and dur >= self.probable_seconds:
+                can_interact = in_hand or not self.interaction_requires_in_hand
+                interact_dur = in_hand_dur if self.interaction_requires_in_hand else dur
+                if can_interact and in_hand and looking and interact_dur >= self.probable_seconds:
                     level = "probable_phone_interaction"
                     conf = 0.75
                     reasons.append("persistent_in_hand_head_down")
-                elif (in_hand or near) and dur >= self.probable_seconds:
+                elif can_interact and in_hand and interact_dur >= self.probable_seconds:
                     level = "probable_phone_interaction"
                     conf = 0.7
-                    reasons.append("persistent_near_phone")
-                elif (in_hand or near) and dur >= self.minimum_interaction_seconds:
+                    reasons.append("persistent_in_hand")
+                elif can_interact and in_hand and interact_dur >= self.minimum_interaction_seconds:
                     level = "possible_phone_interaction"
                     conf = 0.55
+                    reasons.append("min_interaction_in_hand")
+                elif can_interact and not self.interaction_requires_in_hand and dur >= self.probable_seconds:
+                    level = "probable_phone_interaction"
+                    conf = 0.65
+                    reasons.append("persistent_near_phone")
+                elif can_interact and not self.interaction_requires_in_hand and dur >= self.minimum_interaction_seconds:
+                    level = "possible_phone_interaction"
+                    conf = 0.5
                     reasons.append("min_interaction_duration")
                 elif in_hand:
                     level = "phone_in_hand"
+                elif near and self.interaction_requires_in_hand:
+                    reasons.append("near_without_wrist_not_interaction")
                 out.append(
                     PhoneAssociationState(
                         person_track_id=pid,
@@ -193,6 +302,7 @@ class PersonPhoneAssociator:
                 )
             else:
                 self._near_since.pop(pid, None)
+                self._in_hand_since.pop(pid, None)
                 level = "phone_visible" if phone_visible else "not_detected"
                 out.append(
                     PhoneAssociationState(
@@ -211,6 +321,7 @@ class PersonPhoneAssociator:
         for pid in list(self._near_since.keys()):
             if pid not in active_near:
                 self._near_since.pop(pid, None)
+                self._in_hand_since.pop(pid, None)
         return out
 
 

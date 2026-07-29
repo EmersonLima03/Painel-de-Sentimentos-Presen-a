@@ -1,7 +1,7 @@
 device:
   device_id: edge-001
   school_id: 1
-  default_camera_index: 0   # Câmera padrão (notebook); fallback quando índice escolhido falha
+  default_camera_index: 0   # só usado se allow_index_fallback=true (desligado por padrão)
   camera_connect_timeout_seconds: 10  # RTSP Intelbras: dar mais tempo para conectar
 
 cameras:
@@ -11,10 +11,11 @@ cameras:
     rtsp_url: rtsp://admin:PASSWORD@192.168.100.133:554/cam/realmonitor?channel=1&subtype=1
     enabled: false
 
-  # Webcam USB XWF-1080P (OpenCV idx 2). idx 0=Iriun preto, idx 1=Integrated Camera notebook.
+  # USB 1080p: "auto" escolhe o índice com maior resolução (evita notebook).
+  # Alternativa fixa: "0", "1", "2"… Confira com /cameras/devices (uvicorn parado).
   - camera_id: cam-web
     room_id: DEV
-    rtsp_url: "2"
+    rtsp_url: "auto"
     webcam_width: 1920
     webcam_height: 1080
     enabled: true
@@ -82,6 +83,11 @@ vision:
   phone_yolo:
     enabled: true            # YOLO cell phone (ultralytics); nunca confirmed automático
     model_path: "data/models/yolov8n.pt"
+    conf_threshold: 0.42     # frame completo — calibrar com amostras
+    max_height_width_ratio: 2.7  # rejeita garrafa/térmico alto (FP comum)
+    max_width_height_ratio: 4.0  # aceita celular deitado no peito (largo)
+    torso_pass_enabled: true     # 2ª passagem no recorte do tórax (celular no peito)
+    torso_conf_threshold: 0.30   # conf mais baixa só no ROI do peito
 
 # Cadastro por webcam: mais frames = mais precisão (média de embeddings)
 enrollment:
@@ -128,11 +134,15 @@ modules:
   lxp: { mode: disabled }
 
 expression:
-  provider: fer_legacy
+  provider: hsemotion
+  ab_secondary: deepface
+  fallback_chain: [hsemotion, deepface, fer_legacy]
   interval_seconds: 1.0
   window_seconds: 8
   minimum_samples: 3
   minimum_confidence: 0.45
+  minimum_confidence_positive: 0.55
+  smile_boost_enabled: false
   minimum_observation_quality: 0.55
 
 analytics:
@@ -164,6 +174,21 @@ person_tracking:
   maximum_center_distance_ratio: 0.35
   bytetrack_yaml: data/trackers/bytetrack_person.yaml
 
+face_occlusion:
+  wrist_near_ratio: 0.65          # punho perto do rosto (face diag.) — evita FP headset/mic
+  confirm_seconds: 0.7             # exige punho perto antes de contar oclusão
+  clear_hold_seconds: 0.5          # libera rápido ao normalizar (~0.5s, não 30s)
+  persistent_seconds: 5.0            # evento persistente só após 5s reais
+  suppress_when_landmarks_clear: true  # EAR/landmarks ok → ignora punho espúrio
+
+behavioral_events:
+  clear_hold_seconds: 0.5          # base: fecha rápido ao normalizar
+  clear_hold_drowsiness_seconds: 4.0  # olhos/celular: evita N episódios por piscar
+
+head_down:
+  pitch_threshold: 0.45            # pitch facial > limiar = cabeça baixa
+  event_min_seconds: 8.0            # evento após N segundos acumulados
+
 pose_body:
   enabled: true
   model_path: data/mediapipe_models/pose_landmarker_lite.task
@@ -171,6 +196,7 @@ pose_body:
 phone:
   possible_after_seconds: 5
   probable_after_seconds: 12
+  interaction_requires_in_hand: true  # possible/probable só com punho perto do bbox
 
 visual_attention:
   window_seconds: 10

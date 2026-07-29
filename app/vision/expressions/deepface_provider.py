@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -16,9 +16,39 @@ class DeepFaceProvider:
     model_name = "deepface-emotion"
     model_version = "actions-emotion-only"
 
-    def __init__(self, minimum_confidence: float = 0.60):
+    def __init__(self, minimum_confidence: float = 0.55):
         self.minimum_confidence = minimum_confidence
         self._failed = False
+        self._health_cache: Optional[dict] = None
+        self._health_ts: float = 0.0
+
+    def health(self, *, force: bool = False) -> dict:
+        now = time.time()
+        if not force and self._health_cache and now - self._health_ts < 30.0:
+            return self._health_cache
+        if self._failed:
+            h = {"status": "unavailable", "provider": self.provider_name, "reason": "import_failed"}
+        else:
+            try:
+                import importlib.util
+
+                if importlib.util.find_spec("deepface") is None:
+                    h = {
+                        "status": "dependency_missing",
+                        "provider": self.provider_name,
+                        "reason": "deepface_not_installed",
+                    }
+                else:
+                    h = {
+                        "status": "available",
+                        "provider": self.provider_name,
+                        "model_name": self.model_name,
+                    }
+            except Exception as e:
+                h = {"status": "unavailable", "provider": self.provider_name, "reason": str(e)}
+        self._health_cache = h
+        self._health_ts = now
+        return h
 
     def predict_batch(self, face_crops: List[np.ndarray]) -> List[FacialExpressionPrediction]:
         if self._failed:
@@ -33,7 +63,6 @@ class DeepFaceProvider:
         for crop in face_crops:
             t0 = time.perf_counter()
             try:
-                # Nunca race/gender/age
                 results = DeepFace.analyze(
                     crop,
                     actions=["emotion"],

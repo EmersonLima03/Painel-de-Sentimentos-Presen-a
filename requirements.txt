@@ -19,7 +19,7 @@ torch==2.2.2
 torchvision==0.17.2
 facenet-pytorch==2.6.0
 # MediaPipe: preferir versão com Tasks API (face_detector). Fallback: Haar.
-mediapipe>=0.10.8
+mediapipe>=0.10.8,<0.10.31
 faiss-cpu>=1.7.4
 onnxruntime>=1.17.0
 cryptography>=41.0.0

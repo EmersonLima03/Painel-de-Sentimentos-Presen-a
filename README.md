@@ -2,12 +2,16 @@
 
 Sistema **edge** de visão para salas de aula: presença facial (YuNet + FaceNet), indicadores visuais estimados e dashboard local. O vídeo **não** é enviado à nuvem por padrão.
 
-## Estado atual
+## Estado atual (jul/2026)
 
-- **Demo completo e testado** (8 alunos fictícios, API, WebSocket, dashboard React)
-- **Presença** funcional no runtime
-- **Câmera Intelbras / validação de campo:** pendente (credencial ou corpus)
-- Providers reais de expressão: **experimentais** — não aprovados para produção
+**Branch:** `feat/painel-de-sentimentos` — [detalhes em docs/ESTAGIO_ATUAL.md](docs/ESTAGIO_ATUAL.md)
+
+- **Dashboard React unificado** + WebSocket ao vivo (`/dashboard`, `/debug/vision`)
+- **Presença + identidade** por track (continuidade quando rosto some)
+- **Indicadores estimados:** atenção, expressão aparente, sonolência, celular — com estado **inconclusivo** quando rosto ocluído
+- **Instabilidade conhecida:** diferenciar **cabeça baixa** vs **rosto tampado** (mão/objeto) — em calibração
+- Providers de expressão: **experimentais** — não aprovados para produção
+- **LXP / Intelbras campo:** pendente
 
 Indicadores são estimativas visuais — **não** diagnóstico nem comprovação de aprendizagem.
 

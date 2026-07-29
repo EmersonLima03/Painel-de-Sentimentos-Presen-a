@@ -315,7 +315,7 @@ def is_emotion_backend_available() -> bool:
         return False
 
 
-def _analyze_face(face_bgr: np.ndarray) -> Tuple[str, float, str, str, str]:
+def _analyze_face(face_bgr: np.ndarray, *, smile_boost: bool = False) -> Tuple[str, float, str, str, str]:
     """Retorna label, conf, state_smooth, state_raw, source."""
     health = emotion_backend_health()
     backend = health.get("backend") or health.get("provider")
@@ -329,9 +329,16 @@ def _analyze_face(face_bgr: np.ndarray) -> Tuple[str, float, str, str, str]:
             if i < len(probs_arr):
                 fer = _TO_FER2013.get(name, name)
                 raw_probs[fer] = raw_probs.get(fer, 0.0) + float(probs_arr[i])
-        raw_probs, label, source = apply_smile_boost_to_fer_probs(
-            face_bgr, raw_probs, raw_label=label
-        )
+        source = "model"
+        if smile_boost:
+            raw_probs, label, source = apply_smile_boost_to_fer_probs(
+                face_bgr, raw_probs, raw_label=label
+            )
+        else:
+            # Sem boost: argmax puro
+            if raw_probs:
+                label = max(raw_probs.items(), key=lambda kv: kv[1])[0]
+                conf = float(raw_probs[label])
         conf = float(raw_probs.get(label, conf) if label in raw_probs else conf)
         if source == "smile":
             conf = max(conf, float(raw_probs.get("happy", conf)))
@@ -348,11 +355,21 @@ def _analyze_face(face_bgr: np.ndarray) -> Tuple[str, float, str, str, str]:
     model = _load_model(_model_path or default_model_path())
     pred = model.predict(x, verbose=0)[0]
 
-    label, conf, source = _resolve_label_from_probs(pred, face_bgr)
-    smile_boost = source == "smile"
-    raw_state = _map_emotion_to_state(label, conf, smile_boost=smile_boost)
+    label, conf, source = _resolve_label_from_probs(pred, face_bgr) if smile_boost else (
+        (EMOTION_LABELS[int(np.argmax(pred))], float(pred[int(np.argmax(pred))]), "model")
+        if len(pred)
+        else ("neutral", 0.0, "model")
+    )
+    if not smile_boost and source == "model":
+        # Sem boost: usa argmax puro do modelo
+        idx = int(np.argmax(pred))
+        label = EMOTION_LABELS[idx] if idx < len(EMOTION_LABELS) else "neutral"
+        conf = float(pred[idx])
+        source = "model"
+    smile_flag = smile_boost and source == "smile"
+    raw_state = _map_emotion_to_state(label, conf, smile_boost=smile_flag)
     state = _smooth_state(raw_state)
-    if source == "smile" and state == "neutral":
+    if smile_flag and state == "neutral":
         state = "attentive"
     return label, conf, state, raw_state, source
 
@@ -362,11 +379,13 @@ def predict_emotion(face_bgr: np.ndarray) -> Tuple[str, float, str]:
     Retorna (emotion_label, confidence, engagement_state).
     engagement_state: attentive | neutral | distracted
     """
-    label, conf, state, _, _ = _analyze_face(face_bgr)
+    label, conf, state, _, _ = _analyze_face(face_bgr, smile_boost=False)
     return label, conf, state
 
 
-def predict_emotion_detail(face_bgr: np.ndarray) -> Tuple[str, float, str, str, str]:
+def predict_emotion_detail(
+    face_bgr: np.ndarray, *, smile_boost: bool = False
+) -> Tuple[str, float, str, str, str]:
     """Retorna label, conf, state_smooth, state_raw, source (model|smile|happy_prob|onnx)."""
-    label, conf, state, raw_state, source = _analyze_face(face_bgr)
+    label, conf, state, raw_state, source = _analyze_face(face_bgr, smile_boost=smile_boost)
     return label, conf, state, raw_state, source

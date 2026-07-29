@@ -27,6 +27,8 @@ Indicadores são **estimativas a partir de sinais visuais**. **Não** constituem
 
 ## Estado atual (honesto)
 
+**Checkpoint jul/2026 (branch `feat/painel-de-sentimentos`):** ver [ESTAGIO_ATUAL.md](ESTAGIO_ATUAL.md) — inclui lacuna cabeça baixa vs oclusão facial.
+
 | Módulo | Estado | Modo típico | Validação | Observações |
 |--------|--------|-------------|-----------|-------------|
 | Presença (YuNet + FaceNet) | Funcional no runtime | produção (legado) | Testes + uso local | Thresholds congelados `presence-yaml-2026-07-23` |

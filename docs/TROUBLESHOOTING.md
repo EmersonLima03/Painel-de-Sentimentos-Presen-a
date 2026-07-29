@@ -41,6 +41,20 @@ Para cada item: sintoma → causa → diagnóstico → correção → confirmaç
 - **Correção:** associação por `person_bbox` + punhos; calibrar só com amostras.  
 - **Confirmação:** `phone_visible` / `phone_in_hand` sem `confirmed_*`.
 
+### Garrafa/térmico dispara `probable_phone_interaction`
+
+- **Causa:** YOLO COCO classifica objetos verticais como `cell phone`; associação só por proximidade ao tronco.  
+- **Correção (P0):** `phone_yolo.max_height_width_ratio` (rejeita bbox alto), `phone.interaction_requires_in_hand: true` (possible/probable só com punho).  
+- **Diagnóstico:** em `/debug/vision` → JSON → `phone_detector.rejected_detections` ou `tracks[].phone.reasons`.  
+- **Confirmação:** segurar garrafa ≥15s → no máximo `phone_near_person` ou `phone_in_hand`, **sem** evento provável; celular real na mão ≥12s → `possible`/`probable`.
+
+### Garrafa/térmico dispara `probable_phone_interaction`
+
+- **Causa:** YOLO COCO classifica objetos verticais como `cell phone`; associação só por proximidade ao tronco.  
+- **Correção (P0):** `phone_yolo.max_height_width_ratio` (rejeita bbox alto), `phone.interaction_requires_in_hand: true` (possible/probable só com punho).  
+- **Diagnóstico:** em `/debug/vision` → JSON → `phone_detector.rejected_detections` ou `tracks[].phone.reasons`.  
+- **Confirmação:** segurar garrafa ≥15s → no máximo `phone_near_person` ou `phone_in_hand`, **sem** evento provável; celular real na mão ≥12s → `possible`/`probable`.
+
 ### Snapshot com `observation_quality: {}` / sem landmarks
 
 - **Causa (antes):** módulos não publicados no `publish_live_debug` ou MediaPipe sem `solutions`.  

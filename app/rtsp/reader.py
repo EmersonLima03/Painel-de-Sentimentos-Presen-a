@@ -52,6 +52,8 @@ class RTSPReader:
         self.last_error: Optional[str] = None
         self.is_webcam = False
         self.device_index: Optional[int] = None
+        self.auto_select = False
+        self.allow_index_fallback = False
 
         try:
             device_idx = int((rtsp_url or "").strip())
@@ -60,8 +62,14 @@ class RTSPReader:
                 self.device_index = device_idx
                 logger.info("rtsp_reader_webcam", camera_id=camera_id, device_index=device_idx)
         except (ValueError, AttributeError, TypeError):
-            self.is_webcam = False
-            self.device_index = None
+            pass
+
+        # rtsp_url: "auto" → escolhe USB/maior resolução automaticamente
+        if isinstance(rtsp_url, str) and rtsp_url.strip().lower() == "auto":
+            self.is_webcam = True
+            self.device_index = int(default_camera_index)
+            self.auto_select = True
+            logger.info("rtsp_reader_webcam_auto", camera_id=camera_id)
 
     def _apply_webcam_resolution(self) -> None:
         if not self.cap or not self.is_webcam:
@@ -81,6 +89,16 @@ class RTSPReader:
         return self._connect_rtsp_async()
 
     def _connect_rtsp_async(self) -> bool:
+        # Idempotente: não derruba stream já saudável (start() chama connect de novo).
+        if (
+            self._async_rtsp is not None
+            and self._async_rtsp.is_connected
+            and (time.time() - (self._async_rtsp.last_frame_time or 0)) < 15.0
+        ):
+            self.is_connected = True
+            self.last_error = None
+            return True
+
         if self._async_rtsp is not None:
             self._async_rtsp.stop()
 
@@ -109,6 +127,23 @@ class RTSPReader:
         return True
 
     def _connect_webcam_async(self) -> bool:
+        # Idempotente: evita stop()+reopen que mata a webcam no Windows.
+        if (
+            self._async_capture is not None
+            and self._async_capture.is_connected
+            and (time.time() - (self._async_capture.last_frame_time or 0)) < 15.0
+        ):
+            self.is_connected = True
+            self.last_error = None
+            self.last_frame_time = self._async_capture.last_frame_time
+            self.frame_count = self._async_capture.frame_count
+            logger.info(
+                "webcam_already_connected",
+                camera_id=self.camera_id,
+                device_index=self._async_capture.device_index,
+            )
+            return True
+
         if self._async_capture is not None:
             self._async_capture.stop()
 
@@ -118,6 +153,8 @@ class RTSPReader:
             height=self.webcam_height,
             default_index=self.default_camera_index,
             reconnect_delay=min(self.reconnect_delay, 2.0),
+            allow_index_fallback=self.allow_index_fallback,
+            auto_select=self.auto_select,
         )
         if not self._async_capture.connect():
             self.is_connected = False

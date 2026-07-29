@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/labels.ts","./src/main.tsx","./src/components/climatebars.tsx","./src/components/overviewhero.tsx","./src/components/reportpanel.tsx","./src/components/sessionanswers.tsx","./src/components/sessiontimelinechart.tsx","./src/components/studentcard.tsx","./src/components/studentrowexpand.tsx","./src/hooks/usedashboarddata.ts"],"version":"5.9.3"}

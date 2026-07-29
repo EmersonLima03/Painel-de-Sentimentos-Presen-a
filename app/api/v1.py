@@ -16,6 +16,14 @@ from pydantic import BaseModel, Field
 from app.auth import require_api_token
 from app.config import get_settings
 from app.runtime_mode import DISCLAIMER, DEMO_BANNER, get_runtime_mode, is_demo
+from app.labels_pt import (
+    attention_label_pt,
+    attention_level_from_index,
+    climate_label_pt,
+    labels_catalog,
+)
+from app.services.live_session import dashboard_track_view, get_live_session
+from app.pipeline.analytics_track import filter_displayable_tracks
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
@@ -34,8 +42,13 @@ _live_state: Dict[str, Any] = {
 def update_live_debug_state(**kwargs) -> None:
     _live_state.update(kwargs)
     _live_state["updated_at"] = time.time()
+    cc = kwargs.get("classroom_counts") or _live_state.get("classroom_counts") or {}
+    if cc.get("climate_distribution"):
+        _live_state["climate_distribution"] = cc["climate_distribution"]
     for k in ("embeddings", "rtsp_url", "frame", "credentials"):
         _live_state.pop(k, None)
+    if not is_demo():
+        get_live_session().ingest_live_state(_live_state)
 
 
 def _demo_snap() -> Dict[str, Any]:
@@ -102,6 +115,16 @@ async def live_status(_: None = Depends(require_api_token)):
                 "lxp": getattr(settings, "module_lxp_mode", "disabled"),
             },
             "camera_status": "rtsp_or_offline",
+            "session": get_live_session().session_meta(),
+            "kpis": {
+                "visible": _live_state.get("visible_people"),
+                "present": _live_state.get("recognized_people"),
+                "observable": _live_state.get("observable_people"),
+                "inconclusive": _live_state.get("inconclusive_people"),
+                "attention_index": _live_state.get("attention_index"),
+                "climate": _live_state.get("apparent_climate"),
+                "active_events": len(_live_state.get("live_event_buffer") or []),
+            },
         }
     )
 
@@ -131,15 +154,35 @@ async def classroom_summary(_: None = Depends(require_api_token)):
         "inconclusive_people": _live_state.get("inconclusive_people"),
         "attention_index": _live_state.get("attention_index"),
         "apparent_climate": _live_state.get("apparent_climate"),
+        "climate_distribution": _live_state.get("climate_distribution"),
         "phones": _live_state.get("phones", []),
+        "active_behavioral_signals": sum(
+            1
+            for e in (_live_state.get("live_event_buffer") or [])
+            if e.get("lifecycle") in ("opened", "updated")
+        ),
         "updated_at": _live_state.get("updated_at"),
-        "tracks": _live_state.get("tracks", []),
+        "tracks": [dashboard_track_view(t) for t in filter_displayable_tracks(_live_state.get("tracks") or [])],
     }
     # null quando sem dado (não forçar 0)
     for k in ("observable_people", "inconclusive_people", "attention_index", "apparent_climate"):
         if k not in _live_state:
             counts[k] = None
+    attn_index = counts.get("attention_index")
+    attn_level = attention_level_from_index(attn_index)
+    climate = counts.get("apparent_climate")
+    ls = get_live_session()
+    agg = ls.aggregate(_live_state)
+    counts["attention_level"] = attn_level
+    counts["attention_label_pt"] = attention_label_pt(attn_level)
+    counts["climate_label_pt"] = climate_label_pt(climate)
+    counts["class_summary"] = agg.get("class_summary")
     return _enrich(counts)
+
+
+@router.get("/labels")
+async def api_labels(_: None = Depends(require_api_token)):
+    return _enrich(labels_catalog())
 
 
 @router.get("/live/tracks")
@@ -155,7 +198,7 @@ async def live_tracks(_: None = Depends(require_api_token)):
         )
     return _enrich(
         {
-            "tracks": _live_state.get("tracks", []),
+            "tracks": [dashboard_track_view(t) for t in filter_displayable_tracks(_live_state.get("tracks") or [])],
             "bindings": _live_state.get("bindings", []),
             "updated_at": _live_state.get("updated_at"),
             "latencies_ms": _live_state.get("latencies_ms", {}),
@@ -200,7 +243,7 @@ async def list_sessions(_: None = Depends(require_api_token)):
     if is_demo():
         snap = _demo_snap()
         return _enrich({"sessions": [snap["session"]]})
-    return _enrich({"sessions": []})
+    return _enrich({"sessions": [get_live_session().session_meta()]})
 
 
 @router.get("/sessions/{session_id}")
@@ -210,7 +253,10 @@ async def get_session(session_id: str, _: None = Depends(require_api_token)):
         if snap["session"]["session_id"] != session_id:
             return JSONResponse({"detail": "session not found"}, status_code=404)
         return _enrich(snap["session"])
-    return JSONResponse({"detail": "not found"}, status_code=404)
+    ls = get_live_session()
+    if ls.session_id != session_id:
+        return JSONResponse({"detail": "session not found"}, status_code=404)
+    return _enrich(ls.session_meta())
 
 
 @router.get("/sessions/{session_id}/summary")
@@ -219,7 +265,10 @@ async def session_summary(session_id: str, _: None = Depends(require_api_token))
         from app.demo.engine import get_demo_engine
 
         return _enrich(get_demo_engine().report())
-    return _enrich({"session_id": session_id, "summary": None})
+    ls = get_live_session()
+    if ls.session_id != session_id:
+        return _enrich({"session_id": session_id, "summary": None})
+    return _enrich(ls.build_report(_live_state))
 
 
 @router.get("/sessions/{session_id}/timeline")
@@ -227,7 +276,8 @@ async def session_timeline(session_id: str, _: None = Depends(require_api_token)
     if is_demo():
         snap = _demo_snap()
         return _enrich({"session_id": session_id, "timeline": snap["timeline"]})
-    return _enrich({"session_id": session_id, "timeline": []})
+    ls = get_live_session()
+    return _enrich({"session_id": session_id, "timeline": ls.timeline[-80:]})
 
 
 @router.get("/sessions/{session_id}/students")
@@ -235,7 +285,7 @@ async def session_students(session_id: str, _: None = Depends(require_api_token)
     if is_demo():
         snap = _demo_snap()
         return _enrich({"session_id": session_id, "students": snap["attendance"]})
-    return _enrich({"session_id": session_id, "students": []})
+    return _enrich({"session_id": session_id, "students": get_live_session().students_list()})
 
 
 @router.get("/sessions/{session_id}/engagement")
@@ -264,7 +314,14 @@ async def session_climate(session_id: str, _: None = Depends(require_api_token))
     if is_demo():
         snap = _demo_snap()
         return _enrich({"session_id": session_id, "dominant_state": snap["kpis"]["climate"]})
-    return _enrich({"session_id": session_id, "climate": None})
+    return _enrich(
+        {
+            "session_id": session_id,
+            "dominant_state": _live_state.get("apparent_climate"),
+            "climate_distribution": _live_state.get("climate_distribution"),
+            "timeline": get_live_session().climate_samples,
+        }
+    )
 
 
 @router.get("/sessions/{session_id}/behavioral-events")
@@ -272,7 +329,8 @@ async def session_behavioral(session_id: str, _: None = Depends(require_api_toke
     if is_demo():
         snap = _demo_snap()
         return _enrich({"session_id": session_id, "events": snap["events"]})
-    return _enrich({"session_id": session_id, "events": []})
+    evs = list(get_live_session().events_seen.values())
+    return _enrich({"session_id": session_id, "events": evs[-100:]})
 
 
 @router.get("/review/events")

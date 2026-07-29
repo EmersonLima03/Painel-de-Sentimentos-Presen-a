@@ -155,6 +155,8 @@ def estimate_body_pose(
     hand_near_since: Optional[float] = None,
     now: Optional[float] = None,
     min_keypoint_confidence: float = 0.4,
+    wrist_near_face_max_ratio: float = 0.65,
+    occlusion_persistent_seconds: float = 5.0,
 ) -> BodyPoseResult:
     """
     IMAGE mode no ROI corporal (coords convertidas ao frame).
@@ -257,8 +259,15 @@ def estimate_body_pose(
         angle = math.degrees(math.atan2(dx, max(1e-3, dy)))  # ~0 = vertical
         torso_ori = abs(angle)
 
-        # cabeça baixa: nariz abaixo dos ombros + distância vertical relativa
-        head_down_geom = nose[1] > shoulder_cy + 0.08 * shoulder_w and nose_to_shoulder > 0.15
+        # cabeça baixa: webcam frontal — nariz não precisa ir muito abaixo dos ombros
+        # (topo da cabeça visível quando olha para baixo). Critérios mais permissivos.
+        head_down_geom = (
+            nose[1] > shoulder_cy + 0.02 * shoulder_w and nose_to_shoulder > 0.05
+        ) or (nose_to_shoulder > 0.22)
+        # Inclinação do eixo cabeça–torso também conta como look-down
+        head_pitch_proxy = dy > 0 and (nose[1] - shoulder_cy) > shoulder_w * 0.05
+        if head_pitch_proxy and abs(dx) / shoulder_w < 0.45:
+            head_down_geom = True
         head_turned = abs(nose[0] - shoulder_cx) / shoulder_w > 0.35
 
         # mão apoiando cabeça (punho perto da cabeça)
@@ -310,33 +319,61 @@ def estimate_body_pose(
     }
 
     near = False
-    if face_bbox and (lw or rw):
-        fcx = face_bbox[0] + face_bbox[2] / 2.0
-        fcy = face_bbox[1] + face_bbox[3] / 2.0
-        fdiag = max(1.0, (face_bbox[2] ** 2 + face_bbox[3] ** 2) ** 0.5)
+    # Sem face_bbox (rosto coberto/perdido), usa proxy: nariz ou terço superior do corpo.
+    # Sem isso a oclusão por punho NUNCA dispara exatamente quando mais importa.
+    proxy_bbox = face_bbox
+    if proxy_bbox is None and nose is not None and ls and rs:
+        shoulder_w = max(1.0, abs(rs[0] - ls[0]))
+        proxy_bbox = (
+            nose[0] - shoulder_w * 0.4,
+            nose[1] - shoulder_w * 0.55,
+            shoulder_w * 0.8,
+            shoulder_w * 0.85,
+        )
+    elif proxy_bbox is None and person_bbox is not None:
+        px, py, pw, ph = person_bbox[:4]
+        proxy_bbox = (px + pw * 0.2, py, pw * 0.6, ph * 0.35)
+
+    if proxy_bbox and (lw or rw):
+        fx, fy, fw, fh = proxy_bbox[:4]
+        fcx = fx + fw / 2.0
+        fcy = fy + fh / 2.0
+        fdiag = max(1.0, (fw ** 2 + fh ** 2) ** 0.5)
+        expand = (fx - fw * 0.15, fy - fh * 0.12, fw * 1.3, fh * 1.25)
         for wrist in (lw, rw):
             if wrist is None:
                 continue
-            d = math.hypot(wrist[0] - fcx, wrist[1] - fcy) / fdiag
-            if d < 1.2:
-                near = True
+            if float(wrist[2]) < 0.40:
+                continue
+            wx, wy = wrist[0], wrist[1]
+            d = math.hypot(wx - fcx, wy - fcy) / fdiag
+            if d >= wrist_near_face_max_ratio:
+                continue
+            # Punho deve intersectar região facial expandida (não só distância ao centro).
+            if not (
+                expand[0] <= wx <= expand[0] + expand[2]
+                and expand[1] <= wy <= expand[1] + expand[3]
+            ):
+                continue
+            near = True
         hands["visibility"] = 0.6 if near else (0.3 if (lw or rw) else 0.0)
         if near:
             hands["state"] = "hand_near_face"
             dur_h = (now - hand_near_since) if hand_near_since else 0.0
-            if dur_h >= 3.0:
+            reason_suffix = "_proxy" if face_bbox is None else ""
+            if dur_h >= occlusion_persistent_seconds:
                 face_occlusion = {
                     "state": "persistent_possible_face_occlusion",
-                    "confidence": 0.55,
-                    "reasons": ["wrist_near_face_persistent"],
+                    "confidence": 0.55 if face_bbox else 0.5,
+                    "reasons": [f"wrist_near_face_persistent{reason_suffix}"],
                     "note": "wrists_only_no_hand_landmarker",
                     "duration_seconds": round(dur_h, 2),
                 }
             else:
                 face_occlusion = {
                     "state": "possible_face_occlusion_by_hand",
-                    "confidence": 0.4,
-                    "reasons": ["wrist_near_face"],
+                    "confidence": 0.4 if face_bbox else 0.35,
+                    "reasons": [f"wrist_near_face{reason_suffix}"],
                     "note": "wrists_only_no_hand_landmarker",
                     "duration_seconds": round(dur_h, 2),
                 }

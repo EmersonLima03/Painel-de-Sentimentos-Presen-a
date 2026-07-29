@@ -992,12 +992,24 @@ class PipelineOrchestrator:
             return
 
         loop = asyncio.get_event_loop()
-        connect_timeout = getattr(self.settings, "camera_connect_timeout_seconds", 15)
+        connect_timeout = float(getattr(self.settings, "camera_connect_timeout_seconds", 15) or 15)
+        # Webcam no Windows costuma precisar >3s se o driver ainda está liberando o device.
+        connect_timeout = max(connect_timeout, 10.0)
         for camera_id, reader in self.readers.items():
             try:
-                await asyncio.wait_for(loop.run_in_executor(None, reader.connect), timeout=connect_timeout)
+                if reader.is_connected:
+                    logger.info("camera_already_ready", camera_id=camera_id)
+                    continue
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, reader.connect),
+                    timeout=connect_timeout,
+                )
             except asyncio.TimeoutError:
-                logger.warning("rtsp_connect_timeout", camera_id=camera_id, timeout_seconds=connect_timeout)
+                logger.warning(
+                    "rtsp_connect_timeout",
+                    camera_id=camera_id,
+                    timeout_seconds=connect_timeout,
+                )
             except Exception as e:
                 logger.warning("rtsp_connect_error", camera_id=camera_id, error=str(e))
 
