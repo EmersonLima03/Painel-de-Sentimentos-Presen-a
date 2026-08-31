@@ -32,6 +32,13 @@ _MOUTH_TOP = 13
 _MOUTH_BOTTOM = 14
 _MOUTH_LEFT = 78
 _MOUTH_RIGHT = 308
+# Cantos externos — melhor para boca caída / bico lateral que 78/308
+_MOUTH_LEFT_OUTER = 61
+_MOUTH_RIGHT_OUTER = 291
+_LEFT_BROW_INNER = 107
+_RIGHT_BROW_INNER = 336
+_LEFT_EYE_TOP = 159
+_RIGHT_EYE_TOP = 386
 _NOSE_TIP = 1
 _CHIN = 152
 _LEFT_EYE_OUTER = 33
@@ -62,6 +69,7 @@ class FacialSignalSample:
     provider: str = "mediapipe"
     landmarks_quality: float = 0.0
     smile_score: float = 0.0
+    frown_score: float = 0.0
 
 
 def face_landmarker_health() -> dict:
@@ -209,6 +217,79 @@ def _smile_from_landmarks(landmarks, iw: int, ih: int, *, mouth_aspect: float) -
         return 0.0
 
 
+def _frown_from_landmarks(landmarks, iw: int, ih: int, *, mouth_aspect: float) -> float:
+    """
+    Boca caída / bico / cara contraída (inverso do sorriso).
+    FER+ marca pout/scrunch como neutral ~0.75 — este score é o contrapeso.
+    """
+    try:
+        top = _pt(landmarks, _MOUTH_TOP, iw, ih)
+        bottom = _pt(landmarks, _MOUTH_BOTTOM, iw, ih)
+        left = _pt(landmarks, _MOUTH_LEFT, iw, ih)
+        right = _pt(landmarks, _MOUTH_RIGHT, iw, ih)
+        left_o = _pt(landmarks, _MOUTH_LEFT_OUTER, iw, ih)
+        right_o = _pt(landmarks, _MOUTH_RIGHT_OUTER, iw, ih)
+        mid_y = float((top[1] + bottom[1]) * 0.5)
+        # Prefer cantos externos (bico/queda); fallback internos
+        corners_y = float((left_o[1] + right_o[1]) * 0.5)
+        corners_inner_y = float((left[1] + right[1]) * 0.5)
+        # Escala maior que o smile — evita FP em cara séria (ruído de 1–2 px)
+        scale = max(float(ih) * 0.028, 1.0)
+        droop = max(corners_y - mid_y, corners_inner_y - mid_y) / scale
+        # Assimetria vertical dos cantos (bico puxado para um lado)
+        asym = abs(float(left_o[1] - right_o[1])) / scale
+        width_ratio = float(np.linalg.norm(right_o - left_o)) / max(float(iw), 1.0)
+        mar = float(mouth_aspect)
+
+        score = 0.0
+        mouth_signal = False
+        # Droop claro (bico/tristeza) — limiar acima do ruído de pose neutra
+        if droop >= 0.35:
+            score += min(0.42, 0.20 + (droop - 0.35) * 0.35)
+            mouth_signal = True
+        if droop >= 0.70:
+            score += 0.16
+        if droop >= 1.10:
+            score += 0.10
+        if asym >= 0.40:
+            score += 0.16
+            mouth_signal = True
+        if asym >= 0.70:
+            score += 0.10
+        # Boca estreita + comprimida só conta COM droop/assimetría (senão cara séria vira negativa)
+        if (droop >= 0.30 or asym >= 0.35) and width_ratio <= 0.32 and mar <= 0.10:
+            score += 0.16
+            mouth_signal = True
+        if (droop >= 0.30 or asym >= 0.35) and mar <= 0.06:
+            score += 0.10
+        elif mar >= 0.50:
+            score *= 0.35
+
+        # Sobrancelha: só reforça se a BOCA já sinalizou (fone/mic gerava FP em cara séria)
+        if mouth_signal:
+            try:
+                lb = _pt(landmarks, _LEFT_BROW_INNER, iw, ih)
+                rb = _pt(landmarks, _RIGHT_BROW_INNER, iw, ih)
+                le = _pt(landmarks, _LEFT_EYE_TOP, iw, ih)
+                re = _pt(landmarks, _RIGHT_EYE_TOP, iw, ih)
+                brow_gap = float((le[1] - lb[1]) + (re[1] - rb[1])) * 0.5 / max(float(ih), 1.0)
+                if 0.0 < brow_gap <= 0.022:
+                    score += 0.16
+                elif 0.0 < brow_gap <= 0.030:
+                    score += 0.08
+            except Exception:
+                pass
+        else:
+            # Sem sinal de boca → frown 0 (cara séria / fone não vira negativa)
+            score = 0.0
+
+        if width_ratio >= 0.42 and droop < 0.40:
+            score *= 0.30
+        return float(min(1.0, max(0.0, score)))
+    except Exception:
+        return 0.0
+
+
 def _pose_from_landmarks(landmarks, iw: int, ih: int) -> Tuple[float, float, float]:
     nx, ny = _pt(landmarks, _NOSE_TIP, iw, ih)
     lex, ley = _pt(landmarks, _LEFT_EYE_OUTER, iw, ih)
@@ -332,6 +413,12 @@ def analyze_face_roi(
     ear = (ear_l + ear_r) * 0.5
     mouth = _mouth_aspect(lm, iw, ih)
     smile = _smile_from_landmarks(lm, iw, ih, mouth_aspect=mouth)
+    frown = _frown_from_landmarks(lm, iw, ih, mouth_aspect=mouth)
+    # Evita empate: sorriso forte zera frown e vice-versa
+    if smile >= 0.45 and smile > frown:
+        frown = 0.0
+    elif frown >= 0.45 and frown > smile:
+        smile = min(smile, 0.20)
     yaw, pitch, roll = _pose_from_landmarks(lm, iw, ih)
 
     eyes_closed = ear < ear_closed_thresh
@@ -369,4 +456,5 @@ def analyze_face_roi(
         provider="mediapipe",
         landmarks_quality=lq,
         smile_score=float(smile),
+        frown_score=float(frown),
     )

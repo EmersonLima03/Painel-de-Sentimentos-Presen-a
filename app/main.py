@@ -1334,9 +1334,18 @@ def _enumerate_local_cameras(try_1080: bool) -> Dict[str, Any]:
             except Exception:
                 pass
             ret, frame = cap.read()
+            # Aquecimento curto: USB/Iriun às vezes devolvem 1º frame preto.
+            if ret and frame is not None:
+                for _ in range(8):
+                    r2, f2 = cap.read()
+                    if r2 and f2 is not None:
+                        frame = f2
             w = h = None
+            mean_b = std_b = None
             if ret and frame is not None:
                 h, w = frame.shape[:2]
+                mean_b = round(float(frame.mean()), 1)
+                std_b = round(float(frame.std()), 1)
             else:
                 w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
                 h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
@@ -1345,6 +1354,10 @@ def _enumerate_local_cameras(try_1080: bool) -> Dict[str, Any]:
                 label = f"Câmera {idx} — {w}×{h}px"
                 if w >= 1920 and h >= 1080:
                     label += " (provável 1080p)"
+                if mean_b is not None and (mean_b < 8.0 or (std_b is not None and std_b < 5.0)):
+                    label += " ⚠ frame preto/plano (Iriun/IR?)"
+                elif mean_b is not None:
+                    label += f" · brilho {mean_b}"
             devices.append(
                 {
                     "index": idx,
@@ -1352,6 +1365,8 @@ def _enumerate_local_cameras(try_1080: bool) -> Dict[str, Any]:
                     "frame_ok": bool(ret and frame is not None),
                     "width": w,
                     "height": h,
+                    "mean_brightness": mean_b,
+                    "std": std_b,
                     "label": label,
                 }
             )
@@ -1360,11 +1375,11 @@ def _enumerate_local_cameras(try_1080: bool) -> Dict[str, Any]:
     return {
         "devices": devices,
         "hint": (
-            'No config.yaml use rtsp_url: "N" com o índice cuja resolução é a da sua USB. '
-            "Compare width×height: USB 1080p costuma aparecer como 1920×1080 (ou próximo). "
-            "Chame com try_1080=false (palavra completa) para resolução padrão do driver. "
-            "Navegador embutido: use as_html=1 para ver tabela. "
-            "Se o uvicorn já estiver usando um índice (ex.: cam-web), esse índice pode aparecer como não aberto aqui."
+            'No config.yaml use rtsp_url: "N" com o índice da USB (ex.: XWF-1080P). '
+            "Compare width×height e brilho: Iriun Webcam virtual costuma ser 1080p PRETA sem o celular. "
+            "Chame com try_1080=false para resolução padrão do driver. "
+            "Melhor com uvicorn parado (senão o índice em uso pode falhar ou parecer preto). "
+            "Navegador: as_html=1."
         ),
     }
 
@@ -1396,6 +1411,7 @@ async def list_camera_devices(
                 f"<td>{html_module.escape(str(d['frame_ok']))}</td>"
                 f"<td>{html_module.escape(str(d['width']))}</td>"
                 f"<td>{html_module.escape(str(d['height']))}</td>"
+                f"<td>{html_module.escape(str(d.get('mean_brightness')))}</td>"
                 f"<td>{html_module.escape(str(d['label']))}</td>"
                 "</tr>"
             )
@@ -1412,7 +1428,7 @@ code {{ background: #333; padding: 2px 6px; }}
 <h1>Índices de câmera (0–9)</h1>
 <p class="hint">{html_module.escape(payload['hint'])}</p>
 <table>
-<thead><tr><th>Índice</th><th>Abriu</th><th>Frame OK</th><th>Largura</th><th>Altura</th><th>Descrição</th></tr></thead>
+<thead><tr><th>Índice</th><th>Abriu</th><th>Frame OK</th><th>Largura</th><th>Altura</th><th>Brilho</th><th>Descrição</th></tr></thead>
 <tbody>{''.join(rows)}</tbody>
 </table>
 <p class="hint">JSON: <code>/cameras/devices</code> · HTML: <code>/cameras/devices?as_html=1</code> · sem forçar 1080: <code>?try_1080=false&amp;as_html=1</code></p>

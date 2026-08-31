@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Dict, Tuple
 
-# Classes internas normalizadas
-NORMALIZED = ("positive", "neutral", "negative", "surprise", "inconclusive")
+# Classes internas normalizadas (TRI: sem bucket surpresa na UI/relatório)
+NORMALIZED = ("positive", "neutral", "negative", "inconclusive")
 
 # Mapeamentos comuns FER / DeepFace / HSEmotion → normalizado
 _MAP = {
@@ -15,15 +15,18 @@ _MAP = {
     "positive": "positive",
     "neutral": "neutral",
     "calm": "neutral",
+    # Surpresa fora do produto TRI: massa descartada (não vira neutra nem “mista”)
+    # — senão choro/boca aberta no FER+ infla neutra e bloqueia negativa.
+    "surprise": "inconclusive",
+    "surprised": "inconclusive",
     "sad": "negative",
     "sadness": "negative",
     "angry": "negative",
     "anger": "negative",
     "fear": "negative",
     "disgust": "negative",
+    "contempt": "negative",
     "negative": "negative",
-    "surprise": "surprise",
-    "surprised": "surprise",
     "inconclusive": "inconclusive",
     "unknown": "inconclusive",
 }
@@ -43,7 +46,7 @@ def display_expression_pt(raw_or_normalized: str | None) -> str:
         "predominantly_positive": "expressão predominantemente positiva",
         "predominantly_neutral": "expressão predominantemente neutra",
         "predominantly_negative": "expressão predominantemente negativa",
-        "surprise": "expressão de surpresa aparente",
+        "surprise": "expressão predominantemente neutra",  # legado → neutra (TRI)
         "inconclusive": "inconclusivo",
     }
     if key in direct:
@@ -53,7 +56,7 @@ def display_expression_pt(raw_or_normalized: str | None) -> str:
         "positive": "expressão predominantemente positiva",
         "neutral": "expressão predominantemente neutra",
         "negative": "expressão predominantemente negativa",
-        "surprise": "expressão de surpresa aparente",
+        "surprise": "expressão predominantemente neutra",
         "inconclusive": "inconclusivo",
     }.get(n, "inconclusivo")
 
@@ -76,10 +79,24 @@ def pick_label(
     *,
     minimum_confidence: float = 0.60,
 ) -> Tuple[str, float, bool]:
-    if not probs or "inconclusive" in probs and len(probs) == 1:
+    if not probs or ("inconclusive" in probs and len(probs) == 1):
         return "inconclusive", 0.0, False
-    best = max(probs.items(), key=lambda kv: kv[1])
+    # Ignora residual surprise se ainda vier no dict
+    usable = {k: float(v) for k, v in probs.items() if k not in ("inconclusive", "surprise")}
+    if not usable:
+        return "inconclusive", 0.0, False
+    # Massa negativa agregada (sad+angry+fear+disgust já somados em "negative")
+    neg_mass = float(usable.get("negative", 0.0))
+    neu_mass = float(usable.get("neutral", 0.0))
+    pos_mass = float(usable.get("positive", 0.0))
+    best = max(usable.items(), key=lambda kv: kv[1])
     label, conf = best[0], float(best[1])
+    # Se neutra ganha por pouco mas há massa negativa clara → negativa (raiva/choro no FER+)
+    if label == "neutral" and neg_mass >= 0.28 and neg_mass >= neu_mass * 0.75 and neg_mass >= pos_mass:
+        label, conf = "negative", neg_mass
     if conf < minimum_confidence:
+        # Ainda aceita negativa com barra um pouco menor (massa agregada)
+        if label == "negative" and neg_mass >= max(0.32, minimum_confidence * 0.75):
+            return "negative", neg_mass, True
         return "inconclusive", conf, False
     return label, conf, True

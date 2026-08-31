@@ -21,9 +21,15 @@ Prioridade:
 
 1. **Oclusão por punho** (mão perto do rosto) → `face_occlusion`; **suprime** head_down
 2. **Face não observável** sem punho e sem geometria corporal → `pose_inconclusive` (não inventar head_down)
-3. **Cabeça baixa** só com:
+3. **Cabeça baixa** com:
    - pitch facial **e** `landmarks_quality ≥ 0.45`, ou
-   - geometria corporal `nose_shoulder_ratio` (nariz+ombros)
+   - geometria corporal `nose_shoulder_ratio` (nariz+ombros), ou
+   - **ângulo extremo** `shoulders_without_face_look_down` (ombros + face ausente + coroa/ears, **sem** punho) — jul/ago 2026
+
+Hold: `inconclusive_hold_seconds` (12s) evita fragmentar episódio quando o pose pisca `inconclusive`.  
+Evento: `started_at` = `head_down_since` (duração ≈ tempo real).  
+
+**Aprovado manual 2026-08-03 (H ✅):** prints ~37s e ~14s contínuos — ver `docs/BASELINE_MANUAL_APROVADO_TRI.md`.
 
 ## Config (`config.yaml` → `head_down`)
 

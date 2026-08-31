@@ -68,7 +68,10 @@ export function StudentRowExpand({ student }: Props) {
               <strong>{c.label_pt}</strong>
               <span>{c.total_seconds > 0 ? fmtDur(c.total_seconds) : "0s"}</span>
               {c.occurrence_count && c.occurrence_count > 1 ? (
-                <span className="muted"> · {c.occurrence_count} episódios</span>
+                <span className="muted" title="Gaps curtos no mesmo uso contínuo fundem em 1 episódio; piscadas no ao vivo não são episódios novos.">
+                  {" "}
+                  · {c.occurrence_count} episódios
+                </span>
               ) : null}
             </li>
           ))}

@@ -46,6 +46,7 @@ class FacialFeatures:
     blink_score: Optional[float] = None
     mouth_open_score: Optional[float] = None
     smile_score: Optional[float] = None
+    frown_score: Optional[float] = None
     brow_tension_score: Optional[float] = None
     gaze_horizontal: Optional[float] = None
     gaze_vertical: Optional[float] = None

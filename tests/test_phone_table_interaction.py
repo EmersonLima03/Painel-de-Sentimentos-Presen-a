@@ -40,6 +40,26 @@ def test_hand_near_phone_on_table_without_grasp_not_probable():
     )
 
 
+def test_phone_association_hold_survives_brief_miss():
+    """Piscas do YOLO não devem zerar near imediatamente."""
+    assoc = PersonPhoneAssociator(
+        minimum_interaction_seconds=5.0,
+        probable_seconds=12.0,
+        interaction_requires_in_hand=True,
+        clear_hold_seconds=1.25,
+    )
+    people = {"p1": (0.0, 0.0, 200.0, 400.0)}
+    phones = [(90.0, 160.0, 40.0, 75.0, 0.8)]
+    wrists = {"p1": [(100.0, 190.0)]}
+    s1 = assoc.update(now=10.0, person_tracks=people, phone_boxes=phones, wrists=wrists)[0]
+    assert s1.phone_in_hand is True
+    # frame sem detecção dentro do hold
+    s2 = assoc.update(now=10.5, person_tracks=people, phone_boxes=[], wrists=wrists)[0]
+    assert s2.phone_near_person is True or s2.phone_in_hand is True
+    assert s2.interaction_level != "not_detected"
+    assert s2.duration_seconds >= 0.5
+
+
 def test_pickup_with_wrist_can_progress():
     assoc = PersonPhoneAssociator(
         minimum_interaction_seconds=5.0,

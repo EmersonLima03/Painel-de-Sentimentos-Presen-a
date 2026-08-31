@@ -67,6 +67,11 @@ export function SessionAnswers({ report, students, focus = "all", hideTitle }: P
     report?.attention_label_pt ||
     "Atenção da turma ainda inconclusiva — precisa de mais tempo observável.";
 
+  const expressionHint =
+    report?.expression_label_pt ||
+    report?.class_summary?.expression_label_pt ||
+    "Expressão aparente agregada ainda sem amostra conclusiva suficiente.";
+
   const climate =
     report?.climate_label_pt || "Clima aparente ainda sem amostra suficiente.";
 
@@ -122,7 +127,8 @@ export function SessionAnswers({ report, students, focus = "all", hideTitle }: P
               </ul>
               <p className="muted answers-hint">
                 Inclui: celular possível/provável · olhos parcial/fechados · cabeça baixa/apoiada ·
-                rosto coberto · baixa atenção visual persistente.
+                rosto coberto · baixa atenção visual persistente. Episódios fundem gaps curtos do
+                mesmo uso contínuo (piscadas no ao vivo ≠ episódio novo).
               </p>
             </dd>
           </div>
@@ -168,12 +174,15 @@ export function SessionAnswers({ report, students, focus = "all", hideTitle }: P
                   <strong>Negativa</strong>
                   <span>{fmtDur(profile.expression_negative_seconds)}</span>
                 </li>
-                <li>
-                  <strong>Mista / surpresa</strong>
-                  <span>{fmtDur(profile.expression_mixed_seconds)}</span>
+                <li className="muted">
+                  <strong>Inconclusivo (não entra nos buckets)</strong>
+                  <span>{fmtDur(profile.inconclusive_seconds)}</span>
                 </li>
               </ul>
-              <p className="muted answers-hint">{climate}</p>
+              <p className="muted answers-hint">
+                {expressionHint}
+                {climate && climate !== expressionHint ? ` · Clima da turma: ${climate}` : ""}
+              </p>
             </dd>
           </div>
         )}

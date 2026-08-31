@@ -641,6 +641,13 @@ function phoneLabel(p) {
   const det = p.status === "available" ? "Detector: operacional" : "Detector: " + (p.status || "—");
   const st = p.state || "not_detected";
   const info = PHONE_STATE[st] || { label: st };
+  // Timer só em mão/interação (TROUBLESHOOTING): near/visible ≠ uso; evita “contar segundos” em FP de garrafa.
+  const timed = [
+    "phone_in_hand",
+    "possible_phone_interaction",
+    "probable_phone_interaction",
+  ].includes(st);
+  if (!timed) return det + " · " + info.label;
   return det + " · " + info.label + " · " + fmtDur(p.duration_seconds);
 }
 
@@ -714,15 +721,23 @@ function renderImportantEvents(tracks, fr) {
       items.push(html);
     };
 
+    let phoneFromActive = false;
     (t.active_events || []).forEach((ev) => {
       const et = ev.event_type || "";
       if (!["face_occluded_persistent", "head_down_persistent", "low_visual_attention", "possible_drowsiness", "probable_drowsiness", "possible_phone_interaction", "probable_phone_interaction"].includes(et))
         return;
       const label = EVENT_TYPE_PT[et] || et;
       const icon = et.includes("phone") ? "📱" : et.includes("drowsiness") ? "👁" : et.includes("occlud") ? "🖐️" : "⬇";
+      const ep =
+        et.includes("phone") && ev.episode_index
+          ? ` · episódio #${ev.episode_index} (contínuo)`
+          : et.includes("phone")
+            ? " · episódio contínuo"
+            : "";
+      if (et.includes("phone")) phoneFromActive = true;
       pushEv(
-        et + ":" + (ev.event_id || ""),
-        `<div class="event-row warn"><span>${icon}</span><span><strong>${esc(name)}:</strong> ${esc(label)} · ${fmtDur(ev.duration_seconds)}</span></div>`
+        et.includes("phone") ? "phone" : et + ":" + (ev.event_id || ""),
+        `<div class="event-row warn"><span>${icon}</span><span><strong>${esc(name)}:</strong> ${esc(label)} · ${fmtDur(ev.duration_seconds)}${esc(ep)}</span></div>`
       );
     });
 
@@ -746,7 +761,11 @@ function renderImportantEvents(tracks, fr) {
       pushEv("drow", `<div class="event-row warn"><span>👁</span><span><strong>${esc(name)}:</strong> ${esc(drowLabel(d.state, d.duration_seconds, d.descriptive_label))}</span></div>`);
     }
     const p = t.phone || {};
-    if (p.state === "possible_phone_interaction" || p.state === "probable_phone_interaction") {
+    // Evita “aparecer de novo” no card se o episódio aberto já está em active_events
+    if (
+      !phoneFromActive &&
+      (p.state === "possible_phone_interaction" || p.state === "probable_phone_interaction")
+    ) {
       pushEv("phone", `<div class="event-row warn"><span>📱</span><span><strong>${esc(name)}:</strong> ${esc(phoneLabel(p))}</span></div>`);
     }
     const idSt = (t.identity || {}).identity_state;
@@ -788,7 +807,12 @@ function renderPersonBlock(display, staleUi, raw) {
   const dInfo = DROWSINESS_STATE[d.state] || { label: d.state || "—", color: "muted" };
   const p = display.phone || {};
   const pInfo = PHONE_STATE[p.state] || { label: p.state || "—", color: "muted" };
-  const hInfo = HEAD_STATE[(display.head_state || {}).state] || (display.head_state || {}).state || "—";
+  const hState = (display.head_state || {}).state;
+  const hDur = Number((display.head_state || {}).duration_seconds || 0);
+  const hInfo = HEAD_STATE[hState] || hState || "—";
+  const hNote = hDur > 0.5 && String(hState || "").startsWith("head_down")
+    ? ("Duração contínua: " + fmtDur(hDur))
+    : "";
   const qLabel = q.status === "observable" ? "Qualidade adequada" : "Qualidade: " + (q.status || "—");
   const smoothed = !!display._ui_smoothed;
   const rawA = (raw || display).visual_attention || {};
@@ -816,10 +840,20 @@ function renderPersonBlock(display, staleUi, raw) {
   let attnNote;
   if (a.observation_paused) {
     const pauseSec = a.unobservable_seconds != null ? a.unobservable_seconds : a.duration_seconds;
-    const occLabel = OCCLUSION_STATE[((raw || display).face_occlusion || {}).state] || reasonsPt(a.reasons);
+    const occState = ((raw || display).face_occlusion || {}).state || "none";
+    let occLabel;
+    if (occState && occState !== "none" && OCCLUSION_STATE[occState]) {
+      occLabel = OCCLUSION_STATE[occState];
+    } else if ((a.reasons || []).some((r) => String(r).includes("face_not") || String(r).includes("occlusion"))) {
+      occLabel = "rosto não observável";
+    } else {
+      occLabel = reasonsPt(a.reasons) || "rosto não observável";
+    }
+    // Nunca mostrar "Sem oclusão facial" enquanto a observação está pausada por rosto sumido
+    if (occLabel === OCCLUSION_STATE.none) occLabel = "rosto não observável";
     attnNote =
       "Observação pausada · " +
-      (occLabel || "rosto não observável") +
+      occLabel +
       " há " +
       fmtDur(pauseSec) +
       ". Corpo ainda pode estar presente — não confirma sonolência nem desatenção.";
@@ -891,7 +925,7 @@ function renderPersonBlock(display, staleUi, raw) {
       ${metricCard("Processamento", fmtMs((display.latencies_ms || {}).total_analytics), "Análise em tempo real", null, null, null, false)}
     </div>
     <div class="metric-grid" style="margin-top:10px;">
-      ${metricCard("Cabeça", hInfo, "", null, null, null, false)}
+      ${metricCard("Cabeça", hInfo, hNote, null, null, null, false)}
       ${metricCard("Corpo / continuidade", bodyInfo.label, "", null, null, null, false)}
     </div>
     <div class="mod-row">

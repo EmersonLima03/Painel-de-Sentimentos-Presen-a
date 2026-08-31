@@ -43,8 +43,8 @@ SIGNAL_DISCLAIMERS: dict[str, str] = {
     "possible_drowsiness": "Estimativa visual — não confirma sono real nem avalia o aluno.",
     "probable_drowsiness": "Estimativa visual — não confirma sono real nem avalia o aluno.",
     "face_occluded_persistent": "Estimativa visual — mão, objeto, microfone ou rosto fora do enquadramento; não confirma intenção.",
-    "possible_phone_interaction": "Detecção visual — não confirma uso ativo do celular.",
-    "probable_phone_interaction": "Detecção visual — não confirma uso ativo do celular.",
+    "possible_phone_interaction": "Detecção visual — não confirma uso ativo. Piscadas curtas no ao vivo do mesmo uso contínuo contam como 1 episódio no relatório.",
+    "probable_phone_interaction": "Detecção visual — não confirma uso ativo. Piscadas curtas no ao vivo do mesmo uso contínuo contam como 1 episódio no relatório.",
     "head_down_persistent": "Postura observada — não indica desatenção ou sonolência automaticamente.",
     "low_visual_attention": "Estimativa do olhar — não substitui observação pedagógica.",
 }
@@ -63,8 +63,8 @@ EXPRESSION_LABELS: dict[str, str] = {
     "neutral": "Expressão predominantemente neutra",
     "predominantly_negative": "Expressão predominantemente negativa",
     "negative": "Expressão predominantemente negativa",
-    "mixed": "Expressão mista",
-    "surprise": "Expressão de surpresa aparente",
+    "mixed": "Expressão predominantemente neutra",  # legado TRI
+    "surprise": "Expressão predominantemente neutra",  # legado → neutra (sem bucket)
     "inconclusive": "Inconclusivo",
 }
 
@@ -75,8 +75,8 @@ CLIMATE_LABELS: dict[str, str] = {
     "neutral": "Expressão predominantemente neutra",
     "predominantly_negative": "Expressão predominantemente negativa",
     "negative": "Expressão predominantemente negativa",
-    "mixed": "Expressão mista",
-    "surprise": "Expressão de surpresa aparente",
+    "mixed": "Expressão predominantemente neutra",
+    "surprise": "Expressão predominantemente neutra",
     "inconclusive": "Sem dado suficiente",
 }
 
@@ -103,6 +103,7 @@ CONCLUSIVE_EXPRESSION = frozenset(
 INCONCLUSIVE_THRESHOLD = 0.70
 MIN_PRESENCE_EXCLUDE_SECONDS = 30.0
 EVENT_MERGE_GAP_SECONDS = 45.0  # episódios do mesmo sinal com gap ≤45s = 1 ocorrência pedagógica
+# (ex.: 6 “aparecimentos” no ao vivo com gaps curtos → 2 blocos no relatório)
 
 # Famílias: possible+probable contam juntos no relatório
 SIGNAL_FAMILIES: dict[str, str] = {

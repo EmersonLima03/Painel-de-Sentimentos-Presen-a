@@ -83,7 +83,8 @@ O **MVP do TRI (emoções aparentes + dashboard unificado)** está em fechamento
 
 ## Branch e repositório
 
-- **Branch:** `feat/painel-de-sentimentos`
+- **Branch de congelamento TRI (baseline ✅):** `tri/congelado-baseline-validado` — ver [`TRI_CONGELADO.md`](TRI_CONGELADO.md)
+- **Branch de desenvolvimento anterior:** `feat/painel-de-sentimentos`
 - **Remote:** https://github.com/EmersonLima03/Painel-de-Sentimentos-Presen-a
 - **Base edge:** Presença (YuNet, FAISS, SQLite, sync)
 

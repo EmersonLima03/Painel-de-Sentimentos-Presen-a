@@ -16,8 +16,9 @@ cameras:
     rtsp_url: rtsp://admin:PASSWORD@192.168.100.133:554/cam/realmonitor?channel=1&subtype=1
     enabled: false
 
-  # USB 1080p: "auto" escolhe o índice com maior resolução (evita notebook).
-  # Alternativa fixa: "0", "1", "2"… Confira com /cameras/devices (uvicorn parado).
+  # USB 1080p: "auto" escolhe frame com imagem real + maior resolução.
+  # Cuidado: Iriun Webcam (virtual) pode aparecer como 1080p PRETA sem o celular.
+  # Alternativa fixa: "0", "1", "2"… Confira /cameras/devices?as_html=1 (uvicorn parado).
   - camera_id: cam-web
     room_id: DEV
     rtsp_url: "auto"
@@ -140,14 +141,20 @@ modules:
 
 expression:
   provider: hsemotion
-  ab_secondary: deepface
-  fallback_chain: [hsemotion, deepface, fer_legacy]
+  # A/B DeepFace desligado: enviesava "positiva". TRI usa config.tri.yaml → fer_onnx.
+  ab_secondary: null
+  # fer_onnx entra se HSEmotion falhar (pesos corrompidos / torch) — caso atual no edge.
+  fallback_chain: [hsemotion, fer_onnx, fer_legacy]
   interval_seconds: 1.0
   window_seconds: 8
   minimum_samples: 3
   minimum_confidence: 0.45
-  minimum_confidence_positive: 0.55
-  smile_boost_enabled: false
+  minimum_confidence_positive: 0.50
+  minimum_confidence_negative: 0.42
+  minimum_negative_samples: 2
+  # Reativado: FER+ ONNX erra sorriso→neutral; ver TROUBLESHOOTING + config.tri.yaml
+  smile_boost_enabled: true
+  frown_boost_enabled: true
   minimum_observation_quality: 0.55
 
 analytics:
@@ -184,6 +191,7 @@ face_occlusion:
   wrist_near_ratio: 0.65          # punho perto do rosto (face diag.) — evita FP headset/mic
   confirm_seconds: 0.7             # exige punho perto antes de contar oclusão
   clear_hold_seconds: 4.0          # mantém oclusão ~4s mesmo com flicker de pose (era 0.5)
+  face_missing_hold_seconds: 15.0  # rosto sumido (mão cobrindo): hold longo — punho some atrás da mão
   persistent_seconds: 5.0          # evento persistente só após 5s reais
   suppress_when_landmarks_clear: true  # só limpa se SEM evidência de punho recente
 
@@ -198,6 +206,7 @@ head_down:
   require_landmarks_quality: 0.45   # visibility gate: sem landmarks OK → sem pitch
   suppress_when_occlusion: true     # punho/mão na cara → oclusão ganha de head_down
   allow_face_missing_proxy: false   # rosto sumiu ≠ cabeça baixa (evita FP com mão)
+  inconclusive_hold_seconds: 12.0   # continuidade look-down extremo (anti fragmentação)
 
 pose_body:
   enabled: true

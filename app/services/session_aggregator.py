@@ -533,6 +533,20 @@ class SessionAggregator:
         climate = current.get("apparent_climate") or cc.get("climate")
         attn_level = attention_level_from_index(attn_index)
 
+        # Expressão da turma: dominante pelos segundos conclusivos do perfil agregado
+        expr_bucket = {
+            "predominantly_positive": float(observation_profile.get("expression_positive_seconds") or 0),
+            "predominantly_neutral": float(observation_profile.get("expression_neutral_seconds") or 0),
+            "predominantly_negative": float(observation_profile.get("expression_negative_seconds") or 0),
+            "surprise": float(observation_profile.get("expression_mixed_seconds") or 0),
+        }
+        if sum(expr_bucket.values()) <= 0:
+            class_expr = "inconclusive"
+            class_expr_insuf = True
+        else:
+            class_expr = max(expr_bucket, key=expr_bucket.get)
+            class_expr_insuf = False
+
         class_summary = {
             "visible_now": current.get("visible_people") or self.peak_visible,
             "observable_pct_now": climate_samples[-1].get("observable_pct") if climate_samples else None,
@@ -541,6 +555,8 @@ class SessionAggregator:
             "attention_index": attn_index,
             "climate_now": climate,
             "climate_label_pt": climate_label_pt(climate),
+            "expression_level": class_expr,
+            "expression_label_pt": expression_label_pt(class_expr, insufficient=class_expr_insuf),
             "students_in_report": len(students),
             "identified_students": sum(1 for s in students if s.get("student_id")),
             "time_by_category": time_by_category,
@@ -559,6 +575,8 @@ class SessionAggregator:
             "attention_index": attn_index,
             "attention_level": attn_level,
             "attention_label_pt": attention_label_pt(attn_level),
+            "expression_level": class_expr,
+            "expression_label_pt": expression_label_pt(class_expr, insufficient=class_expr_insuf),
             "events_total": len(events),
             "events_open": sum(1 for e in events if e.get("lifecycle") in ("opened", "updated")),
             "events_reviewed": len(reviewed),

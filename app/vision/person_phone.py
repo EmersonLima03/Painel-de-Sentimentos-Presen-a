@@ -158,14 +158,21 @@ class PersonPhoneAssociator:
         near_dist_norm: float = 0.55,
         ambiguous_gap: float = 0.12,
         interaction_requires_in_hand: bool = True,
+        clear_hold_seconds: float = 3.0,
     ):
         self.minimum_interaction_seconds = minimum_interaction_seconds
         self.probable_seconds = probable_seconds
         self.near_dist_norm = near_dist_norm
         self.ambiguous_gap = ambiguous_gap
         self.interaction_requires_in_hand = interaction_requires_in_hand
+        self.clear_hold_seconds = float(clear_hold_seconds)
         self._near_since: Dict[str, float] = {}
         self._in_hand_since: Dict[str, float] = {}
+        self._near_last_seen: Dict[str, float] = {}
+        self._in_hand_last_seen: Dict[str, float] = {}
+        self._last_level: Dict[str, str] = {}
+        self._last_reasons: Dict[str, List[str]] = {}
+        self._last_conf: Dict[str, float] = {}
 
     def update(
         self,
@@ -266,14 +273,26 @@ class PersonPhoneAssociator:
                 active_near.add(pid)
                 if pid not in self._near_since:
                     self._near_since[pid] = now
+                self._near_last_seen[pid] = now
                 dur = now - self._near_since[pid]
                 if in_hand:
                     if pid not in self._in_hand_since:
                         self._in_hand_since[pid] = now
+                    self._in_hand_last_seen[pid] = now
                     in_hand_dur = now - self._in_hand_since[pid]
                 else:
-                    self._in_hand_since.pop(pid, None)
-                    in_hand_dur = 0.0
+                    # hold breve de in_hand se punho/detecção piscou
+                    if (
+                        pid in self._in_hand_last_seen
+                        and (now - float(self._in_hand_last_seen[pid])) < self.clear_hold_seconds
+                        and pid in self._in_hand_since
+                    ):
+                        in_hand = True
+                        in_hand_dur = now - self._in_hand_since[pid]
+                        reasons.append("in_hand_temporal_hold")
+                    else:
+                        self._in_hand_since.pop(pid, None)
+                        in_hand_dur = 0.0
                 reasons.append(f"near_dist_norm={best:.2f}")
                 if in_hand:
                     level = "phone_in_hand"
@@ -308,6 +327,9 @@ class PersonPhoneAssociator:
                     level = "phone_in_hand"
                 elif near and self.interaction_requires_in_hand:
                     reasons.append("near_without_wrist_not_interaction")
+                self._last_level[pid] = level
+                self._last_reasons[pid] = list(reasons)
+                self._last_conf[pid] = conf
                 out.append(
                     PhoneAssociationState(
                         person_track_id=pid,
@@ -321,9 +343,45 @@ class PersonPhoneAssociator:
                         reasons=reasons,
                     )
                 )
+            elif (
+                pid in self._near_last_seen
+                and (now - float(self._near_last_seen[pid])) < self.clear_hold_seconds
+                and pid in self._near_since
+            ):
+                # Detecção piscou: manter near/in_hand por hold curto
+                active_near.add(pid)
+                dur = now - self._near_since[pid]
+                held_in_hand = (
+                    pid in self._in_hand_since
+                    and pid in self._in_hand_last_seen
+                    and (now - float(self._in_hand_last_seen[pid])) < self.clear_hold_seconds
+                )
+                level = self._last_level.get(pid) or (
+                    "phone_in_hand" if held_in_hand else "phone_near_person"
+                )
+                reasons = list(self._last_reasons.get(pid) or []) + ["phone_assoc_temporal_hold"]
+                conf = float(self._last_conf.get(pid) or (0.4 if held_in_hand else 0.32))
+                out.append(
+                    PhoneAssociationState(
+                        person_track_id=pid,
+                        phone_visible=True,
+                        phone_near_person=True,
+                        phone_in_hand=held_in_hand,
+                        ambiguous=False,
+                        interaction_level=level,
+                        duration_seconds=dur,
+                        confidence=conf,
+                        reasons=reasons,
+                    )
+                )
             else:
                 self._near_since.pop(pid, None)
                 self._in_hand_since.pop(pid, None)
+                self._near_last_seen.pop(pid, None)
+                self._in_hand_last_seen.pop(pid, None)
+                self._last_level.pop(pid, None)
+                self._last_reasons.pop(pid, None)
+                self._last_conf.pop(pid, None)
                 level = "phone_visible" if phone_visible else "not_detected"
                 out.append(
                     PhoneAssociationState(
@@ -341,8 +399,16 @@ class PersonPhoneAssociator:
 
         for pid in list(self._near_since.keys()):
             if pid not in active_near:
-                self._near_since.pop(pid, None)
-                self._in_hand_since.pop(pid, None)
+                # só limpa se hold já expirou
+                last = self._near_last_seen.get(pid)
+                if last is None or (now - float(last)) >= self.clear_hold_seconds:
+                    self._near_since.pop(pid, None)
+                    self._in_hand_since.pop(pid, None)
+                    self._near_last_seen.pop(pid, None)
+                    self._in_hand_last_seen.pop(pid, None)
+                    self._last_level.pop(pid, None)
+                    self._last_reasons.pop(pid, None)
+                    self._last_conf.pop(pid, None)
         return out
 
 

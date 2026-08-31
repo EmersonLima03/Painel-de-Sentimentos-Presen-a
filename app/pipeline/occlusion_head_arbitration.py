@@ -51,7 +51,10 @@ class ArbitrationResult:
 def _occ_has_wrist(face_occlusion: Dict[str, Any]) -> bool:
     reasons = list((face_occlusion or {}).get("reasons") or [])
     state = str((face_occlusion or {}).get("state") or "none")
-    if any("wrist" in str(r) for r in reasons):
+    if any(
+        any(k in str(r) for k in ("wrist", "elbow", "head_zone", "occlusion_hold", "face_missing_continuity"))
+        for r in reasons
+    ):
         return True
     # Estado de oclusão com mãos near_face sem reason explícita ainda conta
     return state in OCCLUDED_STATES and any("occlus" in str(r) for r in reasons)
@@ -99,19 +102,27 @@ def resolve_occlusion_vs_head_down(
 
     occ_state = str(occ.get("state") or "none")
     hand_near = str(hands_d.get("state") or "") == "hand_near_face"
-    wrist_occ = _occ_has_wrist(occ) or (hand_near and occ_state in OCCLUDED_STATES)
-    # Punho perto + face sumiu: tratar como oclusão mesmo se state ainda pending
-    if hand_near and not face_visible:
-        wrist_occ = True
-        if occ_state not in OCCLUDED_STATES:
-            occ = {
-                "state": "possible_face_occlusion_by_hand",
-                "confidence": max(0.4, float(occ.get("confidence") or 0.0)),
-                "reasons": list(occ.get("reasons") or []) + ["wrist_near_while_face_missing"],
-                "duration_seconds": occ.get("duration_seconds"),
-                "note": "occlusion_priority_over_head_down",
-            }
-            occ_state = occ["state"]
+    occ_reasons_early = list(occ.get("reasons") or [])
+    # Peito/proxy frouxo não é oclusão J/K — não matar head_down.
+    chest_false_near = any("chest_keep_head_down" in str(r) for r in (hs.get("reasons") or []))
+    strong_head_hand = any(
+        any(
+            k in str(r)
+            for k in (
+                "wrist_near_face",
+                "elbow_raised",
+                "wrist_in_head_zone",
+                "occlusion_hold",
+                "face_missing_continuity",
+            )
+        )
+        for r in occ_reasons_early
+    ) and not chest_false_near
+    wrist_occ = (_occ_has_wrist(occ) and occ_state in OCCLUDED_STATES and strong_head_hand) or (
+        hand_near and occ_state in OCCLUDED_STATES and strong_head_hand
+    )
+    # NÃO inventar oclusão só com hand_near + face missing (punho no peito quebrava H).
+    # J/K: body_pose já marca occ + reasons de zona da cabeça; analytics confirma hold.
 
     # --- 1) Oclusão por punho ganha ---
     if suppress_when_occlusion and wrist_occ and occ_state in OCCLUDED_STATES:
@@ -137,6 +148,42 @@ def resolve_occlusion_vs_head_down(
 
     # --- 2) Face não observável sem punho ---
     if not face_visible and not wrist_occ:
+        # Mantém oclusão se ainda há reason FORTE de mão na cabeça (não peito / inventado)
+        occ_reasons = list(occ.get("reasons") or [])
+        keep_occ = any(
+            any(
+                k in str(r)
+                for k in (
+                    "wrist_near_face",
+                    "elbow_raised",
+                    "wrist_in_head_zone",
+                    "occlusion_hold",
+                    "face_missing_continuity",
+                )
+            )
+            for r in occ_reasons
+        )
+        # Reasons fracos / inventados não bloqueiam head_down
+        if any("wrist_near_while_face_missing" == str(r) for r in occ_reasons) and not keep_occ:
+            keep_occ = False
+        if keep_occ and occ_state in OCCLUDED_STATES:
+            reasons.append("keep_occlusion_while_face_missing")
+            prev = str(hs.get("state") or "")
+            if prev in HEAD_DOWN_STATES:
+                hs = {
+                    **hs,
+                    "state": "pose_inconclusive",
+                    "confidence": min(float(hs.get("confidence") or 0.0), 0.35),
+                    "reasons": list(hs.get("reasons") or []) + ["suppressed_by_face_occlusion"],
+                }
+            return ArbitrationResult(
+                head_state=hs,
+                face_occlusion=occ,
+                suppressed_head_down=True,
+                decision="occlusion_continuity_face_missing",
+                reasons=reasons,
+            )
+
         # Sem proxy: só mantém head_down se geometria corporal confirma
         if body_head_geom:
             since = head_down_since if head_down_since is not None else now

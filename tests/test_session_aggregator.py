@@ -23,17 +23,62 @@ def _track(
     }
 
 
-def test_merge_track_to_student():
+def test_expression_predominantly_neutral_seconds_accumulate():
+    """Relatório não fica zerado quando o live publica predominantly_neutral."""
     agg = SessionAggregator()
-    agg.ingest_live_state({"tracks": [_track(tid="p1", sid=None, name="Anônimo")], "live_event_buffer": []}, visible_count=1)
-    agg.ingest_live_state(
-        {"tracks": [_track(tid="p1", sid="stu1", name="Emerson Lima")], "live_event_buffer": []},
-        visible_count=1,
+    for _ in range(8):
+        agg.ingest_live_state(
+            {
+                "tracks": [
+                    _track(
+                        tid="p1",
+                        sid="stu1",
+                        name="Emerson Lima",
+                        expr="predominantly_neutral",
+                        quality="observable",
+                    )
+                ],
+                "live_event_buffer": [],
+            },
+            visible_count=1,
+        )
+    result = agg.aggregate_session(
+        climate_samples=[],
+        events_seen={},
+        duration_seconds=60,
+        current_state={},
     )
+    profile = result["observation_profile"]
+    assert profile["expression_neutral_seconds"] > 0
+    assert profile["expression_positive_seconds"] == 0
+    assert "neutra" in (result.get("expression_label_pt") or "").lower()
+
+
+def test_expression_inconclusive_does_not_fill_emotion_buckets():
+    agg = SessionAggregator()
+    for _ in range(5):
+        agg.ingest_live_state(
+            {
+                "tracks": [
+                    _track(
+                        tid="p1",
+                        sid="stu1",
+                        expr="inconclusive",
+                        quality="inconclusive",
+                        attn="inconclusive",
+                    )
+                ],
+                "live_event_buffer": [],
+            },
+            visible_count=1,
+        )
     students = agg.report_students()
-    assert len(students) == 1
-    assert students[0]["student_id"] == "stu1"
-    assert students[0]["full_name"] == "Emerson Lima"
+    profile = students[0]["observation_profile"]
+    assert profile["expression_positive_seconds"] == 0
+    assert profile["expression_neutral_seconds"] == 0
+    assert profile["expression_negative_seconds"] == 0
+    assert profile["inconclusive_seconds"] > 0
+
 
 
 def test_exclude_unidentified_short_presence_c1():

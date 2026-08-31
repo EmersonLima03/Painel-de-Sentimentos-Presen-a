@@ -30,9 +30,30 @@ Para cada item: sintoma → causa → diagnóstico → correção → confirmaç
 
 ### Sorriso aparece como expressão neutra
 
-- **Causa:** caminho ONNX (FER+) não usava heurística de boca/dentes.  
-- **Correção:** boost de sorriso no provider ONNX/TF → `positive` quando sorriso geométrico é forte.  
-- **Confirmação:** sorriso sustentado ~8s → `expressão predominantemente positiva` (`n≥3`).
+- **Causa:** FER+ ONNX classifica sorriso (incl. dentes) como `neutral` com alta conf; `smile_boost` desligado no TRI.  
+- **Correção:** `expression.smile_boost_enabled: true` em `config.tri.yaml` (+ heurística landmarks/pixels em `_compute_expression`).  
+- **Confirmação:** sorriso sustentado ~8s → `expressão predominantemente positiva`; relatório com tempos +/neutra coerentes.  
+- **Contrato ✅ (2026-08-03):** não desligar `smile_boost` no perfil TRI sem reteste — ver `docs/BASELINE_MANUAL_APROVADO_TRI.md` (EX+/EX=).
+
+### Cabeça baixa &gt;1 min sem evento / só poucos segundos no relatório
+
+- **Histórico:** nariz falso / peito→oclusão / `started_at` no open → 0s ou banner 2s após 40s.  
+- **Correção (aprovada 2026-08-03):** zona oclusão = acima dos ombros; `started_at`=`head_down_since`; card continuidade.  
+- **Confirmação ✅:** ~37s e ~14s contínuos no evento **e** no card (prints 10:31 / 10:34).  
+- **Contrato:** `docs/BASELINE_MANUAL_APROVADO_TRI.md` → **H ✅** — não alterar sem reteste.
+
+### Sorriso pisca inconclusivo antes de positivo
+
+- **Causa:** `smile_boost` limpava neutras do buffer → &lt; `minimum_samples` → smooth retornava `inconclusive`.  
+- **Correção:** com smile_boost ativo, forçar `predominantly_positive` sem passar pelo gate de amostras.
+
+### Expressão negativa fica 0s (raiva/choro)
+
+- **Causa:** limiar 0.55 + ≥3 amostras + surpresa do FER+ (choro) inflando neutra; margem negativa vs neutra ×1.2.  
+- **Causa (print 2026-08-03):** FER+ retorna `neutral` ~75% no **bico/tristeza exagerada** — massa negativa no modelo é baixa; só baixar limiar não basta.  
+- **Correção TRI:** conf negativa 0.42; ≥2 amostras; surpresa descartada; **`frown_boost`** (cantos da boca caídos + lábios comprimidos, espelho do smile_boost).  
+- **Cara séria:** permanece neutra (frown exige droop geométrico claro).  
+- **Baseline:** seção EX− em `docs/BASELINE_MANUAL_APROVADO_TRI.md`.
 
 ### Celular na mão com `not_detected` / threshold
 

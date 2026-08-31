@@ -21,6 +21,23 @@ _CAP_DSHOW = getattr(cv2, "CAP_DSHOW", None) if _WINDOWS else None
 DEFAULT_WIDTH = 1920
 DEFAULT_HEIGHT = 1080
 MJPG_FOURCC = cv2.VideoWriter_fourcc(*"MJPG")
+# Iriun/IR/privacy: frame “abre” mas fica preto uniforme. Exige brilho + textura.
+_MIN_FRAME_MEAN = 8.0
+_MIN_FRAME_STD = 5.0
+_WARMUP_READS = 12
+
+
+def _frame_signal(frame: np.ndarray) -> Tuple[float, float]:
+    mean = float(np.mean(frame))
+    std = float(np.std(frame))
+    return mean, std
+
+
+def _frame_usable(frame: Optional[np.ndarray]) -> bool:
+    if frame is None:
+        return False
+    mean, std = _frame_signal(frame)
+    return mean >= _MIN_FRAME_MEAN and std >= _MIN_FRAME_STD
 
 
 class AsyncVideoCapture:
@@ -51,6 +68,9 @@ class AsyncVideoCapture:
         self.allow_index_fallback = allow_index_fallback
         # Se True, escolhe o índice com maior resolução útil (típico USB 1080p).
         self.auto_select = auto_select
+        # Mantém intenção original: após streak preto, re-probe (evita ficar preso na Iriun).
+        self._want_auto = auto_select
+        self._skip_indices: set[int] = set()
 
         self._cap: Optional[cv2.VideoCapture] = None
         self._thread: Optional[Thread] = None
@@ -82,7 +102,48 @@ class AsyncVideoCapture:
     def last_error(self) -> Optional[str]:
         return self._last_error
 
+    def _new_capture(self, index: int) -> cv2.VideoCapture:
+        if _WINDOWS and _CAP_DSHOW is not None:
+            return cv2.VideoCapture(index, _CAP_DSHOW)
+        return cv2.VideoCapture(index)
+
+    @staticmethod
+    def _apply_capture_props(
+        cap: cv2.VideoCapture,
+        *,
+        width: int,
+        height: int,
+        use_mjpg: bool,
+        set_size: bool,
+    ) -> None:
+        try:
+            if use_mjpg:
+                cap.set(cv2.CAP_PROP_FOURCC, MJPG_FOURCC)
+            if set_size:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(width))
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(height))
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception as e:
+            logger.debug("webcam_props_partial", error=str(e))
+
+    @staticmethod
+    def _read_warmed(cap: cv2.VideoCapture, reads: int = _WARMUP_READS) -> Optional[np.ndarray]:
+        """Descarta frames iniciais (exposição/USB) e devolve o último utilizável ou o último lido."""
+        last: Optional[np.ndarray] = None
+        for _ in range(max(1, reads)):
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                continue
+            last = frame
+            if _frame_usable(frame):
+                return frame
+        return last
+
     def _open_device(self, index: int) -> bool:
+        if index in self._skip_indices:
+            self._last_error = f"device {index} skipped (black/virtual)"
+            return False
+
         if self._cap is not None:
             try:
                 self._cap.release()
@@ -90,94 +151,133 @@ class AsyncVideoCapture:
                 pass
             self._cap = None
 
-        if _WINDOWS and _CAP_DSHOW is not None:
-            cap = cv2.VideoCapture(index, _CAP_DSHOW)
-        else:
-            cap = cv2.VideoCapture(index)
-
-        if not cap.isOpened():
-            self._last_error = f"device {index} did not open"
-            return False
-
-        try:
-            cap.set(cv2.CAP_PROP_FOURCC, MJPG_FOURCC)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        except Exception as e:
-            logger.debug("webcam_props_partial", error=str(e))
-
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            cap.release()
-            self._last_error = "Failed to read initial frame"
-            return False
-
-        # Alguns índices Windows abrem mas entregam frame preto (IR/virtual/privacy).
-        if float(np.mean(frame)) < 3.0:
-            cap.release()
-            self._last_error = f"device {index} returned black frame"
-            logger.warning("async_capture_black_frame", device_index=index)
-            return False
-
-        self._cap = cap
-        self.device_index = index
-        self._connected = True
-        self._last_error = None
-        self._fail_streak = 0
-        self.opened_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-        self.opened_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-        with self._lock:
-            self._latest_frame = frame.copy()
-            self._latest_ts = time.time()
-            self._frame_count += 1
-        logger.info(
-            "async_capture_opened",
-            device_index=index,
-            requested_index=self.requested_index,
-            width=self.opened_width,
-            height=self.opened_height,
-            mean_brightness=round(float(np.mean(frame)), 1),
+        # MJPG+1080 → props só tamanho → defaults do driver (algumas USB/Iriun quebram no 1º modo).
+        attempts = (
+            {"use_mjpg": True, "set_size": True},
+            {"use_mjpg": False, "set_size": True},
+            {"use_mjpg": False, "set_size": False},
         )
-        return True
-
-    def _probe_best_index(self) -> Optional[int]:
-        """Escolhe índice com frame válido e maior área (USB 1080p costuma ganhar do notebook)."""
-        best_idx = None
-        best_area = -1
-        for idx in range(0, 6):
-            # Abrir só para medir; liberar em seguida.
-            if _WINDOWS and _CAP_DSHOW is not None:
-                cap = cv2.VideoCapture(idx, _CAP_DSHOW)
-            else:
-                cap = cv2.VideoCapture(idx)
+        last_err = f"device {index} did not open"
+        for props in attempts:
+            cap = self._new_capture(index)
             if not cap.isOpened():
-                continue
-            try:
                 try:
-                    cap.set(cv2.CAP_PROP_FOURCC, MJPG_FOURCC)
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
-                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    cap.release()
                 except Exception:
                     pass
-                ret, frame = cap.read()
-                if not ret or frame is None:
+                continue
+            self._apply_capture_props(
+                cap,
+                width=self.width,
+                height=self.height,
+                use_mjpg=bool(props["use_mjpg"]),
+                set_size=bool(props["set_size"]),
+            )
+            frame = self._read_warmed(cap)
+            if frame is None:
+                last_err = "Failed to read initial frame"
+                cap.release()
+                continue
+            if not _frame_usable(frame):
+                mean, std = _frame_signal(frame)
+                last_err = f"device {index} black/flat frame mean={mean:.1f} std={std:.1f}"
+                logger.warning(
+                    "async_capture_black_frame",
+                    device_index=index,
+                    mean_brightness=round(mean, 1),
+                    std=round(std, 1),
+                    use_mjpg=props["use_mjpg"],
+                    set_size=props["set_size"],
+                )
+                cap.release()
+                continue
+
+            mean, std = _frame_signal(frame)
+            self._cap = cap
+            self.device_index = index
+            self._connected = True
+            self._last_error = None
+            self._fail_streak = 0
+            self.opened_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or frame.shape[1])
+            self.opened_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or frame.shape[0])
+            with self._lock:
+                self._latest_frame = frame.copy()
+                self._latest_ts = time.time()
+                self._frame_count += 1
+            logger.info(
+                "async_capture_opened",
+                device_index=index,
+                requested_index=self.requested_index,
+                width=self.opened_width,
+                height=self.opened_height,
+                mean_brightness=round(mean, 1),
+                std=round(std, 1),
+                use_mjpg=props["use_mjpg"],
+                set_size=props["set_size"],
+            )
+            return True
+
+        self._last_error = last_err
+        self._skip_indices.add(index)
+        return False
+
+    def _probe_best_index(self) -> Optional[int]:
+        """Escolhe índice com imagem real (não preta) e maior área — evita Iriun/virtual 1080p preta."""
+        best_idx = None
+        best_score = -1.0
+        for idx in range(0, 6):
+            if idx in self._skip_indices:
+                continue
+            cap = self._new_capture(idx)
+            if not cap.isOpened():
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+                continue
+            try:
+                frame = None
+                for props in (
+                    {"use_mjpg": True, "set_size": True},
+                    {"use_mjpg": False, "set_size": False},
+                ):
+                    self._apply_capture_props(
+                        cap,
+                        width=self.width,
+                        height=self.height,
+                        use_mjpg=bool(props["use_mjpg"]),
+                        set_size=bool(props["set_size"]),
+                    )
+                    frame = self._read_warmed(cap)
+                    if _frame_usable(frame):
+                        break
+                if not _frame_usable(frame):
+                    mean, std = _frame_signal(frame) if frame is not None else (0.0, 0.0)
+                    logger.info(
+                        "webcam_probe_skip_black",
+                        device_index=idx,
+                        mean_brightness=round(mean, 1),
+                        std=round(std, 1),
+                    )
                     continue
-                if float(np.mean(frame)) < 3.0:
-                    continue
+                assert frame is not None
+                mean, std = _frame_signal(frame)
                 w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or frame.shape[1])
                 h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or frame.shape[0])
-                area = w * h
+                area = float(w * h)
+                # Área domina; brilho/textura desempata (USB iluminada > virtual preta).
+                score = area + (mean * std * 50.0)
                 logger.info(
                     "webcam_probe_candidate",
                     device_index=idx,
                     width=w,
                     height=h,
-                    mean_brightness=round(float(np.mean(frame)), 1),
+                    mean_brightness=round(mean, 1),
+                    std=round(std, 1),
+                    score=round(score, 1),
                 )
-                if area > best_area:
-                    best_area = area
+                if score > best_score:
+                    best_score = score
                     best_idx = idx
             finally:
                 try:
@@ -185,21 +285,25 @@ class AsyncVideoCapture:
                 except Exception:
                     pass
         if best_idx is not None:
-            logger.info("webcam_auto_selected", device_index=best_idx, area=best_area)
+            logger.info("webcam_auto_selected", device_index=best_idx, score=round(best_score, 1))
         return best_idx
 
     def connect(self) -> bool:
-        # Já conectado com frame recente: não reabre (evita race com orchestrator.start).
+        # Já conectado com frame recente e utilizável: não reabre.
         if (
             self._connected
             and self._cap is not None
             and self._cap.isOpened()
             and self._latest_frame is not None
+            and _frame_usable(self._latest_frame)
             and (time.time() - self._latest_ts) < 15.0
         ):
             if not (self._thread and self._thread.is_alive()):
                 self.start()
             return True
+
+        if self._want_auto:
+            self.auto_select = True
 
         candidates = []
         if self.auto_select:
@@ -207,9 +311,9 @@ class AsyncVideoCapture:
             if best is not None:
                 candidates.append(best)
         candidates.append(self.requested_index)
-        if self.allow_index_fallback:
-            for i in (self.default_index, 0, 1, 2, 3):
-                if i not in candidates:
+        if self.allow_index_fallback or self._want_auto:
+            for i in (self.default_index, 0, 1, 2, 3, 4, 5):
+                if i not in candidates and i not in self._skip_indices:
                     candidates.append(i)
 
         # Sem duplicatas, preservando ordem
@@ -228,14 +332,15 @@ class AsyncVideoCapture:
                         width=self.opened_width,
                         height=self.opened_height,
                     )
-                # Próximas reconexões ficam no índice escolhido (não re-probe).
+                # Próximas reconexões ficam no índice escolhido (não re-probe) —
+                # até streak preto reativar auto via _want_auto.
                 self.auto_select = False
                 self.requested_index = idx
                 return True
         self._connected = False
         self._last_error = (
             f"failed to open requested camera index {self.requested_index}"
-            + (" (fallback disabled)" if not self.allow_index_fallback else "")
+            + (" (fallback disabled)" if not self.allow_index_fallback and not self._want_auto else "")
         )
         return False
 
@@ -282,17 +387,21 @@ class AsyncVideoCapture:
                 self._last_error = str(e)
 
             if ret and frame is not None:
-                # Frame preto contínuo (USB sleep / índice errado) conta como falha —
-                # senão o loop nunca reconecta e o MJPEG fica preto para sempre.
-                if float(np.mean(frame)) < 3.0:
+                # Frame preto contínuo (Iriun sem celular / USB sleep / índice errado).
+                if not _frame_usable(frame):
                     self._fail_streak += 1
                     self._last_error = "black frame"
                     if self._fail_streak >= self.max_failures:
+                        bad_idx = self.device_index
                         logger.warning(
                             "async_capture_black_streak_reconnect",
-                            device_index=self.device_index,
+                            device_index=bad_idx,
                             failures=self._fail_streak,
                         )
+                        if bad_idx is not None:
+                            self._skip_indices.add(int(bad_idx))
+                        if self._want_auto:
+                            self.auto_select = True
                         self._connected = False
                         if self._cap is not None:
                             try:

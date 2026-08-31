@@ -7,12 +7,9 @@
 #   $env:RUNTIME_MODE = "rtsp"   # ou "demo"
 #   python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 #
-# Alternativa só por ambiente (sem este arquivo):
-#   $env:EXPRESSION_PROVIDER = "fer_onnx"
-#   $env:EXPRESSION_FALLBACK_CHAIN = "fer_onnx"
-#   $env:MODULE_EXPRESSION_MODE = "debug"
-#
-# Mantém HSEmotion / DeepFace no config.yaml padrão para experimentos.
+# Contrato ✅ 2026-08-03: smile_boost_enabled deve permanecer true
+# (sorriso→positiva / tempos neutra+positiva). Ver docs/BASELINE_MANUAL_APROVADO_TRI.md
+# Contrato ✅ H: head_down hold/event_min 8s; inconclusive_hold 12s; peito ≠ oclusão.
 # =============================================================================
 
 modules:
@@ -27,6 +24,20 @@ expression:
   window_seconds: 8
   minimum_samples: 3
   minimum_confidence: 0.45
-  minimum_confidence_positive: 0.55
-  smile_boost_enabled: false
+  minimum_confidence_positive: 0.50
+  # EX−: sad/angry/fear/disgust → negative; surprise → neutra (sem bucket TRI)
+  minimum_confidence_negative: 0.42
+  minimum_negative_samples: 2
+  # FER+ ONNX classifica sorriso com dentes como neutral ~0.75 — boost geométrico
+  # (landmarks + pixels) é a correção documentada em docs/TROUBLESHOOTING.md.
+  smile_boost_enabled: true
+  # FER+ marca bico/tristeza exagerada como neutral ~0.75 — boost cantos da boca caídos.
+  frown_boost_enabled: true
   minimum_observation_quality: 0.55
+
+head_down:
+  inconclusive_hold_seconds: 12.0
+  event_min_seconds: 8.0
+  short_to_persistent_seconds: 8.0
+  suppress_when_occlusion: true
+  allow_face_missing_proxy: false

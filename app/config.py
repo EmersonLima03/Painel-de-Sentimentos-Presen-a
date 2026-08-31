@@ -136,6 +136,10 @@ class Settings(BaseSettings):
     face_occlusion_wrist_near_ratio: float = Field(default=0.65, env="FACE_OCCLUSION_WRIST_NEAR_RATIO")
     face_occlusion_confirm_seconds: float = Field(default=0.7, env="FACE_OCCLUSION_CONFIRM_SECONDS")
     face_occlusion_clear_hold_seconds: float = Field(default=4.0, env="FACE_OCCLUSION_CLEAR_HOLD_SECONDS")
+    # Com rosto sumido (mão cobrindo), mantém oclusão ~15s sem exigir punho a cada frame
+    face_occlusion_face_missing_hold_seconds: float = Field(
+        default=15.0, env="FACE_OCCLUSION_FACE_MISSING_HOLD"
+    )
     face_occlusion_persistent_seconds: float = Field(default=5.0, env="FACE_OCCLUSION_PERSISTENT_SECONDS")
     face_occlusion_suppress_when_landmarks_clear: bool = Field(
         default=True, env="FACE_OCCLUSION_SUPPRESS_LANDMARKS"
@@ -145,6 +149,11 @@ class Settings(BaseSettings):
     )
     behavioral_event_clear_hold_drowsiness_seconds: float = Field(
         default=4.0, env="BEHAVIORAL_EVENT_CLEAR_HOLD_DROWSINESS_SECONDS"
+    )
+    # Celular: YOLO pisca — hold maior evita N “aparecimentos” no ao vivo para o mesmo uso contínuo.
+    # Não altera o merge pedagógico de 45s no relatório; só reduz fechar/reabrir episódio técnico.
+    behavioral_event_clear_hold_phone_seconds: float = Field(
+        default=12.0, env="BEHAVIORAL_EVENT_CLEAR_HOLD_PHONE_SECONDS"
     )
     head_down_pitch_threshold: float = Field(default=0.45, env="HEAD_DOWN_PITCH_THRESHOLD")
     head_down_event_min_seconds: float = Field(default=8.0, env="HEAD_DOWN_EVENT_MIN_SECONDS")
@@ -162,6 +171,10 @@ class Settings(BaseSettings):
     # Desligado: "rosto sumiu" ≠ cabeça baixa (mão/objeto/fora de campo)
     head_down_allow_face_missing_proxy: bool = Field(
         default=False, env="HEAD_DOWN_ALLOW_FACE_MISSING_PROXY"
+    )
+    # Flicker pose_inconclusive durante look-down extremo: mantém acumulador
+    head_down_inconclusive_hold_seconds: float = Field(
+        default=12.0, env="HEAD_DOWN_INCONCLUSIVE_HOLD_SECONDS"
     )
 
     # Runtime: demo | offline | rtsp
@@ -200,7 +213,14 @@ class Settings(BaseSettings):
     expression_minimum_confidence_positive: float = Field(
         default=0.55, env="EXPRESSION_MIN_CONF_POSITIVE"
     )
+    expression_minimum_confidence_negative: float = Field(
+        default=0.42, env="EXPRESSION_MIN_CONF_NEGATIVE"
+    )
+    expression_minimum_negative_samples: int = Field(
+        default=2, env="EXPRESSION_MIN_NEGATIVE_SAMPLES"
+    )
     expression_smile_boost_enabled: bool = Field(default=False, env="EXPRESSION_SMILE_BOOST")
+    expression_frown_boost_enabled: bool = Field(default=True, env="EXPRESSION_FROWN_BOOST")
     expression_ab_secondary: Optional[str] = Field(default=None, env="EXPRESSION_AB_SECONDARY")
     expression_fallback_chain: Optional[str] = Field(
         default="hsemotion,deepface,fer_legacy", env="EXPRESSION_FALLBACK_CHAIN"
@@ -487,12 +507,16 @@ class Settings(BaseSettings):
                 ("minimum_samples", "expression_minimum_samples"),
                 ("minimum_confidence", "expression_minimum_confidence"),
                 ("minimum_confidence_positive", "expression_minimum_confidence_positive"),
+                ("minimum_confidence_negative", "expression_minimum_confidence_negative"),
+                ("minimum_negative_samples", "expression_minimum_negative_samples"),
                 ("minimum_observation_quality", "expression_minimum_observation_quality"),
             ):
                 if yk in ex:
                     object.__setattr__(self, attr, type(getattr(self, attr))(ex[yk]))
             if "smile_boost_enabled" in ex:
                 object.__setattr__(self, "expression_smile_boost_enabled", bool(ex["smile_boost_enabled"]))
+            if "frown_boost_enabled" in ex:
+                object.__setattr__(self, "expression_frown_boost_enabled", bool(ex["frown_boost_enabled"]))
             if "ab_secondary" in ex:
                 object.__setattr__(
                     self,
@@ -519,7 +543,9 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "visual_attention_window_seconds", float(va["window_seconds"]))
             if "minimum_observation_quality" in va:
                 object.__setattr__(
-                    self, "visual_attention_minimum_observation_quality", float(va["minimum_observation_quality"])
+                    self,
+                    "visual_attention_minimum_observation_quality",
+                    float(va["minimum_observation_quality"]),
                 )
         if "drowsiness" in config and isinstance(config["drowsiness"], dict):
             dr = config["drowsiness"]
@@ -604,6 +630,7 @@ class Settings(BaseSettings):
                 "wrist_near_ratio": "face_occlusion_wrist_near_ratio",
                 "confirm_seconds": "face_occlusion_confirm_seconds",
                 "clear_hold_seconds": "face_occlusion_clear_hold_seconds",
+                "face_missing_hold_seconds": "face_occlusion_face_missing_hold_seconds",
                 "persistent_seconds": "face_occlusion_persistent_seconds",
                 "suppress_when_landmarks_clear": "face_occlusion_suppress_when_landmarks_clear",
             }
@@ -622,6 +649,12 @@ class Settings(BaseSettings):
                     self,
                     "behavioral_event_clear_hold_drowsiness_seconds",
                     float(be["clear_hold_drowsiness_seconds"]),
+                )
+            if "clear_hold_phone_seconds" in be:
+                object.__setattr__(
+                    self,
+                    "behavioral_event_clear_hold_phone_seconds",
+                    float(be["clear_hold_phone_seconds"]),
                 )
         if "head_down" in config and isinstance(config["head_down"], dict):
             hd = config["head_down"]
@@ -652,6 +685,12 @@ class Settings(BaseSettings):
                     self,
                     "head_down_allow_face_missing_proxy",
                     bool(hd["allow_face_missing_proxy"]),
+                )
+            if "inconclusive_hold_seconds" in hd:
+                object.__setattr__(
+                    self,
+                    "head_down_inconclusive_hold_seconds",
+                    float(hd["inconclusive_hold_seconds"]),
                 )
         if "pose_body" in config and isinstance(config["pose_body"], dict):
             pb = config["pose_body"]

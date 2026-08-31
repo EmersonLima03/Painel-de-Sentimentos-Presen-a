@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import List, Optional
 
@@ -9,6 +10,8 @@ import numpy as np
 
 from app.vision.domain import FacialExpressionPrediction
 from app.vision.expressions.normalization import normalize_probabilities, pick_label
+
+logger = logging.getLogger(__name__)
 
 
 class HSEmotionProvider:
@@ -29,7 +32,11 @@ class HSEmotionProvider:
         if not force and self._health_cache and now - self._health_ts < 30.0:
             return self._health_cache
         if self._failed:
-            h = {"status": "unavailable", "provider": self.provider_name, "reason": "import_failed"}
+            h = {
+                "status": "unavailable",
+                "provider": self.provider_name,
+                "reason": "model_load_failed",
+            }
         else:
             try:
                 import importlib.util
@@ -39,6 +46,12 @@ class HSEmotionProvider:
                         "status": "dependency_missing",
                         "provider": self.provider_name,
                         "reason": "hsemotion_not_installed",
+                    }
+                elif not self._ensure():
+                    h = {
+                        "status": "unavailable",
+                        "provider": self.provider_name,
+                        "reason": "model_load_failed",
                     }
                 else:
                     h = {
@@ -63,8 +76,9 @@ class HSEmotionProvider:
             self._model = HSEmotionRecognizer(model_name=self.model_name, device="cpu")
             self.model_version = getattr(self._model, "model_name", self.model_name)
             return True
-        except Exception:
+        except Exception as e:
             self._failed = True
+            logger.warning("hsemotion_model_load_failed: %s", e)
             return False
 
     def predict_batch(self, face_crops: List[np.ndarray]) -> List[FacialExpressionPrediction]:

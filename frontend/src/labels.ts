@@ -10,9 +10,8 @@ export function exprLabel(raw: string | undefined): string {
     case "negative":
       return "Expressão predominantemente negativa";
     case "mixed":
-      return "Expressão mista";
     case "surprise":
-      return "Expressão de surpresa aparente";
+      return "Expressão predominantemente neutra";
     case "inconclusive":
       return "Inconclusivo";
     default:

@@ -150,6 +150,8 @@ class PipelineOrchestrator:
         self._phone_visible_since: Dict[str, Optional[float]] = {}
         self._overlay_signals: Dict[str, List[dict]] = {}
         self._overlay_phones: Dict[str, List[tuple]] = {}
+        self._overlay_phones_last_ts: Dict[str, float] = {}
+        self._overlay_phones_hold_seconds: float = 3.0
         self._latest_climate: Dict[str, dict] = {}
 
         self.faces_detected_last: Dict[str, int] = {}
@@ -643,16 +645,42 @@ class PipelineOrchestrator:
             present = sum(1 for m in matches if m.get("student_id"))
             self._analytics_tracks[camera_id] = tracks
             self._analytics_counts[camera_id] = eng.classroom_counts(tracks, present)
-            # phones from engine debug for overlay
+            # phones from engine debug for overlay (sticky: evita bbox magenta piscando)
             try:
+                import time as _time
                 from app.vision.phone_yolo import get_phone_detector_debug
 
                 dbg = get_phone_detector_debug()
-                self._overlay_phones[camera_id] = [
+                fresh = [
                     tuple(d.get("bbox") or []) + (float(d.get("confidence") or 0),)
                     for d in (dbg.get("detections") or [])
-                    if d.get("bbox")
+                    if d.get("bbox") and len(d.get("bbox") or []) >= 4
                 ]
+                now_ov = _time.time()
+                if fresh:
+                    self._overlay_phones[camera_id] = fresh
+                    self._overlay_phones_last_ts[camera_id] = now_ov
+                else:
+                    last_ts = float(self._overlay_phones_last_ts.get(camera_id) or 0.0)
+                    hold = float(getattr(self, "_overlay_phones_hold_seconds", 3.0) or 3.0)
+                    # Mantém última bbox se ainda há interação/near no track
+                    phone_active = any(
+                        str((t.get("phone") or {}).get("state") or "")
+                        in (
+                            "phone_visible",
+                            "phone_near_person",
+                            "phone_in_hand",
+                            "possible_phone_interaction",
+                            "probable_phone_interaction",
+                        )
+                        for t in tracks
+                    )
+                    if phone_active and self._overlay_phones.get(camera_id) and (now_ov - last_ts) <= max(hold, 8.0):
+                        pass  # conserva sticky enquanto estado ativo
+                    elif self._overlay_phones.get(camera_id) and (now_ov - last_ts) <= hold:
+                        pass
+                    else:
+                        self._overlay_phones[camera_id] = []
             except Exception:
                 pass
             from app.pipeline.analytics_track import ascii_overlay_label

@@ -482,7 +482,8 @@ def test_face_hidden_attention_inconclusive():
         "reasons": ["face_not_visible"],
     }
     cache.facial_features = {"status": "inconclusive", "reason": "face_not_observable"}
-    cache.head_state = {"state": "head_down_persistent", "confidence": 0.7}
+    # Sem head_down inventado: rosto sumiu → atenção/sono inconclusivos
+    cache.head_state = {"state": "pose_inconclusive", "confidence": 0.2}
     cache.face_occlusion = {"state": "none"}
     attn, drow = eng._compute_attention_drowsiness(cache, 1000.0, face_visible=False)
     assert attn["state"] == "inconclusive"

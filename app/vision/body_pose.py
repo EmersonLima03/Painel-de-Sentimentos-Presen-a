@@ -31,6 +31,8 @@ _MODEL_URL = (
 
 # MediaPipe Pose landmark indices
 _NOSE = 0
+_LEFT_EAR = 7
+_RIGHT_EAR = 8
 _LEFT_SHOULDER = 11
 _RIGHT_SHOULDER = 12
 _LEFT_ELBOW = 13
@@ -220,24 +222,40 @@ def estimate_body_pose(
     lms = result.pose_landmarks[0]
     ch, cw = crop.shape[:2]
 
-    def abs_pt(idx: int):
-        p = _lm_xy(lms, idx, cw, ch, min_vis=min_keypoint_confidence)
+    def abs_pt(idx: int, min_vis: Optional[float] = None):
+        p = _lm_xy(
+            lms,
+            idx,
+            cw,
+            ch,
+            min_vis=float(min_keypoint_confidence if min_vis is None else min_vis),
+        )
         if p is None:
             return None
         return p[0] + x1, p[1] + y1, p[2]
 
-    nose = abs_pt(_NOSE)
+    face_missing = face_bbox is None
+    # Ângulo extremo (só topo da cabeça): nariz/olhos falham no limiar 0.4 — aceitar mais fraco.
+    nose_min_vis = 0.22 if face_missing else min_keypoint_confidence
+    nose = abs_pt(_NOSE, min_vis=nose_min_vis)
     ls = abs_pt(_LEFT_SHOULDER)
     rs = abs_pt(_RIGHT_SHOULDER)
     lw = abs_pt(_LEFT_WRIST)
     rw = abs_pt(_RIGHT_WRIST)
+    le = abs_pt(_LEFT_ELBOW)
+    re = abs_pt(_RIGHT_ELBOW)
     lh = abs_pt(_LEFT_HIP)
     rh = abs_pt(_RIGHT_HIP)
+    ear_vis = 0.20 if face_missing else min_keypoint_confidence
+    lear = abs_pt(_LEFT_EAR, min_vis=ear_vis)
+    rear = abs_pt(_RIGHT_EAR, min_vis=ear_vis)
 
     landmarks = {
         "nose": None if nose is None else {"x": nose[0], "y": nose[1], "v": nose[2]},
         "left_shoulder": None if ls is None else {"x": ls[0], "y": ls[1], "v": ls[2]},
         "right_shoulder": None if rs is None else {"x": rs[0], "y": rs[1], "v": rs[2]},
+        "left_elbow": None if le is None else {"x": le[0], "y": le[1], "v": le[2]},
+        "right_elbow": None if re is None else {"x": re[0], "y": re[1], "v": re[2]},
         "left_wrist": None if lw is None else {"x": lw[0], "y": lw[1], "v": lw[2]},
         "right_wrist": None if rw is None else {"x": rw[0], "y": rw[1], "v": rw[2]},
     }
@@ -246,6 +264,26 @@ def estimate_body_pose(
     head_state = "pose_inconclusive"
     head_conf = 0.0
     torso_ori = None
+
+    def _wrist_on_head_zone() -> bool:
+        """Mão na cabeça/rosto (acima dos ombros). Peito NÃO conta — senão mata head_down."""
+        if not (ls and rs):
+            return False
+        shoulder_cy = (ls[1] + rs[1]) / 2.0
+        shoulder_w = max(1.0, abs(rs[0] - ls[0]))
+        cx = (ls[0] + rs[0]) / 2.0
+        # Um pouco abaixo da linha dos ombros ainda pode ser queixo; peito fica bem abaixo.
+        y_max = shoulder_cy + 0.18 * shoulder_w
+        for wrist in (lw, rw):
+            if wrist is None or float(wrist[2]) < 0.28:
+                continue
+            if wrist[1] <= y_max and abs(wrist[0] - cx) / shoulder_w <= 0.90:
+                return True
+        return False
+
+    def _wrist_near_upper() -> bool:
+        """Compat: só zona da cabeça (não terço superior inteiro do torso)."""
+        return _wrist_on_head_zone()
 
     if ls and rs and nose:
         shoulder_cx = (ls[0] + rs[0]) / 2.0
@@ -270,6 +308,14 @@ def estimate_body_pose(
             head_down_geom = True
         head_turned = abs(nose[0] - shoulder_cx) / shoulder_w > 0.35
 
+        # Nariz fraco / acima dos ombros com face ausente = falso positivo no topo da cabeça
+        nose_weak = float(nose[2]) < 0.40
+        nose_above_shoulders = nose[1] < shoulder_cy - 0.02 * shoulder_w
+        if face_missing and (nose_weak or nose_above_shoulders) and not _wrist_on_head_zone():
+            head_down_geom = True
+            head_turned = False
+            reasons.append("face_missing_untrusted_nose")
+
         # mão apoiando cabeça (punho perto da cabeça)
         head_supported = False
         face_ref = face_bbox or (nose[0] - shoulder_w * 0.35, nose[1] - shoulder_w * 0.5, shoulder_w * 0.7, shoulder_w * 0.7)
@@ -283,21 +329,28 @@ def estimate_body_pose(
                 head_supported = True
 
         if head_down_geom:
-            # Mão perto da cabeça/rosto: não rotular como cabeça baixa —
-            # prioridade oclusão (DMS: visibility/occlusion gates).
-            if head_supported:
+            # Só cede à oclusão se punho está na cabeça (J/K), não no peito.
+            if head_supported or _wrist_on_head_zone():
                 head_state = "pose_inconclusive"
                 head_conf = 0.35
                 reasons.append("wrist_near_prefer_occlusion")
             else:
                 dur = (now - head_down_since) if head_down_since else 0.0
-                # short→persistent alinhado ao evento (≥8s); evita "prolongada" em 2.5s
                 if dur >= 8.0:
                     head_state = "head_down_persistent"
                 else:
                     head_state = "head_down_short"
                 head_conf = min(0.95, 0.55 + abs(nose_to_shoulder) * 0.3)
                 reasons.append(f"nose_shoulder_ratio={nose_to_shoulder:.2f}")
+        elif face_missing and not _wrist_on_head_zone():
+            # Sem detector de face: nunca "head_forward" (zera timer e relatório fica 0s)
+            dur = (now - head_down_since) if head_down_since else 0.0
+            if dur >= 8.0:
+                head_state = "head_down_persistent"
+            else:
+                head_state = "head_down_short"
+            head_conf = 0.58
+            reasons.append("face_missing_no_forward_while_shoulders")
         elif head_turned:
             head_state = "head_turned"
             head_conf = 0.6
@@ -306,6 +359,21 @@ def estimate_body_pose(
             head_state = "head_forward"
             head_conf = 0.7
             reasons.append("aligned_torso_head")
+    elif ls and rs and face_missing and not _wrist_on_head_zone():
+        # Cabeça baixa extrema: ombros + face ausente + sem mão na cabeça → look-down.
+        shoulder_cy = (ls[1] + rs[1]) / 2.0
+        shoulder_w = max(1.0, abs(rs[0] - ls[0]))
+        ear_pts = [p for p in (lear, rear) if p is not None]
+        ear_above = any(p[1] < shoulder_cy - 0.02 * shoulder_w for p in ear_pts)
+        dur = (now - head_down_since) if head_down_since else 0.0
+        if dur >= 8.0:
+            head_state = "head_down_persistent"
+        else:
+            head_state = "head_down_short"
+        head_conf = 0.62 if ear_above else 0.58
+        reasons.append("shoulders_without_face_look_down")
+        if ear_above:
+            reasons.append("ears_above_shoulders")
     else:
         reasons.append("insufficient_keypoints")
 
@@ -324,6 +392,7 @@ def estimate_body_pose(
     }
 
     near = False
+    near_reason = "wrist_near_face"
     # Sem face_bbox (rosto coberto/perdido), usa proxy: nariz ou terço superior do corpo.
     # Sem isso a oclusão por punho NUNCA dispara exatamente quando mais importa.
     proxy_bbox = face_bbox
@@ -339,56 +408,98 @@ def estimate_body_pose(
         px, py, pw, ph = person_bbox[:4]
         proxy_bbox = (px + pw * 0.2, py, pw * 0.6, ph * 0.35)
 
+    # Com rosto sumido: oclusão por mão exige punho ACIMA dos ombros (não peito).
+    min_wrist_vis = 0.28 if face_missing else 0.40
+    near_ratio = float(wrist_near_face_max_ratio)
+    if face_missing:
+        near_ratio = min(max(near_ratio, 0.70), 0.85)
+
     if proxy_bbox and (lw or rw):
         fx, fy, fw, fh = proxy_bbox[:4]
         fcx = fx + fw / 2.0
         fcy = fy + fh / 2.0
         fdiag = max(1.0, (fw ** 2 + fh ** 2) ** 0.5)
-        expand = (fx - fw * 0.15, fy - fh * 0.12, fw * 1.3, fh * 1.25)
+        # Expansão moderada — não engolir o peito
+        if face_missing:
+            expand = (fx - fw * 0.20, fy - fh * 0.20, fw * 1.4, fh * 1.25)
+        else:
+            expand = (fx - fw * 0.15, fy - fh * 0.12, fw * 1.3, fh * 1.25)
         for wrist in (lw, rw):
             if wrist is None:
                 continue
-            if float(wrist[2]) < 0.40:
+            if float(wrist[2]) < min_wrist_vis:
                 continue
             wx, wy = wrist[0], wrist[1]
+            # Gate ombros: com face missing, peito não é oclusão
+            if face_missing and ls and rs:
+                shoulder_cy = (ls[1] + rs[1]) / 2.0
+                shoulder_w = max(1.0, abs(rs[0] - ls[0]))
+                if wy > shoulder_cy + 0.18 * shoulder_w:
+                    continue
             d = math.hypot(wx - fcx, wy - fcy) / fdiag
-            if d >= wrist_near_face_max_ratio:
+            if d >= near_ratio:
                 continue
-            # Punho deve intersectar região facial expandida (não só distância ao centro).
             if not (
                 expand[0] <= wx <= expand[0] + expand[2]
                 and expand[1] <= wy <= expand[1] + expand[3]
             ):
                 continue
             near = True
-        hands["visibility"] = 0.6 if near else (0.3 if (lw or rw) else 0.0)
-        if near:
-            hands["state"] = "hand_near_face"
-            dur_h = (now - hand_near_since) if hand_near_since else 0.0
-            reason_suffix = "_proxy" if face_bbox is None else ""
-            if dur_h >= occlusion_persistent_seconds:
-                face_occlusion = {
-                    "state": "persistent_possible_face_occlusion",
-                    "confidence": 0.55 if face_bbox else 0.5,
-                    "reasons": [f"wrist_near_face_persistent{reason_suffix}"],
-                    "note": "wrists_only_no_hand_landmarker",
-                    "duration_seconds": round(dur_h, 2),
-                }
-            else:
-                face_occlusion = {
-                    "state": "possible_face_occlusion_by_hand",
-                    "confidence": 0.4 if face_bbox else 0.35,
-                    "reasons": [f"wrist_near_face{reason_suffix}"],
-                    "note": "wrists_only_no_hand_landmarker",
-                    "duration_seconds": round(dur_h, 2),
-                }
-            hands["state"] = "hand_near_face"
-            # Oclusão ativa: não emitir cabeça baixa no mesmo frame
-            if head_state in ("head_down_short", "head_down_persistent", "head_supported"):
+            near_reason = "wrist_near_face_proxy" if face_missing else "wrist_near_face"
+            break
+
+    # Fallback: punho acima da linha dos ombros (mão no rosto), não terço do torso
+    if not near and face_missing and ls and rs:
+        if _wrist_on_head_zone():
+            near = True
+            near_reason = "wrist_in_head_zone_proxy"
+
+    # Cotovelo elevado acima dos ombros (1 mão cobrindo — punho some)
+    if not near and face_missing and ls and rs:
+        shoulder_cy = (ls[1] + rs[1]) / 2.0
+        shoulder_w = max(1.0, abs(rs[0] - ls[0]))
+        cx = (ls[0] + rs[0]) / 2.0
+        for elbow in (le, re):
+            if elbow is None or float(elbow[2]) < 0.28:
+                continue
+            if elbow[1] <= shoulder_cy + 0.10 * shoulder_w and abs(elbow[0] - cx) / shoulder_w <= 0.95:
+                near = True
+                near_reason = "elbow_raised_head_zone_proxy"
+                break
+
+    hands["visibility"] = 0.6 if near else (0.3 if (lw or rw) else 0.0)
+    if near:
+        hands["state"] = "hand_near_face"
+        dur_h = (now - hand_near_since) if hand_near_since else 0.0
+        reason_suffix = "_proxy" if face_missing else ""
+        reason_tag = near_reason if near_reason.startswith("wrist_near") or near_reason.startswith("elbow") else (
+            f"wrist_near_face{reason_suffix}"
+        )
+        if dur_h >= occlusion_persistent_seconds:
+            face_occlusion = {
+                "state": "persistent_possible_face_occlusion",
+                "confidence": 0.55 if not face_missing else 0.5,
+                "reasons": [f"{reason_tag}_persistent" if not reason_tag.endswith("persistent") else reason_tag],
+                "note": "wrists_only_no_hand_landmarker",
+                "duration_seconds": round(dur_h, 2),
+            }
+        else:
+            face_occlusion = {
+                "state": "possible_face_occlusion_by_hand",
+                "confidence": 0.4 if not face_missing else 0.35,
+                "reasons": [reason_tag],
+                "note": "wrists_only_no_hand_landmarker",
+                "duration_seconds": round(dur_h, 2),
+            }
+        hands["state"] = "hand_near_face"
+        # Oclusão ativa só demote head_down se punho/cotovelo na cabeça (J/K)
+        if head_state in ("head_down_short", "head_down_persistent", "head_supported"):
+            if _wrist_on_head_zone() or near_reason.startswith("elbow_raised"):
                 head_state = "pose_inconclusive"
                 head_conf = min(head_conf, 0.35)
                 reasons.append("wrist_near_prefer_occlusion")
-
+            else:
+                reasons.append("wrist_near_chest_keep_head_down")
     pose_vis = 0.0
     visible_n = sum(1 for v in (nose, ls, rs, lw, rw) if v is not None)
     pose_vis = visible_n / 5.0

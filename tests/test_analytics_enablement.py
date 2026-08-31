@@ -74,7 +74,7 @@ def test_normalize_expression_contract():
     assert normalize_expression_label("happy") == "positive"
     assert normalize_expression_label("sad") == "negative"
     assert normalize_expression_label("neutral") == "neutral"
-    assert normalize_expression_label("surprise") == "surprise"
+    assert normalize_expression_label("surprise") == "inconclusive"
 
 
 def test_temporal_events_open_close():
@@ -96,7 +96,9 @@ def test_temporal_events_open_close():
     eid = events[0][2]
 
     track["drowsiness"] = {"state": "none", "confidence": 0.0, "reasons": []}
-    eng._sync_temporal_events(track, now + 3)
+    # clear-hold de drowsiness (~4s): primeiro tick inicia hold; segundo fecha
+    eng._sync_temporal_events(track, now + 1)
+    eng._sync_temporal_events(track, now + 6)
     assert any(e[0] == "closed" and e[2] == eid for e in events)
 
 

@@ -27,7 +27,7 @@ Indicadores são **estimativas a partir de sinais visuais**. **Não** constituem
 
 ## Estado atual (honesto)
 
-**Checkpoint jul/2026 (branch `feat/painel-de-sentimentos`):** ver [ESTAGIO_ATUAL.md](ESTAGIO_ATUAL.md) — oclusão vs cabeça baixa calibrada em [CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md](CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md). **Entrega TRI:** [ENTREGA_TRI_EMOCOES_DASHBOARD.md](ENTREGA_TRI_EMOCOES_DASHBOARD.md).
+**Checkpoint jul/2026 (branch `feat/painel-de-sentimentos`):** ver [ESTAGIO_ATUAL.md](ESTAGIO_ATUAL.md) — oclusão vs cabeça baixa calibrada em [CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md](CALIBRACAO_OCLUSAO_VS_CABECA_BAIXA.md). **Entrega TRI:** [ENTREGA_TRI_EMOCOES_DASHBOARD.md](ENTREGA_TRI_EMOCOES_DASHBOARD.md). **Baseline manual aprovado (J/K oclusão etc.):** [BASELINE_MANUAL_APROVADO_TRI.md](BASELINE_MANUAL_APROVADO_TRI.md) · matriz [VALIDACAO_FINAL_CENARIOS_TRI.md](VALIDACAO_FINAL_CENARIOS_TRI.md). **Congelamento TRI (não quebrar ✅):** [TRI_CONGELADO.md](TRI_CONGELADO.md) — branch `tri/congelado-baseline-validado`.
 
 | Módulo | Estado | Modo típico | Validação | Observações |
 |--------|--------|-------------|-----------|-------------|

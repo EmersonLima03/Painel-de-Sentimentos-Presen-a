@@ -120,6 +120,7 @@ class LiveSessionStore:
             attn = v.get("attention_state") or "inconclusive"
             expr = v.get("expression_window") or "inconclusive"
             q = v.get("observation_quality") or "unknown"
+            expr_reason = str(v.get("expression_reason") or "")
             if attn != "inconclusive":
                 prev["last_stable_attention"] = attn
                 prev["last_stable_attention_at"] = now
@@ -129,12 +130,23 @@ class LiveSessionStore:
             if expr != "inconclusive" and q == "observable":
                 prev["last_stable_expression"] = expr
                 prev["last_stable_expression_at"] = now
-            elif expr == "inconclusive":
-                # Não grudar última expressão positiva quando fica inconclusivo/ocluído
+                prev["last_stable_expression_pt"] = v.get("expression_display_pt")
+            elif expr == "inconclusive" and (
+                "occlusion" in expr_reason or "face_not_observable" in expr_reason
+            ):
+                # Oclusão / rosto sumiu: não grudar expressão antiga (contrato TRI)
                 prev.pop("last_stable_expression", None)
                 prev.pop("last_stable_expression_at", None)
-            elif prev.get("last_stable_expression") and (now - float(prev.get("last_stable_expression_at") or 0)) < 1.5:
+                prev.pop("last_stable_expression_pt", None)
+            elif (
+                expr == "inconclusive"
+                and prev.get("last_stable_expression")
+                and (now - float(prev.get("last_stable_expression_at") or 0)) < 2.5
+            ):
+                # Qualidade/amostra breve: manter última conclusiva no Ao vivo
                 v["expression_window"] = prev["last_stable_expression"]
+                if prev.get("last_stable_expression_pt"):
+                    v["expression_display_pt"] = prev["last_stable_expression_pt"]
                 v["expression_display_smoothed"] = True
             if q == "observable":
                 prev["last_stable_quality"] = q

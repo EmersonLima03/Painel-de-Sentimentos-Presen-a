@@ -29,10 +29,11 @@ def pick_expression_ab(
     if p_lab == s_lab:
         return (primary if p_conf >= s_conf else secondary), "agreement"
 
-    # Sorriso: se um provider vê positive com confiança razoável, não descartar
-    if p_lab == "positive" and s_lab == "neutral" and p_conf >= 0.55:
+    # Sorriso: só preferir positive com evidência mais forte (evita “sempre positiva” no A/B DeepFace).
+    # Perfil TRI (fer_onnx sem secondary) não usa este caminho.
+    if p_lab == "positive" and s_lab == "neutral" and p_conf >= 0.65:
         return primary, "prefer_positive_primary"
-    if s_lab == "positive" and p_lab == "neutral" and s_conf >= 0.55:
+    if s_lab == "positive" and p_lab == "neutral" and s_conf >= 0.65:
         return secondary, "prefer_positive_secondary"
 
     if s_conf > p_conf + 0.08:
