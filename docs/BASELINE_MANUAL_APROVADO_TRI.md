@@ -48,7 +48,7 @@ Se uma mudança quebrar o comportamento abaixo, **revalidar na webcam** antes de
 
 | Campo | Valor |
 |-------|--------|
-| Data | 2026-07-30; **revalidado 2026-08-03** (“Rosto coberto / não observável está ótimo”) |
+| Data | 2026-07-30; **revalidado 2026-08-03**; **LIVE 2026-09-14** (Emerson: 1 mão → evento certinho) |
 | Testador | Emerson Lima |
 | Câmera / UI | `/debug/vision`, RTSP local |
 | Esperado | Evento “Rosto coberto / não observável”; oclusão persistente; atenção e sonolência **inconclusivas**; identidade por continuidade |
@@ -56,13 +56,13 @@ Se uma mudança quebrar o comportamento abaixo, **revalidar na webcam** antes de
 | Proibido que volte | Sem evento com 1 mão; “Sem oclusão facial” com mão cobrindo; sono/atenção baixa inventados |
 | Arquivos sensíveis | `app/vision/body_pose.py`, `app/pipeline/analytics_track.py` (hold oclusão), `app/pipeline/occlusion_head_arbitration.py`, `app/static/debug_vision.html` |
 | Testes de regressão | `tests/test_occlusion_continuity.py`, `tests/test_occlusion_hysteresis.py`, `tests/test_head_down_visibility_gate.py` |
-| Params | `face_occlusion.clear_hold_seconds` (4), `face_missing_hold_seconds` (15), `persistent_seconds` (5), `confirm_seconds` (0.7) |
+| Params | `face_occlusion.clear_hold_seconds` **4.0**; `face_missing_hold_seconds` **15.0**; `persistent_seconds` **5.0**; `confirm_seconds` **0.35** (TRI overlay 14/09) |
 
 ### K — Duas mãos no rosto ✅
 
 | Campo | Valor |
 |-------|--------|
-| Data | 2026-07-30; revalidado junto com oclusão em 2026-08-03 |
+| Data | 2026-07-30; revalidado 2026-08-03; **LIVE 2026-09-14** (Emerson: 2 mãos → evento certinho) |
 | Esperado | Oclusão persistente contínua; atenção/sono inconclusivos; sem head_down automático por oclusão |
 | Obtido | Aprovado |
 | Proibido que volte | Evento abrindo/fechando várias vezes; relatório só com pedaços |
@@ -173,19 +173,19 @@ Depois, webcam: 20s peito olhando câmera → 15s celular na frente do rosto.
 
 | Campo | Valor |
 |-------|--------|
-| Data | 2026-08-03 |
+| Data | 2026-08-03; **revalidado LIVE 2026-09-14** (Emerson: neutro e positivo certos; `fer_onnx` + smile_boost) |
 | Esperado | Sorriso sustentado → **predominantemente positiva**; cara séria → neutra; relatório com tempos coerentes ao longo da sessão |
 | Obtido | Aprovado — ex.: Positiva **16 min 56s** / Neutra **20 min 59s** na sessão; “está ótima também” |
 | Proibido que volte | Sorriso longo sempre neutro; `smile_boost_enabled: false` no perfil TRI sem reteste |
 | Arquivos sensíveis | `config.tri.yaml` (`smile_boost_enabled: true`, `provider: fer_onnx`), `app/pipeline/analytics_track.py` (`_compute_expression`), `app/vision/emotion_engagement.py` (heurística sorriso), providers em `app/vision/expressions/` |
-| Params TRI | `expression.smile_boost_enabled: true`, `minimum_confidence_positive` ~0.50, janela ~8s |
+| Params TRI | `smile_boost_enabled: true`, `minimum_confidence_positive` **0.50**, `window_seconds` **5**, `provider`/`emotion_backend` **fer_onnx** |
 | Doc relacionada | `docs/TROUBLESHOOTING.md` → “Sorriso aparece como expressão neutra” |
 
 ### H — Cabeça baixa (ângulo extremo / leitura) ✅
 
 | Campo | Valor |
 |-------|--------|
-| Data | **2026-08-03 ~10:31 e ~10:34** (aprovação humana; pós-fix continuidade) |
+| Data | **2026-08-03 ~10:31 e ~10:34**; **revalidado LIVE 2026-09-14** (take dirigido: ereto → baixo → erguer) |
 | Testador | Emerson Lima |
 | Câmera / UI | `/debug/vision`, RTSP local |
 | Print 1 (~10:31) | Cabeça baixa clara; evento **“Cabeça baixa prolongada · 37 s”**; card Cabeça **igual** + “Duração contínua: 37 s”; rosto sumido ~39 s; atenção baixa; sono/expressão inconclusivos. Testador: “resultado incrível” |
@@ -226,15 +226,18 @@ Depois, webcam: 20s peito olhando câmera → 15s celular na frente do rosto.
 | Docs | `docs/EMOTION_BACKEND_HSEMOTION_VGAF.md` |
 | Testes | `tests/test_hsemotion_vgaf_experimental.py`, `tests/test_expression_negative_contract.py` |
 
-### EX+/EX= — preservados com VGAF
+### EX+/EX= — LIVE TRI = FER+ (não VGAF)
 
-Sorriso → `predominantly_positive`; cara séria/neutra → `predominantly_neutral` (validado nos mesmos vídeos EX da promoção).
+Sorriso → `predominantly_positive`; cara séria/neutra → `predominantly_neutral`.  
+**Path LIVE 14/09:** `config.tri.yaml` → `fer_onnx` + `smile_boost_enabled: true`.  
+VGAF (2026-09-09) foi promoção **offline** de EX−; **não** reativar no overlay TRI sem reteste EX+ (já quebrou sorriso→negativa).
 
 ---
 
 ## Ainda pendentes na matriz (não travados)
 
-A (garrafa transparente formal), sync matriz C/F/E1–E2/P com closes offline. **EX−:** ✅ 2026-09-09. **I:** ✅ 2026-09-09. **L:** ✅ 2026-09-09. **E3/E4:** contrato de código travado 2026-09-03; confirmar no roteiro visual após restart.
+A (garrafa transparente formal), C×3 formais, F, E1–E2, P1–P5, smoke **I/L**.  
+**H/J/K/EX+/EX=:** reaprovados LIVE 2026-09-14. **E3/E4/D/C/E-lat:** LIVE 2026-09-13/14.
 
 Ver matriz: `docs/VALIDACAO_FINAL_CENARIOS_TRI.md`.
 

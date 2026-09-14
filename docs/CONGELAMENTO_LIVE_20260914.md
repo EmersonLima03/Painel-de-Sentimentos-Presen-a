@@ -3,7 +3,7 @@
 **Aprovado por:** Emerson Lima (webcam `/debug/vision`, USB XWF-1080P)  
 **Branch:** `tri/congelado-baseline-validado`  
 **Perfil:** `PRESENCA_CONFIG_OVERLAY=config.tri.yaml`, `RUNTIME_MODE=rtsp`  
-**Não é TRI 100%.** É o resultado LIVE de celular/fone/oclusão-falsa que **não pode se perder de novo**.
+**Não é TRI 100%.** É o resultado LIVE (celular + cabeça baixa + oclusão J/K + expressão +/− neutra) que **não pode se perder de novo**.
 
 Observação desta sessão: JPEG overlay + `GET /api/v1/live/debug-snapshot` (sem Chromium extra).  
 **MP4 / Live Monitor / VGAF não são prova de fechamento.**
@@ -19,14 +19,20 @@ Observação desta sessão: JPEG overlay + `GET /api/v1/live/debug-snapshot` (se
 | **D** | Celular na mão 15s+ | caixa contínua ≠ `not_detected`; alerta `probable` verdadeiro |
 | **C** | Só fone, celular fora do quadro | `not_detected`, zero evento de phone (1 take; ×3 formais ainda na matriz) |
 | **E-lat** | Celular ao lado, olhar câmera | visível/`near`, **não uso** (`phone_lateral_visible_not_use`); sem oclusão inventada |
+| **H** | Cabeça baixa → erguer | `head_down_persistent` contínuo; ao erguer `head_forward` e evento fecha (take agente ~9→20 s no overlay; episódio ~63 s incl. hold 12 s) |
+| **J** | Uma mão cobrindo o rosto | evento oclusão / rosto coberto (Emerson, mesmo LIVE) |
+| **K** | Duas mãos cobrindo o rosto | evento oclusão contínuo (Emerson, mesmo LIVE) |
+| **EX+ / EX=** | Sorriso / neutro | positiva / neutra com `fer_onnx` + smile_boost (Emerson, mesmo LIVE) |
 
 **E4 e E3 sempre retestados juntos.** Ajuste de peito ou “ao lado” sem reteste na cara = regressão.
+
+Números do perfil: [`VALORES_CONGELADOS_LIVE_20260914.md`](VALORES_CONGELADOS_LIVE_20260914.md).
 
 ---
 
 ## Ainda não revalidado nesta sessão
 
-H (cabeça baixa), I/L, J facepalm, EX+ sorriso — contratos antigos do baseline de agosto **continuam válidos no papel**; não foram o take de 13–14/09.
+**I** (perfil) e **L** (mão no queixo sem cobrir). Contratos de setembro no papel seguem; não foram o take dirigido 14/09.
 
 ---
 
@@ -40,6 +46,8 @@ H (cabeça baixa), I/L, J facepalm, EX+ sorriso — contratos antigos do baselin
 - Punho abaixo do queixo com face visível ≠ oclusão J.
 - `_frame_signal` via `cv2.meanStdDev` (nunca `np.std` em 1080p float64).
 - Overlay TRI: `fer_onnx` + `smile_boost`.
+- H: `event_min` 8 s / hold 12 s; limpa ao erguer.
+- J/K: oclusão por mão cobrindo; `confirm_seconds` 0.35; `persistent_seconds` 5.
 - Hold de detecção/associação curto (~2s); clear rápido ao soltar.
 
 ---
@@ -64,4 +72,4 @@ $env:PRESENCA_CONFIG_OVERLAY = "config.tri.yaml"
 pytest tests/test_phone_filters.py tests/test_phone_positive_controls.py tests/test_phone_false_positive_regression.py tests/test_frame_usable_black.py tests/test_l_occlusion_contract.py -q
 ```
 
-Depois, na webcam, no mínimo: **E4 peito → E3 cara → C fone**.
+Depois, na webcam, no mínimo: **E4 peito → E3 cara → C fone**; se mexer pose/oclusão: **H + J + K**.

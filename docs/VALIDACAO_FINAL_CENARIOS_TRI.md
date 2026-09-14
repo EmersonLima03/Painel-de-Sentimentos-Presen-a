@@ -50,14 +50,14 @@ Não persistir frames sem consentimento. Vídeos locais: `data/validation/tri/` 
 | E2 | Mão perto sem pegar | 10s | sem possible/probable | interação | — | Auto: wrist longe OK | pendente manual |
 | F | Digitando / olhar teclado | 60s | head_down / inconclusivo ok | possible/probable drowsiness | risco EAR↓ | Auto: pause por `eyes_observable` | pendente manual (G ✅) |
 | G | Olhos fechados frontais | limiares 6s/30s | possible/probable nos limiares | evento &lt;2.5s | — | Manual: “olhos fechados ótimo” | **✅ 2026-08-03** |
-| H | Cabeça baixa parcial | &lt;8s / ≥8s | short / persistent; evento + card com duração ≈ real | sono auto; 0s; banner 2s após 40s | misto / parcial 10:17 | Print 10:31 **37s** contínuos; 10:34 **14s** — card alinhado | **✅ 2026-08-03** |
+| H | Cabeça baixa parcial | &lt;8s / ≥8s | short / persistent; evento + card com duração ≈ real | sono auto; 0s; banner 2s após 40s | misto / parcial 10:17 | Print 10:31 **37s**; LIVE 14/09 ereto→baixo→ergue limpa | **✅ 2026-08-03 / LIVE 2026-09-14** |
 | EX− | Expressão negativa | ~8–10s sustentado | predominantly_negative (triste/raiva); séria→neutra; positiva→positiva | FP cara séria; DeepFace A/B | 0s FER+; VGAF 4/4 | HSEmotion VGAF default 2026-09-09: EX triste/raiva OK; EXseria neutra; EX+ positiva | **✅ FECHADO 2026-09-09** (VGAF default) |
 | I | Perfil / rosto lateral ou sumiu | 20s | `head_turned` **ou** `pose_inconclusive`; sem inventar head_down/sono | `head_down_persistent`; possible/probable drowsiness só por perfil | contrato alinhado | `Iperfil.mp4`: head_turned maj. + pose_inconclusive; 0 head_down; 0 sono; identidade `p01` OK | **✅ FECHADO 2026-09-09** (contrato + vídeo) |
-| J | Uma mão no rosto | &lt;8 / &gt;8 / 20s | oclusão + inconclusivos | sono; head_down auto | fragmentava / falhava 1 mão | Revalidado “ótimo” | **✅ 2026-07-30 / 08-03** |
-| K | Duas mãos no rosto | 20s+ contínuo | oclusão persistente contínua | sono; episódios 6–10s | ~36s em 4 pedaços | Continuidade estável | **✅ 2026-07-30 / 08-03** |
+| J | Uma mão no rosto | &lt;8 / &gt;8 / 20s | oclusão + inconclusivos | sono; head_down auto | fragmentava / falhava 1 mão | Revalidado “ótimo”; LIVE 14/09 evento certinho | **✅ 2026-07-30 / 08-03 / LIVE 2026-09-14** |
+| K | Duas mãos no rosto | 20s+ contínuo | oclusão persistente contínua | sono; episódios 6–10s | ~36s em 4 pedaços | Continuidade estável; LIVE 14/09 evento certinho | **✅ 2026-07-30 / 08-03 / LIVE 2026-09-14** |
 | L | Mão próxima sem bloquear (queixo/bochecha) | ~20s | `face_occlusion=none` se face observável; `hand_near_face` **opcional**; sem persistent por proximidade | persistent só por mão perto; exigir near; FP oclusão no queixo | NEW6 2026-09-09 `L_mao_parcial_rosto` | Contrato alinhado: near≠oclusão; cobertura = J (`L_uma_mao_cobrindo`) | **✅ 2026-09-09** (contrato + vídeo) |
 | ATTN | Baixa atenção visual persistente | sustentado | evento/sinal persistente; sem virar sono | some o evento | — | Manual: “ótima” | **✅ 2026-08-03** |
-| EX+/= | Expressão positiva / neutra (sessão) | sessão | sorriso→positiva; tempos relatório coerentes | sorriso longo sempre neutro | smile_boost off quebrava | Positiva 16m56s / Neutra 20m59s | **✅ 2026-08-03** |
+| EX+/= | Expressão positiva / neutra (sessão) | sessão | sorriso→positiva; tempos relatório coerentes | sorriso longo sempre neutro | smile_boost off quebrava | Positiva 16m56s / Neutra 20m59s; LIVE 14/09 ambos certos | **✅ 2026-08-03 / LIVE 2026-09-14** |
 
 ### Controles positivos (anti falso-negativo)
 

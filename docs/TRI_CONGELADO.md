@@ -2,7 +2,7 @@
 
 **Branch oficial deste congelamento:** `tri/congelado-baseline-validado`  
 **Data do congelamento:** 2026-08-31  
-**Recongelamento LIVE:** 2026-09-14 — ver [`CONGELAMENTO_LIVE_20260914.md`](CONGELAMENTO_LIVE_20260914.md)  
+**Recongelamento LIVE:** 2026-09-14 — [`CONGELAMENTO_LIVE_20260914.md`](CONGELAMENTO_LIVE_20260914.md) · [`VALORES_CONGELADOS_LIVE_20260914.md`](VALORES_CONGELADOS_LIVE_20260914.md)  
 **Base Git anterior:** `98a9daa` → este branch inclui todo o trabalho acumulado até o congelamento.
 
 ---
@@ -86,10 +86,9 @@ pytest tests/test_occlusion_continuity.py tests/test_occlusion_hysteresis.py tes
 
 ## O que ainda falta para TRI 100%
 
-Matriz manual incompleta: A, C×3 formais, E1, E2, F, P1–P5.  
-E3/E4/D/C (1 take) e lateral-sem-uso **reaprovados LIVE 2026-09-13/14**.  
-H/I/L/J/EX+ não foram o take desta sessão (contratos de agosto seguem).  
-Ver [`VALIDACAO_FINAL_CENARIOS_TRI.md`](VALIDACAO_FINAL_CENARIOS_TRI.md) e [`CONGELAMENTO_LIVE_20260914.md`](CONGELAMENTO_LIVE_20260914.md).
+Matriz manual incompleta: A, C×3 formais, E1, E2, F, P1–P5, I/L smoke.  
+E3/E4/D/C/E-lat **e** H/J/K/EX+/EX= **reaprovados LIVE 2026-09-13/14**.  
+Números: [`VALORES_CONGELADOS_LIVE_20260914.md`](VALORES_CONGELADOS_LIVE_20260914.md).
 
 **Este congelamento não declara TRI 100%** — declara **baseline ✅ protegido** + código versionado para continuar o fechamento com segurança.
 
