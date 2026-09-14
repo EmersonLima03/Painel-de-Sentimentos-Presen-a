@@ -26,6 +26,36 @@ PHONE_OCCLUSION_SUPPRESS_STATES = frozenset(
 )
 
 
+def analytics_person_bbox_for_pose(
+    person_bbox: BBox,
+    face_bbox: Optional[BBox],
+    frame_shape: Tuple[int, ...],
+) -> BBox:
+    """
+    ROI analítica para MediaPipe Pose — NÃO altera ByteTrack / identity.
+
+    LIVE webcam: person bbox quase full-frame distorce yaw/pitch/wrists vs MP4
+    (person derivado da face). Quando a área do person domina o frame e há face,
+    usa expansão face→person alinhada aos runners validados.
+    """
+    px, py, pw, ph = person_bbox
+    fh = float(frame_shape[0]) if len(frame_shape) >= 1 else 0.0
+    fw = float(frame_shape[1]) if len(frame_shape) >= 2 else 0.0
+    frame_area = max(1.0, fw * fh)
+    area_frac = (pw * ph) / frame_area
+    if face_bbox is not None and area_frac >= 0.45:
+        fx, fy, fbw, fbh = face_bbox
+        ax = max(0.0, fx - 0.55 * fbw)
+        ay = max(0.0, fy - 0.35 * fbh)
+        aw = min(fw - ax, fbw * 2.3)
+        ah = min(fh - ay, fbh * 3.6)
+        if aw >= 40.0 and ah >= 80.0:
+            return (ax, ay, aw, ah)
+    if area_frac >= 0.55:
+        return (px + pw * 0.12, py, pw * 0.76, ph * 0.72)
+    return person_bbox
+
+
 def is_displayable_track(
     track: dict,
     *,
@@ -39,36 +69,99 @@ def is_displayable_track(
 
     ident = track.get("identity") or {}
     face_vis = bool(ident.get("face_visible"))
+    has_face_bbox = bool(track.get("face_bbox"))
     sid = track.get("student_id") or ident.get("student_id")
     id_state = str(ident.get("identity_state") or "unknown")
-    has_strong_identity = bool(sid) or id_state in ("face_confirmed", "body_continuity")
+    conf = float(track.get("track_confidence") or 0.0)
     secs_lost = float(track.get("seconds_since_person_detection") or 0.0)
+    obs = track.get("observability") or {}
+    body_det = bool(obs.get("body_detected"))
+    body_obs = bool(obs.get("body_observable"))
 
-    # Fantasma típico: temporarily_lost + unknown sem rosto
+    occ = track.get("face_occlusion") or {}
+    occ_state = str(occ.get("state") or "none")
+    occ_active = occ_state in (
+        "possible_face_occlusion_by_hand",
+        "persistent_possible_face_occlusion",
+    )
+    hands_st = str((track.get("hands") or {}).get("state") or "")
+    # Oclusão só estende hold enquanto o sumiço corporal é curto (evita fantasma na cortina).
+    occlusion_hold = (occ_active or hands_st == "hand_near_face") and secs_lost <= 4.0
+
+    pb = track.get("person_bbox") or track.get("bbox")
+    fan_like = False
+    if pb and len(pb) >= 4:
+        pw, ph = float(pb[2] or 0), float(pb[3] or 0)
+        if pw > 1 and ph / max(pw, 1.0) > 2.55:
+            fan_like = True
+        elif pw > 1 and ph / max(pw, 1.0) > 2.15 and pw < 90:
+            fan_like = True
+    lq = (track.get("observation_quality") or {}).get("landmarks_quality")
+    if lq is None:
+        lq = (track.get("facial_features") or {}).get("landmarks_quality")
+    real_face = bool(face_vis) and float(lq or 0.0) >= 0.40
+
+    if tstate == "active":
+        # Ventilador/poste: YOLO person + YuNet no objeto — esconde sem rosto real.
+        if fan_like and not real_face and not sid:
+            return False
+        if body_det or body_obs:
+            return conf >= min_track_confidence
+        # Face YuNet sozinha (sem landmarks / corpo) = fantasma de parede — não contar.
+        if real_face:
+            return True
+        if sid and id_state in ("face_confirmed", "body_continuity"):
+            return True
+        # H ✅: cabeça baixa / perfil — person_bbox sem face landmarks ainda conta.
+        if (
+            pb
+            and len(pb) >= 4
+            and conf >= min_track_confidence
+            and not fan_like
+            and float(pb[2] or 0) > 8
+            and float(pb[3] or 0) > 8
+            and (
+                sid
+                or id_state in ("face_confirmed", "body_continuity", "uncertain")
+                or secs_lost <= 1.5
+            )
+        ):
+            return True
+        if face_vis or has_face_bbox:
+            return False
+        if sid and id_state == "uncertain":
+            return conf >= max(min_track_confidence, 0.45)
+        return conf >= max(min_track_confidence, 0.45)
+
     if tstate == "temporarily_lost":
-        if face_vis:
-            return True
-        if has_strong_identity and secs_lost <= max_lost_display_seconds:
-            return True
+        if real_face:
+            return secs_lost <= max(max_lost_display_seconds, 6.0)
+        if sid and id_state in ("face_confirmed", "body_continuity"):
+            grace = 6.0 if occlusion_hold else max_lost_display_seconds
+            # H: person_bbox ainda no track (look-down) — grace curto extra, sem fantasma de cortina.
+            if (
+                pb
+                and len(pb) >= 4
+                and float(pb[2] or 0) > 8
+                and float(pb[3] or 0) > 8
+                and not fan_like
+            ):
+                grace = max(grace, 4.0)
+            return secs_lost <= grace
+        if id_state == "uncertain" and occlusion_hold:
+            return secs_lost <= 4.0
+        # has_face_bbox sem real_face: não segurar fantasma de parede
         return False
-
-    if face_vis or has_strong_identity:
+    if real_face or (sid and id_state in ("face_confirmed", "body_continuity")):
         return True
 
-    # uncertain sem sid: só se ainda ativo e corpo detectado
-    if id_state == "uncertain" and tstate == "active":
-        obs = track.get("observability") or {}
-        if obs.get("body_detected") or obs.get("body_observable"):
-            return float(track.get("track_confidence") or 0.0) >= max(min_track_confidence, 0.35)
-        return False
+    if id_state == "uncertain" and tstate == "reassociated":
+        return body_det and conf >= max(min_track_confidence, 0.35)
 
     if tstate != "active":
         return False
 
-    obs = track.get("observability") or {}
-    if obs.get("body_detected") or obs.get("body_observable"):
-        return float(track.get("track_confidence") or 0.0) >= min_track_confidence
-    return False
+    return body_det and conf >= min_track_confidence
 
 
 def filter_displayable_tracks(tracks: List[dict], **kwargs) -> List[dict]:
@@ -136,8 +229,9 @@ class TrackAnalyticsCache:
     head_state: Dict[str, Any] = field(default_factory=dict)
     face_occlusion: Dict[str, Any] = field(default_factory=dict)
     latencies_ms: Dict[str, Any] = field(default_factory=dict)
-    # expression smoothing
+    # expr smoothing
     expr_labels: Deque[Tuple[float, str, float]] = field(default_factory=lambda: deque(maxlen=64))
+    expr_negative_since: Optional[float] = None
     # attention / drowsiness temporal
     attn_samples: Deque[Tuple[float, str, float]] = field(default_factory=lambda: deque(maxlen=64))
     eyes_closed_since: Optional[float] = None  # legado; preferir accum
@@ -181,6 +275,8 @@ class RealtimeAnalyticsEngine:
         self._expression_provider_secondary = None
         self._expression_provider_status = "not_loaded"
         self._expression_health_reason = None
+        self._emotion_async_worker = None
+        self._emotion_backend = "fer_onnx"
         self._phone_associator = None
         self._phone_status = "disabled"
         self._phone_reason = "phone_yolo_disabled"
@@ -192,8 +288,117 @@ class RealtimeAnalyticsEngine:
         self._person_tracker_debug: Dict[str, Any] = {}
         self._phone_detector_debug: Dict[str, Any] = {}
         self._init_expression_provider()
+        self._init_emotion_async_backend()
         self._init_phone()
         self._init_identity_engine()
+
+    def shutdown(self) -> None:
+        """Encerra worker assíncrono de emoção (se ativo)."""
+        w = getattr(self, "_emotion_async_worker", None)
+        if w is not None:
+            try:
+                w.shutdown()
+            except Exception as e:
+                logger.warning("emotion_async_worker_shutdown_failed", error=str(e))
+            self._emotion_async_worker = None
+
+    def _emotion_backend_is_vgaf(self) -> bool:
+        b = str(getattr(self.settings, "expression_emotion_backend", "hsemotion_vgaf") or "hsemotion_vgaf")
+        return b.strip().lower() in ("hsemotion_vgaf", "hsemotion_enet_b0_8_best_vgaf", "hs_vgaf")
+
+    def _activate_fer_onnx_fallback(self, *, reason: str) -> None:
+        """Fallback explícito para FER+ (não silencioso). Não derruba o pipeline."""
+        self._emotion_backend = "fer_onnx"
+        self._emotion_async_worker = None
+        try:
+            from app.vision.expressions import create_expression_provider
+
+            cur = str(getattr(self._expression_provider, "provider_name", "") or "").lower()
+            if cur in ("fer_onnx", "ferplus", "emotion_ferplus") and self._expression_provider_status == "available":
+                self._expression_health_reason = f"fallback_fer_onnx;reason={reason};kept_existing"
+                logger.error(
+                    "hsemotion_vgaf_falling_back_fer_onnx",
+                    reason=reason,
+                    note="FER+ already loaded; async worker disabled",
+                )
+                return
+            prov = create_expression_provider("fer_onnx")
+            h = prov.health(force=True) if hasattr(prov, "health") else {"status": "available"}
+            if h.get("status") != "available":
+                logger.error(
+                    "fer_onnx_fallback_unavailable",
+                    reason=reason,
+                    fer_reason=h.get("reason"),
+                )
+                self._expression_provider_status = "unavailable"
+                self._expression_health_reason = f"fallback_fer_failed;{reason}"
+                return
+            self._expression_provider = prov
+            self._expression_provider_status = "available"
+            self._expression_health_reason = f"fallback_fer_onnx;reason={reason}"
+            logger.error(
+                "hsemotion_vgaf_falling_back_fer_onnx",
+                reason=reason,
+                note="FER+ activated as explicit fallback",
+            )
+        except Exception as e:
+            logger.error(
+                "fer_onnx_fallback_init_failed",
+                reason=reason,
+                error=str(e),
+            )
+            self._expression_provider_status = "unavailable"
+            self._expression_health_reason = f"fallback_fer_init_failed;{reason}"
+
+    def _init_emotion_async_backend(self) -> None:
+        """Default: HSEmotion VGAF + worker assíncrono. FER+ se backend≠vgaf ou falha de boot."""
+        self._emotion_backend = str(
+            getattr(self.settings, "expression_emotion_backend", "hsemotion_vgaf") or "hsemotion_vgaf"
+        ).strip().lower()
+        if not self._emotion_backend_is_vgaf():
+            return
+        mode = str(getattr(self.settings, "module_expression_mode", "disabled") or "disabled").lower()
+        if mode == "disabled":
+            return
+        try:
+            from app.pipeline.emotion_async_worker import AsyncEmotionWorker
+            from app.vision.expressions import create_expression_provider
+
+            prov = create_expression_provider("hsemotion_vgaf")
+            h = prov.health(force=True) if hasattr(prov, "health") else {"status": "available"}
+            if h.get("status") != "available":
+                self._activate_fer_onnx_fallback(
+                    reason=str(h.get("reason") or "hsemotion_vgaf_unavailable")
+                )
+                return
+            interval = float(
+                getattr(self.settings, "expression_hsemotion_interval_seconds", 2.0) or 2.0
+            )
+            max_batch = int(getattr(self.settings, "expression_hsemotion_max_batch", 5) or 5)
+            worker = AsyncEmotionWorker(
+                prov, interval_seconds=interval, max_batch=max_batch
+            )
+            worker.start()
+            self._emotion_async_worker = worker
+            # provider de analytics aponta para VGAF (documentação/health); inferência via worker
+            self._expression_provider = prov
+            self._expression_provider_status = "available"
+            self._expression_health_reason = (
+                f"provider=hsemotion_vgaf;async_worker=1;interval_s={interval};"
+                "smile_boost=off;frown_boost=off;smooth=1"
+            )
+            logger.info(
+                "expression_emotion_backend_hsemotion_vgaf_enabled",
+                interval_s=interval,
+                max_batch=max_batch,
+                note="default_async_no_smile_frown_boost",
+            )
+        except Exception as e:
+            logger.error(
+                "hsemotion_vgaf_init_failed_falling_back_fer",
+                error=str(e),
+            )
+            self._activate_fer_onnx_fallback(reason=f"init_exception:{e}")
 
     def _init_identity_engine(self) -> None:
         from app.vision.identity_binding import IdentityBindingEngine
@@ -369,7 +574,7 @@ class RealtimeAnalyticsEngine:
                     getattr(self.settings, "phone_interaction_requires_in_hand", True)
                 ),
                 clear_hold_seconds=float(
-                    getattr(self.settings, "phone_association_clear_hold_seconds", 3.0) or 3.0
+                    getattr(self.settings, "phone_association_clear_hold_seconds", 2.0) or 2.0
                 ),
             )
             # probe import
@@ -637,6 +842,9 @@ class RealtimeAnalyticsEngine:
                 try:
                     from app.vision.body_pose import estimate_body_pose
 
+                    # Baseline recovery: person ByteTrack puro (sem face-ROI analítica).
+                    # Sempre passa face YuNet real — NÃO anular por head_down_since
+                    # (isso causava sticky face_missing_untrusted_nose).
                     pr = estimate_body_pose(
                         frame,
                         person_bbox,
@@ -659,17 +867,29 @@ class RealtimeAnalyticsEngine:
                         "confidence": pr.head_confidence,
                         "reasons": list(pr.reasons),
                     }
+                    q_pose = str((cache.observation_quality or {}).get("status") or "")
                     if pr.head_state in ("head_down_short", "head_down_persistent", "head_supported"):
                         if cache.head_down_since is None:
                             cache.head_down_since = now
                     elif pr.head_state == "head_forward":
-                        # Só zera com rosto visível — senão falso "forward" no topo da cabeça
-                        # derruba o acumulador e o relatório fica 0s.
-                        if face_visible:
+                        # Face YuNet presente + pose forward limpa sticky.
+                        # LIVE costuma ser partially_observable — exigir qualidade plena
+                        # impedia reset (cabeça erguida + evento de 23s+/minutos).
+                        _face_ok = False
+                        if face_bbox is not None:
+                            _face_ok = float(face_bbox[2]) >= 55.0 and float(face_bbox[3]) >= 70.0
+                        if face_visible or _face_ok:
                             cache.head_down_since = None
                             cache.head_down_accum_seconds = 0.0
                             cache.head_down_last_tick = None
-                    elif pr.head_state == "head_turned" and face_visible:
+                    elif pr.head_state == "head_turned" and (
+                        face_visible
+                        or (
+                            face_bbox is not None
+                            and float(face_bbox[2]) >= 55.0
+                            and float(face_bbox[3]) >= 70.0
+                        )
+                    ):
                         cache.head_down_since = None
                         cache.head_down_accum_seconds = 0.0
                         cache.head_down_last_tick = None
@@ -834,7 +1054,21 @@ class RealtimeAnalyticsEngine:
                     "confidence": 0.0,
                 }
             elif expr_mode != "disabled":
-                if now - cache.last_expression_ts >= e_iv:
+                if self._emotion_async_worker is not None:
+                    # Poll frequente do cache; cadência de inferência = worker (2s).
+                    # NÃO bloqueia: maybe_submit só enfileira.
+                    poll_iv = min(e_iv, 0.5)
+                    if now - cache.last_expression_ts >= poll_iv:
+                        te0 = time.perf_counter()
+                        self._emotion_async_worker.maybe_submit(key, crop, now)
+                        cache.expression = self._emotion_async_worker.build_expression_dict(
+                            key, now
+                        )
+                        cache.latencies_ms["expression"] = round(
+                            (time.perf_counter() - te0) * 1000.0, 2
+                        )
+                        cache.last_expression_ts = now
+                elif now - cache.last_expression_ts >= e_iv:
                     te0 = time.perf_counter()
                     cache.expression = self._compute_expression(crop, cache, now)
                     cache.latencies_ms["expression"] = round((time.perf_counter() - te0) * 1000.0, 2)
@@ -859,15 +1093,38 @@ class RealtimeAnalyticsEngine:
                 cache.visual_attention = {"status": "disabled", "state": "inconclusive"}
                 cache.drowsiness = {"status": "disabled", "state": "inconclusive"}
 
-            # Repassa oclusão atualizada para attention UI se acabou de sintetizar
-            if cache.visual_attention and (cache.face_occlusion or {}).get("state") == "persistent_possible_face_occlusion":
-                va = dict(cache.visual_attention)
-                if va.get("state") == "inconclusive":
-                    va["face_occlusion"] = (cache.face_occlusion or {}).get("state")
-                    va["unobservable_seconds"] = (cache.face_occlusion or {}).get("duration_seconds") or va.get(
-                        "unobservable_seconds"
-                    )
+            # Repassa oclusão → attention/expr UI (J: não manter "Alta" sob mão no rosto)
+            occ_now = str((cache.face_occlusion or {}).get("state") or "none")
+            hands_now = str((cache.hands or {}).get("state") or "")
+            if occ_now in (
+                "possible_face_occlusion_by_hand",
+                "persistent_possible_face_occlusion",
+            ) or hands_now == "hand_near_face":
+                if cache.visual_attention:
+                    va = dict(cache.visual_attention)
+                    va["state"] = "inconclusive"
+                    va["level"] = "inconclusive"
+                    va["status"] = "inconclusive"
+                    reasons = list(va.get("reasons") or [])
+                    if "face_occlusion" not in reasons:
+                        reasons.append("face_occlusion")
+                    va["reasons"] = reasons
+                    va["face_occlusion"] = occ_now if occ_now != "none" else hands_now
+                    va["unobservable_seconds"] = (cache.face_occlusion or {}).get(
+                        "duration_seconds"
+                    ) or va.get("unobservable_seconds")
                     cache.visual_attention = va
+                if cache.drowsiness and str((cache.drowsiness or {}).get("state") or "") not in (
+                    "inconclusive",
+                    "none",
+                ):
+                    cache.drowsiness = {
+                        **dict(cache.drowsiness or {}),
+                        "state": "inconclusive",
+                        "reasons": list(
+                            set(list((cache.drowsiness or {}).get("reasons") or []) + ["face_occlusion"])
+                        ),
+                    }
             # sincroniza face_occlusion no quality
             if cache.observation_quality:
                 cache.observation_quality = self._enrich_quality_from_pose(
@@ -1472,7 +1729,8 @@ class RealtimeAnalyticsEngine:
                 mouth = ff.get("mouth_open_score")
                 mouth_f = float(mouth) if isinstance(mouth, (int, float)) else 0.0
                 smile_combined = max(smile_px, smile_lm_f)
-                # Sorriso: só landmark alto. Pixel (~0.3–0.45 em sério) NÃO dispara boost.
+                # Sorriso: landmark alto OU pixel forte com dentes (sorriso aberto).
+                # Pixel sozinho em cara séria (~0.3–0.45) NÃO dispara boost.
                 if (
                     smile_boost_enabled
                     and ear_f >= 0.15
@@ -1494,12 +1752,28 @@ class RealtimeAnalyticsEngine:
                     pred_conf = max(float(pred_conf), smile_lm_f, 0.55)
                     raw = "happy"
                     smile_src = "landmarks_mouth"
-                # Bico/tristeza: EAR baixo ok (olhos semicerrados no gesto); limiar ≥0.36
+                elif (
+                    smile_boost_enabled
+                    and ear_f >= 0.15
+                    and smile_px >= 0.55
+                    and mouth_f >= 0.14
+                    and frown_lm_f < 0.35
+                    and smile_lm_f >= 0.28
+                ):
+                    # Sorriso com dentes: pixel alto + boca aberta (EX+ mais responsivo)
+                    pred_label = "positive"
+                    pred_conf = max(float(pred_conf), smile_px, smile_lm_f, 0.58)
+                    raw = "happy"
+                    smile_src = "pixels_teeth"
+                # Bico/tristeza: EAR baixo ok (olhos semicerrados no gesto).
+                # Limiar ≥0.50: cara séria na webcam satura frown~0.42 (platô de droop
+                # fraco) e não deve virar negativa; bico real costuma passar de 0.50
+                # quando há droop/assimetría claros (ver test_frown_geometry).
                 elif (
                     frown_boost_enabled
                     and smile_src == "none"
                     and smile_lm_f < 0.40
-                    and frown_lm_f >= 0.36
+                    and frown_lm_f >= 0.50
                     and (ear_f >= 0.04 or mouth_f <= 0.14)
                 ):
                     pred_label = "negative"
@@ -1510,7 +1784,7 @@ class RealtimeAnalyticsEngine:
                     frown_boost_enabled
                     and smile_src == "none"
                     and smile_lm_f < 0.35
-                    and frown_lm_f >= 0.32
+                    and frown_lm_f >= 0.48
                     and mouth_f <= 0.12
                     and (ear_f >= 0.04 or mouth_f <= 0.10)
                 ):
@@ -1631,6 +1905,10 @@ class RealtimeAnalyticsEngine:
             elif resting_face:
                 smoothed = "predominantly_neutral"
                 sample_count = max(sample_count, len(cache.expr_labels), 1)
+            negative_frame = frown_src != "none" or norm == "negative"
+            smoothed, neg_sustained = self._apply_expression_negative_persistence(
+                cache, now, smoothed, negative_frame=negative_frame
+            )
             display = display_expression_pt(smoothed)
             try:
                 from app.vision.emotion_engagement import emotion_backend_health
@@ -1664,6 +1942,12 @@ class RealtimeAnalyticsEngine:
                 "smile_score": round(smile_combined, 3),
                 "frown_boost": frown_src,
                 "frown_score": round(frown_lm_f, 3),
+                "negative_sustained_seconds": (
+                    round(neg_sustained, 2) if neg_sustained is not None else None
+                ),
+                "negative_building": bool(
+                    negative_frame and smoothed == "predominantly_neutral"
+                ),
                 "ab_reason": ab_reason,
             }
         except Exception as e:
@@ -1720,6 +2004,36 @@ class RealtimeAnalyticsEngine:
         }
         return mapping.get(best, "inconclusive"), len(buf)
 
+    def _apply_expression_negative_persistence(
+        self,
+        cache: TrackAnalyticsCache,
+        now: float,
+        smoothed: str,
+        *,
+        negative_frame: bool,
+    ) -> Tuple[str, Optional[float]]:
+        """
+        EX−: só promove predominantly_negative após gesto sustentado (segundos),
+        não a cada frame isolado. Cara séria permanece neutra.
+        """
+        min_sec = float(
+            getattr(self.settings, "expression_negative_min_seconds", 6.0) or 6.0
+        )
+        # Sorriso claro / positiva: sai da negativa imediatamente (sem esperar janela).
+        if smoothed == "predominantly_positive":
+            cache.expr_negative_since = None
+            return smoothed, None
+        candidate = smoothed == "predominantly_negative" or bool(negative_frame)
+        if candidate:
+            if cache.expr_negative_since is None:
+                cache.expr_negative_since = now
+            sustained = now - float(cache.expr_negative_since)
+            if sustained >= min_sec:
+                return "predominantly_negative", sustained
+            return "predominantly_neutral", sustained
+        cache.expr_negative_since = None
+        return smoothed, None
+
     def _compute_attention_drowsiness(
         self, cache: TrackAnalyticsCache, now: float, *, face_visible: bool = True
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -1735,6 +2049,17 @@ class RealtimeAnalyticsEngine:
         min_q_dr = float(getattr(self.settings, "drowsiness_minimum_observation_quality", 0.60) or 0.60)
         occ = (cache.face_occlusion or {}).get("state") or "none"
         head_st = (cache.head_state or {}).get("state") or "pose_inconclusive"
+
+        if (
+            face_visible
+            and ff.get("status") == "available"
+            and ff.get("average_eye_openness") is not None
+            and occ not in ("possible_face_occlusion_by_hand", "persistent_possible_face_occlusion")
+        ):
+            cache.eyes_unobservable_since = None
+            cache.eyes_recover_since = None
+            cache.eyes_observation_paused = False
+
 
         # Sem face/olhos observÃ¡veis â†’ pausar acumuladores (nÃ£o avanÃ§ar, nÃ£o zerar)
         eyes_not_obs = (
@@ -1885,9 +2210,32 @@ class RealtimeAnalyticsEngine:
             # Pitch extremo só invalida quando landmarks já estão no limite (digitação tipica)
             eyes_observable = False
 
-        head_down = head_st in ("head_down_short", "head_down_persistent", "head_supported") or (
+        head_down_pose = head_st in (
+            "head_down_short",
+            "head_down_persistent",
+            "head_supported",
+        )
+        head_down = head_down_pose or (
             pitch is not None and float(pitch) > pitch_thr
         )
+        # Digitar / olhar teclado: EAR na faixa PARCIAL (abaixo do thr de “fechado”,
+        # acima do fechamento profundo) é evidência geométrica fraca — típica de
+        # gaze/look-down com cabeça ainda “forward”, não de sono. Pausar acumulador.
+        # Sono aparente exige EAR profundo (<= thr*0.5). Gate head_down_pose mantido.
+        deep_close_thr = ear_thr * 0.50
+        # "Fechamento parcial" tende a aparecer em olhar/teclado com cabeça ainda
+        # "forward" (não é sono profundo). Para preservar o contrato dos testes:
+        # - head_forward/facing_forward: pausa (não acumula)
+        # - pose_inconclusive (oclusão / ausência de evidência): acumulador continua
+        if ear is not None and deep_close_thr < float(ear) < ear_thr and (
+            head_down_pose or head_st in ("head_forward", "facing_forward")
+        ):
+            eyes_observable = False
+            cache.eyes_last_tick = None
+        elif head_down_pose and pitch is not None and float(pitch) > pitch_thr * 0.70:
+            if ear is not None and float(ear) > deep_close_thr:
+                eyes_observable = False
+                cache.eyes_last_tick = None
         eyes_closed_valid = bool(eyes_closed and eyes_observable)
         if eyes_closed_valid:
             if cache.eyes_last_tick is not None:
@@ -1922,6 +2270,17 @@ class RealtimeAnalyticsEngine:
         eyes_closed_s = float(cache.eyes_closed_accum_seconds or 0.0)
         possible_after = float(getattr(self.settings, "drowsiness_possible_after_seconds", 6) or 6)
         probable_after = float(getattr(self.settings, "drowsiness_probable_after_seconds", 30) or 30)
+        if head_down_pose:
+            mult = float(
+                getattr(self.settings, "drowsiness_head_down_possible_multiplier", 2.0) or 2.0
+            )
+            possible_after = possible_after * mult
+            probable_after = max(
+                probable_after,
+                float(
+                    getattr(self.settings, "drowsiness_head_down_probable_seconds", 45.0) or 45.0
+                ),
+            )
         cooldown = float(getattr(self.settings, "drowsiness_cooldown_seconds", 20) or 20)
 
         # Sonolência: exige olhos observáveis; cabeça baixa sozinha NÃO gera possible/probable
@@ -2197,7 +2556,11 @@ class RealtimeAnalyticsEngine:
         try:
             from app.vision.phone_yolo import detect_phones, get_phone_detector_debug
 
-            phones = detect_phones(frame, person_boxes=person_boxes, wrists=wrists)
+            phones = detect_phones(
+                frame,
+                person_boxes=person_boxes,
+                wrists=wrists,
+            )
             self._phone_detector_debug = get_phone_detector_debug()
             phone_boxes = [(p[0], p[1], p[2], p[3], p[4] if len(p) > 4 else 0.5) for p in phones]
             states = self._phone_associator.update(
@@ -2299,6 +2662,7 @@ class RealtimeAnalyticsEngine:
         """Alinha head_down_since ao estado do pose (mesmo sem face)."""
         hs = str((cache.head_state or {}).get("state") or "")
         reasons = list((cache.head_state or {}).get("reasons") or [])
+        q_status = str((cache.observation_quality or {}).get("status") or "")
         if hs in ("head_down_short", "head_down_persistent", "head_supported"):
             if cache.head_down_since is None:
                 cache.head_down_since = now
@@ -2313,13 +2677,16 @@ class RealtimeAnalyticsEngine:
                     "duration_seconds": round(dur, 2),
                 }
         elif hs in ("head_forward", "head_turned"):
+            # partially_observable sozinho NÃO conta como face_gone: no LIVE a
+            # qualidade fica partial com rosto grande à câmera e regravava
+            # head_down após pose forward (evento sticky 23s+/minutos).
             face_gone = (cache.facial_features or {}).get("status") in (
                 "inconclusive",
                 "unavailable",
                 "error",
             ) or cache.eyes_unobservable_since is not None
             if face_gone and cache.head_down_since is not None:
-                # Mantém acumulador: pose mentiu "forward" sem face
+                # Mantém acumulador: pose mentiu "forward" sem face observável plena
                 hold = float(
                     getattr(self.settings, "head_down_inconclusive_hold_seconds", 4.0) or 4.0
                 )
@@ -2347,8 +2714,17 @@ class RealtimeAnalyticsEngine:
                 cache.head_down_accum_seconds = 0.0
                 cache.head_down_last_tick = None
         elif hs == "pose_inconclusive":
-            # Oclusão: zera. Flicker sem oclusão: hold curto mantém acumulador (anti ~14s).
-            if "suppressed_by_face_occlusion" in reasons:
+            # Oclusão pura: zera. Flicker com geom look-down / qualidade parcial: hold.
+            geom_continuity = any(
+                str(r).startswith("nose_shoulder_ratio=")
+                or "chest_keep" in str(r)
+                or "hysteresis" in str(r)
+                or "face_missing_untrusted_nose" in str(r)
+                or "shoulders_without_face_look_down" in str(r)
+                or "prefer_look_down" in str(r)
+                for r in reasons
+            )
+            if "suppressed_by_face_occlusion" in reasons and not geom_continuity:
                 cache.head_down_since = None
                 cache.head_down_accum_seconds = 0.0
                 cache.head_down_last_tick = None
@@ -2362,22 +2738,30 @@ class RealtimeAnalyticsEngine:
                     "unavailable",
                     "error",
                 ) or cache.eyes_unobservable_since is not None
+                # NÃO usar partially_observable aqui — reabria head_down sticky no LIVE.
+                reasons_all = reasons + list((cache.pose or {}).get("reasons") or [])
                 geom_hint = any(
-                    x in reasons or x in list((cache.pose or {}).get("reasons") or [])
+                    str(r).startswith("nose_shoulder_ratio=") for r in reasons_all
+                ) or "body_geom_look_down" in reasons_all or "face_missing_untrusted_nose" in reasons_all
+                geom_hint = geom_hint or (
+                    "shoulders_without_face_look_down" in reasons_all
+                    and "ears_above_shoulders" in reasons_all
+                )
+                geom_hint = geom_hint or any(
+                    x in reasons_all
                     for x in (
-                        "shoulders_without_face_look_down",
-                        "body_geom_look_down",
                         "head_down_hold_through_inconclusive",
-                        "face_missing_no_forward_while_shoulders",
-                        "face_missing_untrusted_nose",
                         "reject_forward_without_face",
                         "wrist_near_chest_keep_head_down",
                     )
-                ) or any(
-                    str(r).startswith("nose_shoulder_ratio=")
-                    for r in reasons + list((cache.pose or {}).get("reasons") or [])
-                )
-                if gap <= hold and (face_gone or geom_hint):
+                ) or any("hysteresis" in str(r) for r in reasons_all)
+                if "suppressed_by_face_occlusion" in reasons and geom_continuity:
+                    reasons = [r for r in reasons if r != "suppressed_by_face_occlusion"]
+                    cache.head_state = {
+                        **dict(cache.head_state or {}),
+                        "reasons": list(reasons) + ["hold_despite_occlusion_geom"],
+                    }
+                if gap <= hold and (face_gone or geom_hint or geom_continuity):
                     dur = now - float(cache.head_down_since)
                     cache.head_down_accum_seconds = dur
                     cache.head_down_last_tick = now
@@ -2389,7 +2773,8 @@ class RealtimeAnalyticsEngine:
                         **dict(cache.head_state or {}),
                         "state": new_st,
                         "confidence": max(float((cache.head_state or {}).get("confidence") or 0.0), 0.5),
-                        "reasons": list(reasons) + ["head_down_hold_through_inconclusive"],
+                        "reasons": list((cache.head_state or {}).get("reasons") or reasons)
+                        + ["head_down_hold_through_inconclusive"],
                         "duration_seconds": round(dur, 2),
                         "note": "continuity_hold",
                     }
@@ -2401,6 +2786,7 @@ class RealtimeAnalyticsEngine:
                 cache.head_down_since = None
                 cache.head_down_accum_seconds = 0.0
                 cache.head_down_last_tick = None
+
     def _body_head_geom_active(self, cache: TrackAnalyticsCache) -> bool:
         """True se pose corporal (nariz+ombros) indica look-down — não face mesh ausente."""
         reasons = list((cache.head_state or {}).get("reasons") or [])
@@ -2410,17 +2796,19 @@ class RealtimeAnalyticsEngine:
             return False
         if "wrist_near_prefer_occlusion" in all_r or "suppressed_by_face_occlusion" in all_r:
             return False
-        return any(
-            str(r).startswith("nose_shoulder_ratio=") for r in all_r
-        ) or any(
-            x in all_r
-            for x in (
-                "body_geom_look_down",
-                "shoulders_without_face_look_down",
-                "face_missing_no_forward_while_shoulders",
-                "face_missing_untrusted_nose",
-            )
-        )
+        if any(str(r).startswith("nose_shoulder_ratio=") for r in all_r):
+            return True
+        if "body_geom_look_down" in all_r:
+            return True
+        if "face_missing_untrusted_nose" in all_r:
+            return True
+        if "wrist_near_chest_keep_head_down" in all_r:
+            return True
+        if any("hysteresis" in str(r) for r in all_r):
+            return True
+        if "shoulders_without_face_look_down" in all_r and "ears_above_shoulders" in all_r:
+            return True
+        return False
 
     def _arbitrate_occlusion_vs_head(
         self, cache: TrackAnalyticsCache, *, face_visible: bool, now: float
@@ -2469,12 +2857,32 @@ class RealtimeAnalyticsEngine:
                 getattr(self.settings, "head_down_allow_face_missing_proxy", False)
             ),
         )
+        prev_since = cache.head_down_since
+        prev_reasons = list((cache.head_state or {}).get("reasons") or [])
         cache.head_state = dict(result.head_state)
         cache.face_occlusion = dict(result.face_occlusion)
         if result.suppressed_head_down:
-            cache.head_down_since = None
-            cache.head_down_accum_seconds = 0.0
-            cache.head_down_last_tick = None
+            # Continuidade look-down só com face realmente ausente + geom.
+            # partially_observable sozinho NÃO reabre head_down (sticky LIVE).
+            geom_keep = any(
+                str(r).startswith("nose_shoulder_ratio=")
+                or "chest_keep" in str(r)
+                or "hysteresis" in str(r)
+                or "face_missing_untrusted_nose" in str(r)
+                or "shoulders_without_face" in str(r)
+                for r in prev_reasons + list((cache.head_state or {}).get("reasons") or [])
+            )
+            face_really_gone = (cache.facial_features or {}).get("status") in (
+                "inconclusive",
+                "unavailable",
+                "error",
+            ) or cache.eyes_unobservable_since is not None
+            if prev_since is not None and geom_keep and face_really_gone:
+                cache.head_down_since = prev_since
+            else:
+                cache.head_down_since = None
+                cache.head_down_accum_seconds = 0.0
+                cache.head_down_last_tick = None
         elif str((cache.head_state or {}).get("state") or "") in (
             "head_down_short",
             "head_down_persistent",
@@ -2507,8 +2915,14 @@ class RealtimeAnalyticsEngine:
             return
         if not bool(getattr(self.settings, "face_occlusion_suppress_when_landmarks_clear", True)):
             return
+        # G: olhos fechados (eyes_unobservable) com face VISÍVEL não devem travar
+        # limpeza de oclusão fantasma — só bloqueia se há evidência de mão.
         if cache.eyes_unobservable_since is not None:
-            return
+            if cache.hand_near_since is not None or str(
+                (cache.hands or {}).get("state") or ""
+            ) == "hand_near_face":
+                return
+            # sem punho: pode limpar oclusão indevida sob olhos fechados
         # Punho ainda confirmado ou no hold → nunca limpar (evita alerta sumir em ~10s)
         if cache.hand_near_since is not None:
             return
@@ -2952,8 +3366,8 @@ class RealtimeAnalyticsEngine:
                 return max(
                     base,
                     float(
-                        getattr(self.settings, "behavioral_event_clear_hold_phone_seconds", 12.0)
-                        or 12.0
+                        getattr(self.settings, "behavioral_event_clear_hold_phone_seconds", 2.5)
+                        or 2.5
                     ),
                 )
             if "drowsiness" in etype:

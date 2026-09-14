@@ -340,10 +340,25 @@ class PipelineOrchestrator:
         frame = self._latest_frames.get(camera_id)
         if frame is None:
             return None
+        try:
+            from app.rtsp.video_capture import _frame_usable
+
+            if not _frame_usable(frame):
+                return None
+        except Exception:
+            pass
         return frame.copy()
 
     def has_latest_frame(self, camera_id: str) -> bool:
-        return self._latest_frames.get(camera_id) is not None
+        frame = self._latest_frames.get(camera_id)
+        if frame is None:
+            return False
+        try:
+            from app.rtsp.video_capture import _frame_usable
+
+            return _frame_usable(frame)
+        except Exception:
+            return True
 
     def get_overlay_matches(self, camera_id: str) -> List[dict]:
         return list(self._overlay_matches.get(camera_id) or [])
@@ -417,10 +432,23 @@ class PipelineOrchestrator:
             latencies_ms = {
                 k: round(sum(vs) / len(vs), 2) for k, vs in lat_agg.items() if vs
             }
+            cam_signal = {"ok": True, "last_error": None, "is_connected": True}
+            try:
+                reader = self.readers.get(camera_id)
+                if reader is not None and hasattr(reader, "get_status"):
+                    st = reader.get_status() or {}
+                    cam_signal = {
+                        "ok": bool(st.get("signal_ok", st.get("is_connected", True))),
+                        "last_error": st.get("last_error"),
+                        "is_connected": bool(st.get("is_connected", False)),
+                    }
+            except Exception:
+                pass
             update_live_debug_state(
                 camera_id=camera_id,
                 tracks=analytics_tracks,
                 bindings=[],
+                camera_signal=cam_signal,
                 live_event_buffer=(
                     self._analytics_engine.live_event_buffer_snapshot()
                     if self._analytics_engine is not None
@@ -1047,6 +1075,7 @@ class PipelineOrchestrator:
         logger.info("orchestrator_started", capture_hz=_CAPTURE_HZ)
         frame_interval = 1.0 / _CAPTURE_HZ
         detect_interval = 1.0 / _DETECT_HZ
+        _signal_lost_publish_at: Dict[str, float] = {}
 
         while self.running:
             try:
@@ -1056,11 +1085,50 @@ class PipelineOrchestrator:
                 now = time.time()
                 for camera_id, reader in list(self.readers.items()):
                     if not reader.is_connected:
+                        # Sinal perdido: não reutilizar frame preto/stale no preview.
+                        st = reader.get_status() if hasattr(reader, "get_status") else {}
+                        if camera_id in self._latest_frames:
+                            if not st.get("signal_ok", False) or st.get("last_error"):
+                                self._latest_frames.pop(camera_id, None)
+                        # Atualiza UI (throttle 1s): não fingir "conectado + pessoas" com feed morto.
+                        if st.get("last_error") == "black frame" or not st.get("signal_ok", True):
+                            last_pub = _signal_lost_publish_at.get(camera_id, 0.0)
+                            if now - last_pub >= 1.0:
+                                _signal_lost_publish_at[camera_id] = now
+                                try:
+                                    from app.api.v1 import update_live_debug_state
+
+                                    update_live_debug_state(
+                                        camera_id=camera_id,
+                                        tracks=[],
+                                        camera_signal={
+                                            "ok": False,
+                                            "last_error": st.get("last_error") or "signal_lost",
+                                            "is_connected": False,
+                                        },
+                                        visible_people=0,
+                                        recognized_people=0,
+                                        observable_people=0,
+                                    )
+                                except Exception:
+                                    pass
                         continue
 
                     ret, frame = reader.read_frame()
                     if ret and frame is not None:
-                        self._latest_frames[camera_id] = frame
+                        try:
+                            from app.rtsp.video_capture import _frame_usable
+
+                            if _frame_usable(frame):
+                                self._latest_frames[camera_id] = frame
+                            else:
+                                self._latest_frames.pop(camera_id, None)
+                        except Exception:
+                            self._latest_frames[camera_id] = frame
+                    elif not ret:
+                        st = reader.get_status() if hasattr(reader, "get_status") else {}
+                        if st.get("last_error") == "black frame" or not st.get("signal_ok", True):
+                            self._latest_frames.pop(camera_id, None)
 
                     latest = self._latest_frames.get(camera_id)
                     if latest is None:
@@ -1117,6 +1185,12 @@ class PipelineOrchestrator:
     def stop(self) -> None:
         self.running = False
         self._executor.shutdown(wait=False, cancel_futures=True)
+        if self._analytics_engine is not None:
+            try:
+                self._analytics_engine.shutdown()
+            except Exception as e:
+                logger.warning("analytics_engine_shutdown_failed", error=str(e))
+            self._analytics_engine = None
         for reader in self.readers.values():
             reader.disconnect()
         logger.info("orchestrator_stopped")

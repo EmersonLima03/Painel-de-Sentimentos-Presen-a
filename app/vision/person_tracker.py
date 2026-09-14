@@ -34,6 +34,45 @@ _DEFAULT_BT_YAML = str(
 )
 
 
+def person_bbox_plausible(
+    w: float,
+    h: float,
+    frame_w: float = 0.0,
+    frame_h: float = 0.0,
+) -> bool:
+    """
+    Pessoa real vs objeto (ventilador, poste, cadeira).
+
+    Close-up USB (ombros largos, bbox mais larga que alta) DEVE passar.
+    Ventilador de mesa (alto e fino) NÃO.
+    """
+    if w <= 4.0 or h <= 4.0:
+        return False
+    aspect = float(h) / max(float(w), 1.0)
+    # Extremamente achatado (faixa / reflexo) — não é corpo.
+    # Close-up cabeça baixa (ombros largos) pode ficar ~0.28–0.40 — manter.
+    if aspect < 0.28:
+        return False
+    # Pedestal / ventilador: muito alto e estreito.
+    if aspect > 2.55:
+        return False
+    if frame_w > 1.0 and frame_h > 1.0:
+        area_frac = (float(w) * float(h)) / (float(frame_w) * float(frame_h))
+        height_frac = float(h) / float(frame_h)
+        width_frac = float(w) / float(frame_w)
+        # Close-up USB: bbox larga dominante no frame (H look-down) — aceitar.
+        if width_frac >= 0.35 and area_frac >= 0.10 and aspect >= 0.28:
+            return True
+        if height_frac < 0.05 or area_frac < 0.008:
+            return False
+        # Objeto pequeno no canto (ventilador) mesmo com aspect ok.
+        if width_frac < 0.07 and area_frac < 0.04:
+            return False
+        if aspect > 2.15 and width_frac < 0.16:
+            return False
+    return True
+
+
 def detect_persons(
     frame: np.ndarray,
     *,
@@ -74,7 +113,11 @@ def detect_persons(
                 xyxy = box.xyxy[0].tolist()
                 x1, y1, x2, y2 = [float(v) for v in xyxy]
                 c = float(box.conf[0]) if box.conf is not None else 0.0
-                out.append((x1, y1, x2 - x1, y2 - y1, c))
+                w, h = x2 - x1, y2 - y1
+                fh, fw = frame.shape[:2]
+                if not person_bbox_plausible(w, h, fw, fh):
+                    continue
+                out.append((x1, y1, w, h, c))
         debug["status"] = "available"
         debug["detections_count"] = len(out)
         debug["inference_ms"] = round((time.perf_counter() - t0) * 1000.0, 2)
@@ -219,8 +262,11 @@ class ByteTrackAdapter:
                 if r.boxes.id is None:
                     continue
                 confs = r.boxes.conf
+                fh, fw = frame.shape[:2]
                 for i, (box, tid) in enumerate(zip(r.boxes.xywh, r.boxes.id)):
                     x, y, w, h = [float(v) for v in box.tolist()]
+                    if not person_bbox_plausible(w, h, fw, fh):
+                        continue
                     conf = float(confs[i]) if confs is not None else 0.6
                     raw_id = f"bt-{int(tid)}"
                     out.append(

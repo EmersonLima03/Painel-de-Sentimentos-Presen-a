@@ -19,8 +19,8 @@ enquanto atenção/expressão corretamente caíam para **inconclusivo**.
 
 Prioridade:
 
-1. **Oclusão por punho** (mão perto do rosto) → `face_occlusion`; **suprime** head_down
-2. **Face não observável** sem punho e sem geometria corporal → `pose_inconclusive` (não inventar head_down)
+1. **Oclusão por punho** (mão **prejudicando** observabilidade facial — cobrindo regiões relevantes; não mero apoio no queixo/L) → `face_occlusion`; **suprime** head_down. `hand_near_face` sozinho não define o evento.
+2. **Face não observável / perfil** sem punho e sem geometria de look-down → `pose_inconclusive` **ou** `head_turned` se lateralidade observável (`lateral_nose_offset`); **não** inventar head_down nem sono só por perfil (cenário I ✅ 2026-09-09)
 3. **Cabeça baixa** com:
    - pitch facial **e** `landmarks_quality ≥ 0.45`, ou
    - geometria corporal `nose_shoulder_ratio` (nariz+ombros), ou

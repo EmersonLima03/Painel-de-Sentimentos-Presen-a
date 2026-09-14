@@ -9,7 +9,8 @@ pydantic-settings>=2.1.0
 sqlalchemy>=2.0.23
 alembic>=1.12.1
 
-# Pin para Windows: facenet-pytorch exige numpy<2; opencv 4.13+ exige numpy>=2
+# Pin para Windows: facenet-pytorch / torch quebram com NumPy 2.x (ABI).
+# Manter numpy<2 no ambiente do app (reproduzível). Não upgradar para 2.x.
 numpy==1.26.4
 # Uma única variante OpenCV, compatível com numpy 1.26
 opencv-contrib-python==4.10.0.84
@@ -23,6 +24,11 @@ mediapipe>=0.10.8,<0.10.31
 faiss-cpu>=1.7.4
 onnxruntime>=1.17.0
 cryptography>=41.0.0
+
+# Emoção default (2026-09-09): HSEmotion VGAF via worker async.
+# hsemotion 0.3.x exige timm 0.9.x (timm 1.x quebra DepthwiseSeparableConv).
+hsemotion==0.3.0
+timm==0.9.16
 
 # Multi-rosto / distância: YuNet usa opencv-contrib (já instalado).
 # InsightFace (opcional, Linux ou Windows com Build Tools): pip install insightface onnxruntime

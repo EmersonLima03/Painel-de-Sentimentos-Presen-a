@@ -21,7 +21,9 @@ cameras:
   # Alternativa fixa: "0", "1", "2"… Confira /cameras/devices?as_html=1 (uvicorn parado).
   - camera_id: cam-web
     room_id: DEV
-    rtsp_url: "auto"
+    # "2" = XWF-1080P USB (confirmado 2026-09-03: 1920x1080, mean~131, std~71).
+    # idx=0=notebook integrada (escura quando em uso), idx=1=Iriun/720p.
+    rtsp_url: "2"
     webcam_width: 1920
     webcam_height: 1080
     enabled: true
@@ -47,11 +49,11 @@ vision:
   embedder: facenet          # facenet | onnx (recomendado CPU) | insightface
   max_faces: 30
   dnn_conf_threshold: 0.35   # só se detector: dnn ou auto com fallback
-  yunet_score_threshold: 0.45   # DVR/teto: scores baixos são normais; suba se muitos falsos na parede
+  yunet_score_threshold: 0.55   # LIVE webcam: sobe vs 0.45 para cortar FP parede
   min_face_area_ratio: 0.0005   # rostos pequenos no stream do DVR
   face_aspect_min: 0.45         # bbox mais largo/estreito (ângulo de cima)
   face_aspect_max: 1.55
-  single_subject_mode: false    # false = várias faces; true = só a maior
+  single_subject_mode: true     # webcam TRI 1 pessoa — só a maior face
   insightface_det_size: 960
   insightface_min_det_score: 0.50
   mediapipe_min_confidence: 0.55
@@ -64,7 +66,7 @@ vision:
     th_off: 0.68         # histerese: só volta a "desconhecido" abaixo deste valor
     track_ttl_seconds: 2.5   # tracker: mantém caixa estável entre frames
     max_templates_per_student: 7   # multi-template (óculos/sem): até N por aluno
-    min_face_size: 22         # DVR 2MP / rosto longe (subir se muitos falsos)
+    min_face_size: 40         # LIVE: sobe vs 22 — menos YuNet em textura de parede
     always_on: true   # dev: presença 24h; prod: false + active_windows
     active_windows:
       - start: "07:00"
@@ -89,7 +91,7 @@ vision:
   phone_yolo:
     enabled: true            # YOLO cell phone (ultralytics); nunca confirmed automático
     model_path: "data/models/yolov8n.pt"
-    conf_threshold: 0.42     # frame completo — calibrar com amostras
+    conf_threshold: 0.30     # T5 oficial (era 0.42); ROI torso expanded_desk + P4 near
     max_height_width_ratio: 2.7  # rejeita garrafa/térmico alto (FP comum)
     max_width_height_ratio: 4.0  # aceita celular deitado no peito (largo)
     torso_pass_enabled: true     # 2ª passagem no recorte do tórax (celular no peito)
@@ -140,11 +142,13 @@ modules:
   lxp: { mode: disabled }
 
 expression:
-  provider: hsemotion
-  # A/B DeepFace desligado: enviesava "positiva". TRI usa config.tri.yaml → fer_onnx.
+  # Default oficial 2026-09-09: VGAF async. Rollback: emotion_backend: fer_onnx
+  emotion_backend: hsemotion_vgaf
+  hsemotion_interval_seconds: 2.0
+  hsemotion_max_batch: 5
+  provider: fer_onnx
   ab_secondary: null
-  # fer_onnx entra se HSEmotion falhar (pesos corrompidos / torch) — caso atual no edge.
-  fallback_chain: [hsemotion, fer_onnx, fer_legacy]
+  fallback_chain: [fer_onnx]
   interval_seconds: 1.0
   window_seconds: 8
   minimum_samples: 3
@@ -152,7 +156,7 @@ expression:
   minimum_confidence_positive: 0.50
   minimum_confidence_negative: 0.42
   minimum_negative_samples: 2
-  # Reativado: FER+ ONNX erra sorriso→neutral; ver TROUBLESHOOTING + config.tri.yaml
+  # Boosts aplicam no path FER+ (fallback). Path VGAF async ignora smile/frown.
   smile_boost_enabled: true
   frown_boost_enabled: true
   minimum_observation_quality: 0.55
@@ -172,7 +176,7 @@ identity_binding:
   identity_switch_cooldown_seconds: 10
   confidence_decay_per_second: 0.04  # só face_confirmation_confidence
   body_continuity_uncertain_threshold: 0.45
-  temporarily_lost_uncertain_seconds: 4.0
+  temporarily_lost_uncertain_seconds: 6.0  # LIVE: menos “Possível… / Aguardando” por flicker
 
 person_tracking:
   enabled: true
@@ -182,7 +186,7 @@ person_tracking:
   ttl_seconds: 8.0
   max_time_lost_seconds: 8.0          # tracks fortes (conf ≥ 0.45)
   weak_max_time_lost_seconds: 2.0     # detecções fracas / fantasmas YOLO → expiram rápido
-  minimum_detection_confidence: 0.40  # reduz caixas vazias (parede/porta)
+  minimum_detection_confidence: 0.50  # LIVE: sobe vs 0.40 — corta caixas vazias (parede/porta)
   minimum_reassociation_iou: 0.30
   maximum_center_distance_ratio: 0.35
   bytetrack_yaml: data/trackers/bytetrack_person.yaml
@@ -197,7 +201,8 @@ face_occlusion:
 
 behavioral_events:
   clear_hold_seconds: 0.5          # base: fecha rápido ao normalizar
-  clear_hold_drowsiness_seconds: 4.0  # olhos/celular: evita N episódios por piscar
+  clear_hold_drowsiness_seconds: 4.0  # olhos: evita N episódios por piscar
+  clear_hold_phone_seconds: 2.5    # sem aparelho: limpa magenta/evento rápido (não 12s)
 
 head_down:
   pitch_threshold: 0.45            # ~40° (pitch normalizado / π/2); DMS tipicamente 20–40°

@@ -979,7 +979,9 @@ async def backup_restore(body: BackupRestoreRequest) -> Dict:
 
 
 def _get_debug_frame(camera_id: str) -> Optional[np.ndarray]:
-    """Último frame da câmera (buffer assíncrono) — sem ML."""
+    """Último frame da câmera (buffer assíncrono) — sem ML. Rejeita frame preto/inválido."""
+    from app.rtsp.video_capture import _frame_usable
+
     frame = None
     if orchestrator:
         frame = orchestrator.get_latest_frame(camera_id)
@@ -989,11 +991,34 @@ def _get_debug_frame(camera_id: str) -> Optional[np.ndarray]:
             ret, frame = reader.read_frame()
             if not ret:
                 frame = None
+    if frame is not None and not _frame_usable(frame):
+        frame = None
     if frame is None:
-        frame = _debug_last_frame.get(camera_id)
-    elif frame is not None:
-        _debug_last_frame[camera_id] = frame
+        _debug_last_frame.pop(camera_id, None)
+        return None
+    _debug_last_frame[camera_id] = frame
     return frame
+
+
+def _debug_snapshot_jpeg_bytes(camera_id: str, overlay: int, full_res: bool) -> bytes:
+    """Snapshot único (cadastro legado). Preferir /debug/mjpeg para fluidez."""
+    frame = _get_debug_frame(camera_id)
+    if frame is None:
+        # Mensagem explícita: API 200 ≠ imagem válida.
+        err = None
+        if orchestrator and camera_id in (orchestrator.readers or {}):
+            try:
+                err = (orchestrator.readers[camera_id].get_status() or {}).get("last_error")
+            except Exception:
+                err = None
+        if err == "black frame":
+            msg = "Sinal da camera perdido (frame preto) — reconectando..."
+        elif err:
+            msg = f"Sinal da camera: {str(err)[:40]}"
+        else:
+            msg = "Aguardando frames da camera " + camera_id + "..."
+        return _debug_placeholder_jpeg(msg)
+    return _encode_preview_jpeg(frame, overlay, camera_id, full_res)
 
 
 def _overlay_scale_for_frame(camera_id: str, frame_w: int, frame_h: int) -> tuple[float, float]:
@@ -1021,12 +1046,40 @@ def _draw_overlay_from_cache(frame: np.ndarray, camera_id: str) -> int:
     analytics_raw = list(getattr(orchestrator, "_analytics_tracks", {}).get(camera_id) or [])
     analytics = filter_displayable_tracks(analytics_raw)
 
-    # person tracks (ciano) — só tracks exibíveis (sem fantasmas temporarily_lost)
+    # person tracks (ciano) — corpo; se YOLO só devolveu o rosto, expande torso a partir da face.
     for t in analytics:
         pb = t.get("person_bbox") or t.get("bbox")
+        fb = t.get("face_bbox")
+        if (not pb or len(pb) < 4) and fb and len(fb) >= 4:
+            tconf = float(t.get("track_confidence") or t.get("confidence") or 0.0)
+            body_ok = bool((t.get("observability") or {}).get("body_detected"))
+            if not body_ok and tconf < 0.45:
+                continue
+            pb = [
+                fb[0] - fb[2] * 0.35,
+                fb[1] - fb[3] * 0.15,
+                fb[2] * 1.7,
+                fb[3] * 3.1,
+            ]
+        elif pb and len(pb) >= 4 and fb and len(fb) >= 4:
+            pa = max(float(pb[2]) * float(pb[3]), 1.0)
+            fa = max(float(fb[2]) * float(fb[3]), 1.0)
+            # Close-up: person_bbox ≈ face → membrana de tronco só com corpo/conf úteis
+            # (evita ciano inventado em torno de YuNet FP na parede).
+            tconf = float(t.get("track_confidence") or t.get("confidence") or 0.0)
+            body_ok = bool((t.get("observability") or {}).get("body_detected"))
+            if pa < fa * 2.2 and (body_ok or tconf >= 0.45):
+                pb = [
+                    min(pb[0], fb[0] - fb[2] * 0.25),
+                    min(pb[1], fb[1] - fb[3] * 0.10),
+                    max(pb[2], fb[2] * 1.65),
+                    max(pb[3], fb[3] * 2.8),
+                ]
         if not pb or len(pb) < 4:
             continue
         x, y, w, h = int(pb[0] * sx), int(pb[1] * sy), int(pb[2] * sx), int(pb[3] * sy)
+        x, y = max(0, x), max(0, y)
+        w, h = max(8, w), max(8, h)
         cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2)  # cyan-ish BGR
         ident = t.get("identity") or {}
         sid = ident.get("student_id") or t.get("student_id")
@@ -1157,14 +1210,6 @@ def _encode_preview_jpeg(frame: np.ndarray, overlay: int, camera_id: str, full_r
     if not ok:
         return _debug_placeholder_jpeg("encode error")
     return buf.tobytes()
-
-
-def _debug_snapshot_jpeg_bytes(camera_id: str, overlay: int, full_res: bool) -> bytes:
-    """Snapshot único (cadastro legado). Preferir /debug/mjpeg para fluidez."""
-    frame = _get_debug_frame(camera_id)
-    if frame is None:
-        return _debug_placeholder_jpeg("Aguardando frames da camera " + camera_id + "...")
-    return _encode_preview_jpeg(frame, overlay, camera_id, full_res)
 
 
 @app.get("/debug/snapshot")

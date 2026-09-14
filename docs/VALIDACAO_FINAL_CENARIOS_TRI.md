@@ -10,8 +10,11 @@
 
 **Baseline humano (consulta fixa):** [`docs/BASELINE_MANUAL_APROVADO_TRI.md`](BASELINE_MANUAL_APROVADO_TRI.md) — cenários ✅ aprovados na webcam; consultar **antes** de editar oclusão/celular/sono/atenção/expressão/cabeça baixa. **Não quebrar ✅ sem reteste.**
 
+**Roteiro visual (sessão manual):** [`docs/ROTEIRO_VALIDACAO_TRI_VISUAL.md`](ROTEIRO_VALIDACAO_TRI_VISUAL.md)
+
 **Sessão 2026-08-03 (aprovados):** B (garrafa), D (celular real), G (olhos fechados), J/K (revalidação oclusão), ATTN (baixa atenção persistente), EX+/EX= (expressão positiva/neutra na sessão).  
-**Débitos / revalidação:** EX− (expressão negativa). **H ✅ aprovado 2026-08-03 ~10:31/10:34.**
+**Sessão 2026-09-03:** E4 (celular no peito + olhar à frente = não uso) ✅. E3 (uso na frente do rosto) = **não quebrar** ao ajustar E4 — reteste em par.  
+**Sessão 2026-09-13/14 (LIVE, aprovado):** E4, E3, D, C (1 take), lateral-sem-uso. Ver [`CONGELAMENTO_LIVE_20260914.md`](CONGELAMENTO_LIVE_20260914.md).
 
 ---
 
@@ -39,19 +42,20 @@ Não persistir frames sem consentimento. Vídeos locais: `data/validation/tri/` 
 |----|---------|---------|--------------------|--------------------|---------------------------|--------|----------|
 | A | Garrafa transparente na mão | 20s | not_detected / rejeitado | phone_in_hand, possible/probable | — | Auto: bottle/aspect reject OK | pendente manual (B ✅ cobre escura) |
 | B | Copo térmico / garrafa escura | 20s ×3 | idem A | interação celular | **FP:** bbox + “Celular na mão” | Manual: garrafa sem FP | **✅ 2026-08-03** |
-| C | Fone / região orelha | 20s ×3 | não celular (fone) | phone_near / eventos | **FP:** bbox no fone | Auto: `ear_region` por combinação | pendente manual ×3 |
-| D | Celular real na mão | 2/5/12/15s | progressão temporal | confirmed_* auto | preservar | Manual: “detecção ótima” | **✅ 2026-08-03** |
+| C | Fone / região orelha | 20s ×3 | não celular (fone) | phone_near / eventos | **FP:** bbox no fone | Auto: `ear_region` por combinação | **✅ 2026-09-13** (1 take; ×3 formais pendentes) |
+| D | Celular real na mão | 2/5/12/15s | progressão temporal | confirmed_* auto | preservar | Manual: “detecção ótima” | **✅ 2026-08-03 / LIVE 2026-09-13** |
+| E3 | Pegar e usar / celular na frente do rosto | 15s+ | in_hand → possible/probable; **não** “não indica uso” | confirmed; FN na cara ao corrigir peito | — | LIVE: `phone_raised_to_face` + recorte colado = uso | **✅ LIVE 2026-09-13/14** |
+| E4 | Celular no peito, olhar à câmera | 20s | visível/near; sem uso; attn não baixa por phone | probable + attn baixa | — | Manual 2026-09-03; LIVE 2026-09-13 peito = near | **✅ 2026-09-03 / 2026-09-13** |
 | E1 | Celular na mesa parado | 30s | visible/near ok; sem in_hand | uso | — | Auto: mesa ≠ in_hand | pendente manual |
 | E2 | Mão perto sem pegar | 10s | sem possible/probable | interação | — | Auto: wrist longe OK | pendente manual |
-| E3 | Pegar e usar | 15s+ | in_hand → possible/probable | confirmed | — | Auto: pickup OK | pendente manual |
 | F | Digitando / olhar teclado | 60s | head_down / inconclusivo ok | possible/probable drowsiness | risco EAR↓ | Auto: pause por `eyes_observable` | pendente manual (G ✅) |
 | G | Olhos fechados frontais | limiares 6s/30s | possible/probable nos limiares | evento &lt;2.5s | — | Manual: “olhos fechados ótimo” | **✅ 2026-08-03** |
 | H | Cabeça baixa parcial | &lt;8s / ≥8s | short / persistent; evento + card com duração ≈ real | sono auto; 0s; banner 2s após 40s | misto / parcial 10:17 | Print 10:31 **37s** contínuos; 10:34 **14s** — card alinhado | **✅ 2026-08-03** |
-| EX− | Expressão negativa | ~8–10s sustentado | predominantly_negative (conf≥0.42, ≥2 amost.); surpresa fora do relatório; cara séria→neutra; sorriso sem flicker inconclusivo | FP cara séria; DeepFace A/B | 0s raiva/choro; flicker sorriso | Código 2026-08-03 | **revalidar manual** |
-| I | Cabeça fora / rosto sumiu | 20s | face_not_observable / pose_inconclusive; sem inventar head_down | sono | OK parcial | Auto: sem promoção só por sumiço | pendente manual |
+| EX− | Expressão negativa | ~8–10s sustentado | predominantly_negative (triste/raiva); séria→neutra; positiva→positiva | FP cara séria; DeepFace A/B | 0s FER+; VGAF 4/4 | HSEmotion VGAF default 2026-09-09: EX triste/raiva OK; EXseria neutra; EX+ positiva | **✅ FECHADO 2026-09-09** (VGAF default) |
+| I | Perfil / rosto lateral ou sumiu | 20s | `head_turned` **ou** `pose_inconclusive`; sem inventar head_down/sono | `head_down_persistent`; possible/probable drowsiness só por perfil | contrato alinhado | `Iperfil.mp4`: head_turned maj. + pose_inconclusive; 0 head_down; 0 sono; identidade `p01` OK | **✅ FECHADO 2026-09-09** (contrato + vídeo) |
 | J | Uma mão no rosto | &lt;8 / &gt;8 / 20s | oclusão + inconclusivos | sono; head_down auto | fragmentava / falhava 1 mão | Revalidado “ótimo” | **✅ 2026-07-30 / 08-03** |
 | K | Duas mãos no rosto | 20s+ contínuo | oclusão persistente contínua | sono; episódios 6–10s | ~36s em 4 pedaços | Continuidade estável | **✅ 2026-07-30 / 08-03** |
-| L | Mão perto sem cobrir | 20s ×3 | no máx. oclusão breve | persistente; celular FP | — | — | pendente manual ×3 |
+| L | Mão próxima sem bloquear (queixo/bochecha) | ~20s | `face_occlusion=none` se face observável; `hand_near_face` **opcional**; sem persistent por proximidade | persistent só por mão perto; exigir near; FP oclusão no queixo | NEW6 2026-09-09 `L_mao_parcial_rosto` | Contrato alinhado: near≠oclusão; cobertura = J (`L_uma_mao_cobrindo`) | **✅ 2026-09-09** (contrato + vídeo) |
 | ATTN | Baixa atenção visual persistente | sustentado | evento/sinal persistente; sem virar sono | some o evento | — | Manual: “ótima” | **✅ 2026-08-03** |
 | EX+/= | Expressão positiva / neutra (sessão) | sessão | sorriso→positiva; tempos relatório coerentes | sorriso longo sempre neutro | smile_boost off quebrava | Positiva 16m56s / Neutra 20m59s | **✅ 2026-08-03** |
 
@@ -62,7 +66,7 @@ Não persistir frames sem consentimento. Vídeos locais: `data/validation/tri/` 
 | P1 | Celular real na orelha | não rejeitar só por zona; in_hand com punho | `_context_reject` passa; wrist→in_hand | pendente manual |
 | P2 | Celular real vertical | detectável / in_hand com punho | aspect+assoc OK | pendente manual |
 | P3 | Celular segurado no colo | in_hand / near com punho | assoc OK | pendente manual |
-| P4 | Celular parcialmente coberto pela mão | ainda associado (near/in_hand) | wrist OK | pendente manual |
+| P4 | Celular parcialmente coberto pela mão | ainda associado (**near**/in_hand/possible); detecção fresca | wrist OK | **✅ T5 oficial 2026-09-09** (near sob oclusão; conf 0.30 + ROI tampo) |
 | P5 | Celular na mesa → pegar de verdade | idle sem interação → in_hand após pegar | table→pickup OK | pendente manual |
 
 ### Template de registro manual (copiar por repetição)
@@ -199,7 +203,7 @@ Aprovado/Reprovado: PENDENTE (definir melhor no próximo passo)
 
 **Depois (automático):** regressões A/B/C/E/F/H/I + oclusão continuity + P1–P5.  
 **Depois (manual):** **J ✅ K ✅** (2026-07-30); **B ✅ D ✅ G ✅ ATTN ✅ EX+/EX= ✅ H ✅** + revalidação J/K (2026-08-03).  
-**Aberto / revalidar:** EX−, C×3, E1–E3, F, I, L×3, P1–P5 formais, A.
+**Aberto / revalidar:** A; sync matriz com closes offline (C/F/E1–E2/P). **EX− ✅ 2026-09-09** (HSEmotion VGAF default, 4/4). **I ✅ 2026-09-09**. **L ✅ 2026-09-09**.
 
 Consulta permanente do que já está aprovado: **`docs/BASELINE_MANUAL_APROVADO_TRI.md`**.
 
@@ -211,12 +215,19 @@ Consulta permanente do que já está aprovado: **`docs/BASELINE_MANUAL_APROVADO_
 
 | Chave | Valor tipico |
 |-------|----------------|
-| `phone_yolo_conf_threshold` | 0.42 |
+| `phone_yolo_conf_threshold` | **0.30** (T5 oficial 2026-09-09; baseline anterior 0.42) |
+| `phone_yolo_torso_conf_threshold` | 0.30 |
+| ROI torso (`_torso_roi`) | expanded_desk: `x=px-0.15pw, y=py+0.08ph, w=1.30pw, h=1.05ph` |
+| `detection_hold_seconds` | 3.0 (inalterado) |
 | `phone_yolo_max_height_width_ratio` | 2.7 |
 | `phone_possible_after` / `probable` | 5s / 12s |
 | `drowsiness_possible` / `probable` | 6s / 30s |
 | `head_down_event_min_seconds` | 8s |
 | `face_occlusion_persistent_seconds` | 5s |
+
+**P4 (contrato T5):** sob oclusão parcial, `phone_near_person` (ou in_hand/possible/probable) com detecção fresca é associação válida — não exige forçar `in_hand`.
+
+Evidência: `experiments/tri_manual_videos/output/T5_OFFICIAL_REGRESSION.md`.
 
 ---
 
@@ -229,6 +240,7 @@ Consulta permanente do que já está aprovado: **`docs/BASELINE_MANUAL_APROVADO_
 - `tests/test_typing_not_drowsiness.py`
 - `tests/test_head_down_visibility_gate.py`
 - `tests/test_occlusion_continuity.py` (J/K — anti-fragmentação / 1 mão)
+- `tests/test_l_occlusion_contract.py` (L near≠oclusão; J/K possible→persistent→recovery)
 
 ## Critério para declarar fechamento
 

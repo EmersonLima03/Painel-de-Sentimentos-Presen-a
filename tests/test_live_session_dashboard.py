@@ -40,7 +40,10 @@ def test_live_session_accumulates_climate_samples():
                 "observation_quality": {"status": "observable"},
                 "phone": {},
                 "drowsiness": {},
-                "identity": {},
+                "identity": {"face_visible": True, "identity_state": "face_confirmed"},
+                "face_bbox": [10, 10, 40, 40],
+                "track_confidence": 0.9,
+                "tracking_state": "active",
             }
         ],
         "visible_people": 1,

@@ -26,6 +26,24 @@ def test_real_phone_vertical_keep_path_restored():
     assert _context_reject_reason(phone, person, wrist_near=True) is None
 
 
+def test_live_midhand_phone_conf036_not_bottle_rejected():
+    """LIVE ByteTrack: handset mid-hand conf~0.36 sem wrist ≠ bottle_like (FN D)."""
+    # person ~ full-frame USB; phone vertical ao lado do tronco/rosto
+    person = (14.0, 24.0, 1390.0, 1044.0)
+    phone = (420, 380, 138, 218, 0.36)
+    assert _context_reject_reason(phone, person) is None
+
+
+def test_headset_earcup_lateral_small_rejected():
+    """C: earcup lateral-superior miúdo sem punho → headset_earcup / ear_region."""
+    person = (14.0, 24.0, 1390.0, 1044.0)
+    phone = (1200, 120, 70, 90, 0.45)
+    assert _context_reject_reason(phone, person) in (
+        "headset_earcup",
+        "ear_region_implausible",
+    )
+
+
 def test_thermos_thin_still_rejected_without_killing_phone_path():
     """Contrato TROUBLESHOOTING: térmico fino rejeitado; smartphone keep_vertical intacto."""
     person = (100.0, 50.0, 200.0, 400.0)
@@ -54,7 +72,16 @@ def test_thermos_in_hand_not_promoted_to_interaction_event():
     )
 
 
-def test_real_vertical_phone_closeup_not_bottle_rejected():
+def test_live_closeup_full_handset_not_bottle_rejected():
+    """LIVE close-up: YOLO no aparelho INTEIRO (~0.66 da pessoa) ≠ garrafa.
+    Sem isso a magenta fica só no bloco das câmeras (recorte curto passa, o cheio não)."""
+    person = (199.0, 215.0, 1303.0, 853.0)
+    full = (266, 218, 298, 564, 0.40)
+    partial_top = (277, 215, 291, 220, 0.45)
+    assert _context_reject_reason(full, person) is None
+    assert _context_reject_reason(full, person, wrist_near=True) is None
+    assert _context_reject_reason(partial_top, person) is None
+
     """Close-up webcam: celular vertical pode ter h>~18% da pessoa — não é garrafa."""
     person = (100.0, 50.0, 220.0, 420.0)
     phone = (250, 120, 48, 100, 0.72)  # hw~2.08, h/ph~0.24, conf alta
@@ -72,7 +99,10 @@ def test_ear_region_small_box_rejected():
     person = (100.0, 50.0, 200.0, 400.0)
     # pequena bbox no canto superior direito (orelha/fone) — combinação implausível
     phone = (280, 70, 28, 36, 0.6)
-    assert _context_reject_reason(phone, person) == "ear_region_implausible"
+    assert _context_reject_reason(phone, person) in (
+        "ear_region_implausible",
+        "headset_earcup",
+    )
 
 
 def test_real_phone_at_ear_not_rejected():
@@ -108,6 +138,32 @@ def test_headphones_do_not_become_in_hand():
     )
 
 
+def test_large_overear_headphones_lateral_not_raised_in_hand():
+    """Cenário C real: fone over-ear grande lateral ao rosto, sem punho ≠ phone_raised_to_face."""
+    from app.vision.person_phone import _phone_raised_to_face, _phone_in_hand_heuristic
+
+    person = (650.0, 360.0, 520.0, 720.0)
+    face = (782.0, 481.0, 217.0, 301.0)
+    # geometria observada em FoneGrande ~30.5s
+    phone = (677.0, 574.0, 113.0, 171.0)
+    assert _phone_raised_to_face(phone, face, person) is False
+    assert _phone_in_hand_heuristic(phone, person, face) is False
+    assoc = PersonPhoneAssociator(interaction_requires_in_hand=True)
+    s = assoc.update(
+        now=12.0,
+        person_tracks={"p1": person},
+        phone_boxes=[(*phone, 0.55)],
+        wrists={},
+        face_bboxes={"p1": face},
+    )[0]
+    assert s.phone_in_hand is False
+    assert s.interaction_level not in (
+        "phone_in_hand",
+        "possible_phone_interaction",
+        "probable_phone_interaction",
+    )
+
+
 def test_thermos_in_hand_not_promoted_without_wrist():
     assoc = PersonPhoneAssociator(interaction_requires_in_hand=True)
     people = {"p1": (0.0, 0.0, 200.0, 400.0)}
@@ -118,3 +174,41 @@ def test_thermos_in_hand_not_promoted_without_wrist():
         "possible_phone_interaction",
         "probable_phone_interaction",
     )
+
+
+def test_c_rep2_borderline_tall_earcup_fragment_rejected():
+    """C: fragmento tall MIÚDO rejeitado; handset largo (D) não é earcup."""
+    from app.vision.phone_yolo import _earcup_fragment_reject_reason
+
+    phone_small = (1204, 255, 42, 100, 0.59)  # hw ≈ 2.38, estreito
+    assert _earcup_fragment_reject_reason(phone_small, []) == "aspect_tall_borderline_phone"
+    # Handset real alto (ex. C_rep2 bbox larga) NÃO pode ser morto aqui (FN D).
+    phone_handset = (1204, 255, 113, 254, 0.59)
+    assert _earcup_fragment_reject_reason(phone_handset, []) is None
+
+
+def test_c_rep2_sibling_of_aspect_rejected_also_dropped():
+    """Mesmo objeto: YOLO rejeita tall>2.7 e aceita fragmento — sibling fecha o buraco."""
+    from app.vision.phone_yolo import _earcup_fragment_reject_reason
+
+    # hw < 2.15 mas overlap com AR reject
+    phone = (1200, 250, 100, 200, 0.55)  # hw = 2.0
+    rejected = [
+        {
+            "bbox": [1191, 253, 124, 346],
+            "reject_reason": "aspect_ratio_unlikely_phone",
+            "confidence": 0.67,
+        }
+    ]
+    assert (
+        _earcup_fragment_reject_reason(phone, rejected)
+        == "sibling_aspect_ratio_unlikely_phone"
+    )
+
+
+def test_real_phone_aspect_under_borderline_not_earcup_filtered():
+    """Celular real vertical típico (hw~1.5–2.08) não cai no filtro earcup."""
+    from app.vision.phone_yolo import _earcup_fragment_reject_reason
+
+    phone = (250, 120, 48, 100, 0.72)  # hw ≈ 2.08
+    assert _earcup_fragment_reject_reason(phone, []) is None

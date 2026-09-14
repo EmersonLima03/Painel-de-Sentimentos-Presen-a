@@ -26,6 +26,7 @@ def _engine(**extra):
         "module_temporal_fusion_mode": "debug",
         "module_phone_mode": "off",
         "expression_provider": "fer_legacy",
+        "expression_emotion_backend": "fer_onnx",
         "rule_engine_version": "rules-v0-baseline",
         "threshold_profile": "test",
         "camera_calibration_version": "test",

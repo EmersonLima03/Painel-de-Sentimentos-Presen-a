@@ -2,7 +2,7 @@
 
 from collections import deque
 
-from app.pipeline.analytics_track import RealtimeAnalyticsEngine
+from app.pipeline.analytics_track import RealtimeAnalyticsEngine, TrackAnalyticsCache
 from app.vision.expressions.normalization import (
     normalize_expression_label,
     normalize_probabilities,
@@ -52,6 +52,29 @@ def test_weak_negative_does_not_beat_neutral_in_smooth():
     smoothed, n = eng._smooth_expression(buf, now, provider_name="fer_onnx")
     assert smoothed in ("predominantly_neutral", "inconclusive")
     assert smoothed != "predominantly_negative"
+
+
+def test_sustained_negative_requires_persistence_seconds():
+    """EX−: buffer negativo mas <6s sustentados → UI permanece neutra."""
+    eng = RealtimeAnalyticsEngine.__new__(RealtimeAnalyticsEngine)
+    eng.settings = type(
+        "S",
+        (),
+        {
+            "expression_negative_min_seconds": 6.0,
+        },
+    )()
+    cache = TrackAnalyticsCache(track_key="t1")
+    cache.expr_negative_since = 100.0
+    out, sustained = eng._apply_expression_negative_persistence(
+        cache, 103.0, "predominantly_negative", negative_frame=True
+    )
+    assert out == "predominantly_neutral"
+    assert sustained == 3.0
+    out2, _ = eng._apply_expression_negative_persistence(
+        cache, 106.5, "predominantly_negative", negative_frame=True
+    )
+    assert out2 == "predominantly_negative"
 
 
 def test_sustained_negative_becomes_predominantly_negative():

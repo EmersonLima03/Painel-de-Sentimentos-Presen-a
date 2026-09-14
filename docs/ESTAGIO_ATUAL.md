@@ -2,7 +2,7 @@
 
 Documento de checkpoint do branch `feat/painel-de-sentimentos`. Descreve **o que já funciona**, **o que está instável** e **o que ainda não entrou**.
 
-> **Fechamento TRI:** ver [ENTREGA_TRI_EMOCOES_DASHBOARD.md](ENTREGA_TRI_EMOCOES_DASHBOARD.md) — perfil `config.tri.yaml` / `fer_onnx`, UI Ao vivo compacta + detalhe, gate de testes e checklist manual.
+> **Fechamento TRI:** ver [ENTREGA_TRI_EMOCOES_DASHBOARD.md](ENTREGA_TRI_EMOCOES_DASHBOARD.md) — perfil `config.tri.yaml`; emoção default **HSEmotion VGAF** (`hsemotion_vgaf`, worker ~2s) com **FER+** como fallback/rollback — [EMOTION_BACKEND_HSEMOTION_VGAF.md](EMOTION_BACKEND_HSEMOTION_VGAF.md).
 
 ---
 
@@ -24,7 +24,8 @@ O **MVP do TRI (emoções aparentes + dashboard unificado)** está em fechamento
 | Pipeline person-first | OK | Detecção de pessoa → rosto → analytics por track |
 | Dashboard unificado | OK | `/dashboard` (React): Ao vivo + Relatório com abas |
 | Expressão no Ao vivo | OK (TRI) | Grade: “Expressão aparente”; clique → atenção/confiança/amostras |
-| FER+ ONNX (perfil TRI) | OK | `config.tri.yaml` / `EXPRESSION_PROVIDER=fer_onnx` — não altera default HSEmotion |
+| FER+ ONNX (fallback) | OK | `provider: fer_onnx` + `EXPRESSION_EMOTION_BACKEND=fer_onnx` para rollback |
+| HSEmotion VGAF (default) | OK | `emotion_backend: hsemotion_vgaf` async ~2s — ver EMOTION_BACKEND_HSEMOTION_VGAF.md |
 | WebSocket ao vivo | OK | `/api/v1/ws/live` + snapshot debug |
 | Qualidade de observação | OK | Score % + texto “imagem adequada / parcialmente observável” |
 | Atenção visual aparente | OK | Alta / baixa / **inconclusiva** quando rosto some |

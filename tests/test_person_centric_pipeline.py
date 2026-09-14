@@ -590,3 +590,41 @@ def test_engine_continues_without_face():
     assert tracks[0]["visual_attention"]["state"] == "inconclusive" or tracks[0]["identity"][
         "face_visible"
     ] is False
+
+
+def test_person_bbox_plausible_rejects_fan_keeps_usb_closeup():
+    from app.vision.person_tracker import person_bbox_plausible
+
+    fw, fh = 1920.0, 1080.0
+    # Ventilador de mesa no canto: alto e fino.
+    assert person_bbox_plausible(70, 220, fw, fh) is False
+    # Close-up USB: ombros mais largos que altos.
+    assert person_bbox_plausible(720, 520, fw, fh) is True
+    # Pessoa sentada proporcional.
+    assert person_bbox_plausible(380, 640, fw, fh) is True
+
+
+def test_displayable_hides_fan_like_unknown_without_real_face():
+    from app.pipeline.analytics_track import is_displayable_track
+
+    fan = {
+        "tracking_state": "active",
+        "track_confidence": 0.7,
+        "person_bbox": [1500, 400, 64, 210],
+        "face_bbox": [1510, 410, 40, 48],
+        "identity": {"face_visible": True, "identity_state": "unknown"},
+        "observability": {"body_detected": True},
+        "observation_quality": {"landmarks_quality": 0.08},
+    }
+    assert is_displayable_track(fan) is False
+    person = {
+        "tracking_state": "active",
+        "track_confidence": 0.7,
+        "person_bbox": [400, 200, 700, 520],
+        "face_bbox": [620, 220, 180, 220],
+        "identity": {"face_visible": True, "identity_state": "face_confirmed", "student_id": "p01"},
+        "student_id": "p01",
+        "observability": {"body_detected": True},
+        "observation_quality": {"landmarks_quality": 0.72},
+    }
+    assert is_displayable_track(person) is True

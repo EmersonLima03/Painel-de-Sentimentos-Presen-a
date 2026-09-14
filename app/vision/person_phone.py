@@ -67,6 +67,8 @@ def _phone_in_lower_body(phone: BBox, person: BBox) -> bool:
     """Celular na região inferior do corpo (punhos indisponíveis no pose lite)."""
     px, py, pw, ph = person
     pcx, pcy = _center(phone)
+    if _phone_on_chest(phone, person):
+        return False
     # Abaixo do corpo ≈ mesa — não tratar como in_hand sem punho
     if pcy > py + ph * 0.90:
         return False
@@ -99,9 +101,9 @@ def _phone_in_ear_zone(phone: BBox, face: Optional[BBox], person: BBox) -> bool:
     pcx, pcy = _center(phone)
     phone_area = max(1.0, phone[2] * phone[3])
     person_area = max(1.0, pw * ph)
-    if phone_area / person_area > 0.045:
+    if phone_area / person_area > 0.058:
         return False
-    if pcy > py + ph * 0.32:
+    if pcy > py + ph * 0.48:
         return False
     lateral = pcx < px + pw * 0.28 or pcx > px + pw * 0.72
     if not lateral:
@@ -114,19 +116,152 @@ def _phone_in_ear_zone(phone: BBox, face: Optional[BBox], person: BBox) -> bool:
     return True
 
 
-def _phone_on_chest(phone: BBox, person: BBox) -> bool:
-    """Celular deitado no peito/torso superior (comum em uso passivo)."""
-    pw_phone, ph_phone = phone[2], phone[3]
-    if pw_phone / max(ph_phone, 1.0) < 1.15:
+def _phone_lateral_to_face(phone: BBox, face: Optional[BBox], person: Optional[BBox] = None) -> bool:
+    """Objeto ao lado do rosto (exibir / fone). Encostar na cara = uso (E3), não lateral."""
+    if face is None:
+        return False
+    fcx, fcy = _center(face)
+    pcx, pcy = _center(phone)
+    fw = max(float(face[2]), 1.0)
+    fh = max(float(face[3]), 1.0)
+    phw = max(float(phone[2]), 1.0)
+    if abs(pcy - fcy) > fh * 0.85:
+        return False
+    gap = abs(pcx - fcx) - fw / 2.0 - phw / 2.0
+    # Sobreposto ou quase colado no rosto → E3, não "ao lado sem uso".
+    if gap <= max(4.0, fw * 0.20):
+        return False
+    if abs(pcx - fcx) < fw * 0.55:
+        return False
+    return True
+
+
+def _phone_raised_to_face(
+    phone: BBox,
+    face: Optional[BBox],
+    person: BBox,
+) -> bool:
+    """Celular à frente / altura do rosto (uso real). Fone lateral não conta aqui."""
+    if face is None:
+        return False
+    if _phone_in_ear_zone(phone, face, person):
+        return False
+    if _phone_lateral_to_face(phone, face, person):
+        return False
+    phone_area = max(1.0, phone[2] * phone[3])
+    person_area = max(1.0, person[2] * person[3])
+    pcx, pcy = _center(phone)
+    fx, fy, fw, fh = face
+    at_face_height = (fy - fh * 0.20) <= pcy <= (fy + fh * 1.20)
+    # Recorte YOLO (bloco das câmeras) na cara ainda é E3; 0.038 matava esse take.
+    min_area = 0.034 if at_face_height else 0.038
+    if phone_area / person_area < min_area:
+        return False
+    _, py, _, ph = person
+    # Close-up YuNet: face ~meio corpo; expand 1.55× descia até o peito (E4→E3).
+    down = 1.12 if fh >= ph * 0.28 else 1.55
+    expanded = (fx - fw * 0.45, fy - fh * 0.25, fw * 1.9, fh * down)
+    if _bbox_intersection_area(phone, expanded) / phone_area >= 0.12:
+        return True
+    if not _phone_near_face_region(phone, face, person):
+        return False
+    pcx, pcy = _center(phone)
+    face_bottom = fy + fh
+    extra = fh * 0.20 if fh >= ph * 0.28 else fh * 0.55
+    if pcy > face_bottom + extra:
+        return False
+    return True
+
+
+def _phone_large_handheld_upper(
+    phone: BBox,
+    person: BBox,
+    face: Optional[BBox],
+) -> bool:
+    """
+    E3 LIVE sem punho: smartphone grande à frente na faixa mão/ombro/rosto.
+    Ao lado do rosto (olhar câmera) NÃO é uso — senão E3 come o contrato lateral.
+    Fone over-ear ~113×171 NÃO passa (w/h).
+    """
+    if _phone_in_ear_zone(phone, face, person):
+        return False
+    if _phone_lateral_to_face(phone, face, person):
         return False
     px, py, pw, ph = person
     pcx, pcy = _center(phone)
-    chest_top = py + ph * 0.28
-    chest_bottom = py + ph * 0.58
+    phone_area = max(1.0, phone[2] * phone[3])
+    person_area = max(1.0, pw * ph)
+    area_ratio = phone_area / person_area
+    w, h = float(phone[2]), float(phone[3])
+    # Corte acima do over-ear C típico (113×171); handset LIVE ~190×261 passa.
+    if area_ratio < 0.035 or w < 140 or h < 180:
+        return False
+    hw = h / max(w, 1.0)
+    if not (1.10 <= hw <= 2.55):
+        return False
+    # Peito E4: centro no torso médio, sem tamanho de "mão erguida" perto do rosto
+    if face is not None:
+        face_bottom = face[1] + face[3]
+        if pcy > face_bottom + max(face[3] * 0.95, 60.0) and py + ph * 0.40 <= pcy <= py + ph * 0.85:
+            # Claramente abaixo do rosto no peito
+            if abs(pcx - _center(face)[0]) < face[2] * 0.9:
+                return False
+    elif _phone_on_chest(phone, person, None):
+        return False
+    if pcy > py + ph * 0.85:
+        return False
+    if pcy < py - ph * 0.08:
+        return False
+    if not (px - pw * 0.28 <= pcx <= px + pw * 1.28):
+        return False
+    if face is None:
+        return pcy <= py + ph * 0.72
+    if _phone_near_face_region(phone, face, person):
+        return True
+    face_bottom = face[1] + face[3]
+    if pcy <= face_bottom + max(face[3] * 1.0, 55.0):
+        return True
+    return False
+
+
+def _phone_on_chest(phone: BBox, person: BBox, face: Optional[BBox] = None) -> bool:
+    """Celular no peito/torso — uso passivo. Nunca se estiver à frente do rosto."""
+    if face is not None and _phone_raised_to_face(phone, face, person):
+        return False
+    px, py, pw, ph = person
+    pcx, pcy = _center(phone)
+    chest_top = py + ph * 0.36
+    chest_bottom = py + ph * 0.80
+    if face is not None and float(face[3]) < ph * 0.32:
+        chest_top = max(chest_top, face[1] + face[3] + max(8.0, face[3] * 0.35))
     if not (chest_top <= pcy <= chest_bottom):
         return False
-    margin = 0.12 * pw
-    return (px - margin) <= pcx <= (px + pw + margin)
+    if pcx < px + pw * 0.12 or pcx > px + pw * 0.88:
+        return False
+    return True
+
+
+def _phone_below_face_on_torso(
+    phone: BBox,
+    person: BBox,
+    face: Optional[BBox],
+) -> bool:
+    """Celular claramente abaixo do queixo no tronco (peito), não uso à frente do rosto."""
+    if face is not None and _phone_raised_to_face(phone, face, person):
+        return False
+    if face is None:
+        return _phone_on_chest(phone, person, face)
+    px, py, pw, ph = person
+    pcx, pcy = _center(phone)
+    if pcx < px - pw * 0.08 or pcx > px + pw * 1.08:
+        return False
+    face_bottom = face[1] + face[3]
+    min_gap = max(10.0, ph * 0.06) if face[3] >= ph * 0.32 else max(10.0, face[3] * 0.45)
+    if pcy < face_bottom + min_gap:
+        return False
+    if pcy > py + ph * 0.92:
+        return False
+    return True
 
 
 def _phone_in_hand_heuristic(
@@ -135,14 +270,18 @@ def _phone_in_hand_heuristic(
     face_bbox: Optional[BBox],
 ) -> bool:
     """
-    Heurística sem punho: peito / tronco inferior.
-    NÃO promover in_hand só por proximidade ao rosto (fone/orelha geram FP).
+    Heurística sem punho: tronco inferior / colo OU handset grande na faixa superior (E3).
+    Peito com olhar à frente NÃO é in_hand (celular encostado no peito).
     """
     if face_bbox and _phone_in_ear_zone(phone, face_bbox, person):
         return False
     if _phone_in_ear_zone(phone, face_bbox, person):
         return False
+    if face_bbox is not None and _phone_lateral_to_face(phone, face_bbox, person):
+        return False
     if _phone_on_chest(phone, person):
+        return False
+    if _phone_large_handheld_upper(phone, person, face_bbox):
         return True
     if _phone_in_lower_body(phone, person) and _phone_overlaps_lower_torso(phone, person):
         return True
@@ -158,7 +297,7 @@ class PersonPhoneAssociator:
         near_dist_norm: float = 0.55,
         ambiguous_gap: float = 0.12,
         interaction_requires_in_hand: bool = True,
-        clear_hold_seconds: float = 3.0,
+        clear_hold_seconds: float = 2.0,
     ):
         self.minimum_interaction_seconds = minimum_interaction_seconds
         self.probable_seconds = probable_seconds
@@ -239,17 +378,50 @@ class PersonPhoneAssociator:
                     reasons.append("phone_ambiguous_between_persons")
 
             face_bb = face_bboxes.get(pid)
+            looking = bool(head_looking_down.get(pid))
+            resting_torso = False
+            raised_to_face = False
             for ph in owned:
+                if _phone_raised_to_face(ph, face_bb, pb):
+                    raised_to_face = True
+                    for w in wrists.get(pid) or []:
+                        if _near_wrist(ph, w, pb):
+                            in_hand = True
+                            reasons.append("phone_near_wrist")
+                    if not in_hand:
+                        in_hand = True
+                        reasons.append("phone_raised_to_face")
+                    continue
+                if (
+                    face_bb is not None
+                    and _phone_lateral_to_face(ph, face_bb, pb)
+                    and not looking
+                    and not _phone_in_ear_zone(ph, face_bb, pb)
+                ):
+                    reasons.append("phone_lateral_visible_not_use")
+                    continue
+                if _phone_large_handheld_upper(ph, pb, face_bb):
+                    raised_to_face = True
+                    in_hand = True
+                    reasons.append("phone_large_handheld_upper")
+                    continue
+                if _phone_below_face_on_torso(ph, pb, face_bb) and not looking:
+                    resting_torso = True
+                    reasons.append("phone_resting_on_torso_looking_forward")
+                    continue
+                chest = _phone_on_chest(ph, pb, face_bb)
+                if chest and not looking:
+                    reasons.append("phone_resting_on_chest")
+                    continue
                 for w in wrists.get(pid) or []:
                     if _near_wrist(ph, w, pb):
                         in_hand = True
                         reasons.append("phone_near_wrist")
                 if not in_hand and _phone_in_hand_heuristic(ph, pb, face_bb):
                     in_hand = True
-                    if _phone_on_chest(ph, pb):
-                        reasons.append("phone_on_chest")
-                    else:
-                        reasons.append("phone_in_hand_heuristic")
+                    reasons.append("phone_in_hand_heuristic")
+            if resting_torso and not looking and not raised_to_face:
+                in_hand = False
 
             if ambiguous and not owned:
                 self._near_since.pop(pid, None)
@@ -293,6 +465,15 @@ class PersonPhoneAssociator:
                     else:
                         self._in_hand_since.pop(pid, None)
                         in_hand_dur = 0.0
+                if (
+                    not raised_to_face
+                    and (resting_torso or any(_phone_on_chest(ph, pb, face_bb) for ph in owned))
+                    and not looking
+                ):
+                    in_hand = False
+                    in_hand_dur = 0.0
+                    self._in_hand_since.pop(pid, None)
+                    reasons.append("phone_resting_blocks_interaction")
                 reasons.append(f"near_dist_norm={best:.2f}")
                 if in_hand:
                     level = "phone_in_hand"

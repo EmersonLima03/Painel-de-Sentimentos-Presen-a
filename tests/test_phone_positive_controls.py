@@ -20,7 +20,10 @@ def test_real_phone_at_ear_not_context_rejected():
 def test_earbud_small_still_rejected():
     person = (100.0, 50.0, 200.0, 400.0)
     phone = (280, 70, 28, 36, 0.6)
-    assert _context_reject_reason(phone, person) == "ear_region_implausible"
+    assert _context_reject_reason(phone, person) in (
+        "ear_region_implausible",
+        "headset_earcup",
+    )
 
 
 def test_real_phone_at_ear_with_wrist_is_in_hand():
@@ -53,7 +56,7 @@ def test_real_phone_vertical_in_hand_with_wrist():
     people = {"p1": (0.0, 0.0, 200.0, 400.0)}
     phones = [(90.0, 160.0, 28.0, 55.0, 0.85)]
     wrists = {"p1": [(100.0, 185.0)]}
-    s = assoc.update(now=8.0, person_tracks=people, phone_boxes=phones, wrists=wrists)[0]
+    s = assoc.update(now=8.0, person_tracks=people, phone_boxes=phones, wrists=wrists, head_looking_down={"p1": True})[0]
     assert s.phone_in_hand is True
     assert _context_reject_reason(phones[0], people["p1"]) is None
 
@@ -75,7 +78,7 @@ def test_phone_partially_covered_by_hand_still_associated():
     people = {"p1": (0.0, 0.0, 200.0, 400.0)}
     phones = [(80.0, 180.0, 35.0, 50.0, 0.7)]
     wrists = {"p1": [(95.0, 200.0)]}
-    s = assoc.update(now=7.0, person_tracks=people, phone_boxes=phones, wrists=wrists)[0]
+    s = assoc.update(now=7.0, person_tracks=people, phone_boxes=phones, wrists=wrists, head_looking_down={"p1": True})[0]
     assert s.phone_visible or s.phone_near_person or s.phone_in_hand
     assert s.phone_in_hand is True
 

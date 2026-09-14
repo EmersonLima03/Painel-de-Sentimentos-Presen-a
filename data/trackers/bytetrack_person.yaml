@@ -2,10 +2,11 @@
 # track_buffer é em FRAMES do ciclo de update (não FPS de vídeo).
 # Com analytics ~0.5s: 30 ≈ 15s; 40 ≈ 20s de tolerância no ByteTrack bruto.
 # A continuidade estável final fica em StablePersonTrackManager (segundos).
+# 2026-09-11: thresh elevados — corta person-002 fantasma (parede/porta) no LIVE webcam.
 tracker_type: bytetrack
-track_high_thresh: 0.25
-track_low_thresh: 0.1
-new_track_thresh: 0.25
+track_high_thresh: 0.45
+track_low_thresh: 0.25
+new_track_thresh: 0.48
 track_buffer: 40
 match_thresh: 0.7
 fuse_score: True

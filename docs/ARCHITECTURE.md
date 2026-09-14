@@ -67,7 +67,7 @@ frame completo
 | Face | Identifica / reconfirma; some → `cached_binding` até TTL |
 | Margem | Só se runtime fornecer top2; senão `margin=null` + regras mais rígidas |
 | Cabeça baixa | Descritivo (`head_down_*`); ≠ sonolência / desatenção automática |
-| Mãos (punhos) | No máx. `hand_near_face` / `possible_face_occlusion_*` |
+| Mãos (punhos) | `hand_near_face` = sinal **opcional** (proximidade). `possible_face_occlusion_*` / `persistent_*` = evento só se a mão **prejudica** observabilidade. Proximidade ≠ oclusão (cenário L). |
 | Celular | `phone_visible` ≠ uso; nunca `confirmed_*` |
 | Atenção / sonolência sem rosto | `inconclusive` |
 | Aliases deprecated | `track_id`, `student_id`, `bbox` (= person_*) |
@@ -139,13 +139,17 @@ Abstração `FacialExpressionProvider` + factory `create_expression_provider`.
 
 | Provider | Status |
 |----------|--------|
+| **HSEmotion VGAF** (`hsemotion_vgaf` / `enet_b0_8_best_vgaf`) | **Default 2026-09-09** — worker assíncrono ~2 s/track; ver [EMOTION_BACKEND_HSEMOTION_VGAF.md](EMOTION_BACKEND_HSEMOTION_VGAF.md) |
+| FER+ ONNX (`fer_onnx`) | **Fallback** explícito / rollback (`EXPRESSION_EMOTION_BACKEND=fer_onnx`) |
 | Mock | Funcional (demo) |
 | FER legado (Mini-XCEPTION) | Experimental; lazy; modelo em `data/models/` |
-| HSEmotion | Experimental; venv isolado; **não** no core |
 | DeepFace | Experimental; só `actions=["emotion"]`; **não** no core |
 
 Normalização: `positive | neutral | negative | surprise | inconclusive`.  
 UI: “expressão predominantemente …”. Classe bruta só em metadata técnica.
+
+**Rollback:** `EXPRESSION_EMOTION_BACKEND=fer_onnx` — sem remover código.  
+**Deps:** `numpy<2` (`numpy==1.26.4`) — FaceNet/torch quebram com NumPy 2.x.
 
 **Proibido:** raça, gênero, idade, etnia, diagnóstico clínico.  
 **Nenhum** provider real aprovado para `production` sem benchmark + aprovação longitudinal (`longitudinal_approval_recorded`).

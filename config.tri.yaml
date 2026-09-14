@@ -7,8 +7,9 @@
 #   $env:RUNTIME_MODE = "rtsp"   # ou "demo"
 #   python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 #
-# Contrato ✅ 2026-08-03: smile_boost_enabled deve permanecer true
-# (sorriso→positiva / tempos neutra+positiva). Ver docs/BASELINE_MANUAL_APROVADO_TRI.md
+# Contrato ✅ 2026-08-03 EX+/EX=: emotion_backend=fer_onnx + smile_boost_enabled.
+# VGAF (hsemotion_vgaf) fica experimental — reativar após smoke EX+ e reteste EX−.
+# Rollback VGAF: emotion_backend: hsemotion_vgaf  (ver docs/EMOTION_BACKEND_HSEMOTION_VGAF.md)
 # Contrato ✅ H: head_down hold/event_min 8s; inconclusive_hold 12s; peito ≠ oclusão.
 # =============================================================================
 
@@ -17,21 +18,25 @@ modules:
     mode: debug
 
 expression:
+  # Recuperação baseline manual 2026-08-03: FER+ + smile_boost (EX+/EX=).
+  # VGAF async permanece no código; não é default TRI até revalidar sorriso≠negativa.
+  emotion_backend: fer_onnx
+  hsemotion_interval_seconds: 2.0
+  hsemotion_max_batch: 5
   provider: fer_onnx
   ab_secondary: null
   fallback_chain: [fer_onnx]
   interval_seconds: 1.0
-  window_seconds: 8
+  window_seconds: 5
   minimum_samples: 3
   minimum_confidence: 0.45
   minimum_confidence_positive: 0.50
   # EX−: sad/angry/fear/disgust → negative; surprise → neutra (sem bucket TRI)
   minimum_confidence_negative: 0.42
   minimum_negative_samples: 2
-  # FER+ ONNX classifica sorriso com dentes como neutral ~0.75 — boost geométrico
-  # (landmarks + pixels) é a correção documentada em docs/TROUBLESHOOTING.md.
+  # EX−: UI/relatório só viram negativa após gesto sustentado (cara séria = neutra)
+  negative_min_seconds: 6.0
   smile_boost_enabled: true
-  # FER+ marca bico/tristeza exagerada como neutral ~0.75 — boost cantos da boca caídos.
   frown_boost_enabled: true
   minimum_observation_quality: 0.55
 
@@ -41,3 +46,39 @@ head_down:
   short_to_persistent_seconds: 8.0
   suppress_when_occlusion: true
   allow_face_missing_proxy: false
+
+vision:
+  phone_yolo:
+    enabled: true
+    model_path: "data/models/yolov8n.pt"
+    conf_threshold: 0.30  # T5 oficial (era 0.42); regressão BASELINE vs T5 aprovada
+    max_height_width_ratio: 2.7
+    max_width_height_ratio: 4.0
+    torso_pass_enabled: true
+    torso_conf_threshold: 0.30
+
+face_occlusion:
+  wrist_near_ratio: 0.70
+  confirm_seconds: 0.35
+  clear_hold_seconds: 4.0
+  face_missing_hold_seconds: 15.0
+  persistent_seconds: 5.0
+  suppress_when_landmarks_clear: true
+
+phone:
+  possible_after_seconds: 5
+  probable_after_seconds: 12
+  interaction_requires_in_hand: true
+  # Anti-flicker curto; clear rápido quando o aparelho some (sem ghost 10s+).
+  association_clear_hold_seconds: 2.0
+
+behavioral_events:
+  clear_hold_phone_seconds: 2.5
+
+drowsiness:
+  possible_after_seconds: 6
+  probable_after_seconds: 30
+  eye_closed_ear_threshold: 0.18
+  minimum_observation_quality: 0.60
+  head_down_possible_multiplier: 2.0
+  head_down_probable_seconds: 45.0

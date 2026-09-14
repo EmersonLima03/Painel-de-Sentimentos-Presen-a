@@ -51,7 +51,7 @@ def test_phone_association_hold_survives_brief_miss():
     people = {"p1": (0.0, 0.0, 200.0, 400.0)}
     phones = [(90.0, 160.0, 40.0, 75.0, 0.8)]
     wrists = {"p1": [(100.0, 190.0)]}
-    s1 = assoc.update(now=10.0, person_tracks=people, phone_boxes=phones, wrists=wrists)[0]
+    s1 = assoc.update(now=10.0, person_tracks=people, phone_boxes=phones, wrists=wrists, head_looking_down={"p1": True})[0]
     assert s1.phone_in_hand is True
     # frame sem detecção dentro do hold
     s2 = assoc.update(now=10.5, person_tracks=people, phone_boxes=[], wrists=wrists)[0]
@@ -69,8 +69,8 @@ def test_pickup_with_wrist_can_progress():
     people = {"p1": (0.0, 0.0, 100.0, 200.0)}
     phones = [(40.0, 100.0, 25.0, 45.0, 0.9)]
     wrists = {"p1": [(50.0, 120.0)]}
-    s5 = assoc.update(now=5.0, person_tracks=people, phone_boxes=phones, wrists=wrists)[0]
-    s12 = assoc.update(now=17.0, person_tracks=people, phone_boxes=phones, wrists=wrists)[0]
+    s5 = assoc.update(now=5.0, person_tracks=people, phone_boxes=phones, wrists=wrists, head_looking_down={"p1": True})[0]
+    s12 = assoc.update(now=17.0, person_tracks=people, phone_boxes=phones, wrists=wrists, head_looking_down={"p1": True})[0]
     assert s5.phone_in_hand is True
     assert s12.interaction_level in (
         "possible_phone_interaction",

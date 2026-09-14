@@ -11,10 +11,10 @@
     {"id": "F", "name": "typing_looking_keyboard", "duration_s": 60, "forbid": ["possible_drowsiness", "probable_drowsiness"]},
     {"id": "G", "name": "eyes_really_closed_frontal", "thresholds_s": {"possible": 6, "probable": 30}, "forbid_below_s": 2.5},
     {"id": "H", "name": "head_down_partial_face", "event_min_s": 8, "forbid": ["automatic_sleep_from_head_down"]},
-    {"id": "I", "name": "face_missing", "forbid": ["invented_head_down_from_face_disappearance"]},
-    {"id": "J", "name": "one_hand_face_cover", "persistent_after_s": 5},
-    {"id": "K", "name": "two_hands_face_cover", "duration_s": 20, "repeats": 3},
-    {"id": "L", "name": "hand_near_without_cover", "duration_s": 20, "repeats": 3}
+    {"id": "I", "name": "profile_or_face_missing", "duration_s": 20, "allow_head": ["head_turned", "pose_inconclusive"], "forbid": ["head_down_persistent", "possible_drowsiness", "probable_drowsiness", "invented_head_down_from_face_disappearance"], "note": "perfil/lateral: head_turned OU pose_inconclusive; sem head_down/sono só por perfil"},
+    {"id": "J", "name": "one_hand_face_cover", "persistent_after_s": 5, "expect": ["possible_face_occlusion_by_hand", "persistent_possible_face_occlusion"], "recovery": true},
+    {"id": "K", "name": "two_hands_face_cover", "duration_s": 20, "persistent_after_s": 5, "forbid": ["possible_drowsiness", "probable_drowsiness"], "recovery": true},
+    {"id": "L", "name": "hand_near_without_cover", "duration_s": 20, "allow_occlusion": ["none"], "hand_near_face": "optional", "forbid": ["persistent_possible_face_occlusion_from_proximity_alone"], "note": "chin/cheek with observable face → occlusion none is correct"}
   ],
   "positive_controls": [
     {"id": "P1", "name": "real_phone_at_ear"},

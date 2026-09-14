@@ -32,7 +32,7 @@ _ear_stability: Dict[str, int] = {}
 _last_kept_phones: List[Tuple[int, int, int, int, float]] = []
 _last_kept_dets: List[dict] = []
 _last_kept_ts: float = 0.0
-_PHONE_DETECT_HOLD_SECONDS = 3.0
+_PHONE_DETECT_HOLD_SECONDS = 2.0
 
 # COCO class id for cell phone
 _CELL_PHONE_CLASS = 67
@@ -125,6 +125,70 @@ def _in_ear_zone_geometry(
     return pcx < px + pw * 0.28 or pcx > px + pw * 0.72
 
 
+def _phone_near_upper_head(
+    phone: Tuple[int, int, int, int, float],
+    person: Tuple[float, float, float, float],
+) -> bool:
+    """Centro / topo do bbox na zona cabeça–ombro (celular na cara ou mão erguida)."""
+    x, y, w, h, _conf = phone
+    px, py, pw, ph = person
+    if pw < 8 or ph < 8:
+        return False
+    pcx = x + w / 2.0
+    pcy = y + h / 2.0
+    in_x = px + pw * 0.05 <= pcx <= px + pw * 0.95
+    if not in_x:
+        return False
+    # Cabeça / ombro alto clássico
+    if pcy <= py + ph * 0.40:
+        return True
+    # Handset grande erguido em person LIVE full-frame (topo no half superior)
+    if w >= 80 and h >= 120 and y <= py + ph * 0.50 and pcy <= py + ph * 0.58:
+        return True
+    return False
+
+
+def _phone_in_hand_band(
+    phone: Tuple[int, int, int, int, float],
+    person: Tuple[float, float, float, float],
+) -> bool:
+    """
+    Faixa mão/ombro (LIVE ByteTrack): celular mid-hand com conf ~0.36
+    sem wrist MediaPipe — não exige topo 40% da pessoa.
+    """
+    x, y, w, h, _conf = phone
+    px, py, pw, ph = person
+    if pw < 8 or ph < 8:
+        return False
+    pcx = x + w / 2.0
+    pcy = y + h / 2.0
+    if not (px + pw * 0.06 <= pcx <= px + pw * 0.94):
+        return False
+    if not (py + ph * 0.18 <= pcy <= py + ph * 0.78):
+        return False
+    if w < 40 or h < 70:
+        return False
+    return True
+
+
+def _lateral_upper_earcup_like(
+    phone: Tuple[int, int, int, int, float],
+    person: Tuple[float, float, float, float],
+    *,
+    area_ratio: float,
+) -> bool:
+    """Copa/fone lateral-superior miúdo — não liberar keep_vertical por conf baixa."""
+    x, y, w, h, _conf = phone
+    px, py, pw, ph = person
+    pcx = x + w / 2.0
+    pcy = y + h / 2.0
+    lateral = pcx < px + pw * 0.30 or pcx > px + pw * 0.70
+    upper = pcy <= py + ph * 0.42
+    return bool(
+        lateral and upper and area_ratio <= 0.048 and w < 110 and h < 170
+    )
+
+
 def _context_reject_reason(
     phone: Tuple[int, int, int, int, float],
     person: Tuple[float, float, float, float],
@@ -135,9 +199,9 @@ def _context_reject_reason(
     """
     Rejeições geométricas relativas à pessoa (garrafa/térmico e zona de orelha/fone).
 
-    ear_region_implausible exige combinação (não rejeita todo objeto perto da orelha):
-    bbox pequena + sem punho + zona orelha/cabeça + geometria incompatível + falta de estabilidade.
-    Celular real encostado à orelha (tamanho/aspecto, conf, punho ou estabilidade) passa.
+    ear_region_implausible / headset_earcup: bbox pequena na orelha sem punho.
+    Celular real (mão/cara): keep_vertical alinhado ao conf_threshold TRI (0.30),
+    faixa mão/ombro sem exigir wrist MediaPipe; earcup lateral miúdo não libera.
     """
     x, y, w, h, conf = phone
     px, py, pw, ph = person
@@ -150,26 +214,56 @@ def _context_reject_reason(
     person_area = max(1.0, float(pw * ph))
     area_ratio = phone_area / person_area
     in_ear = _in_ear_zone_geometry(phone, person)
+    near_face = _phone_near_upper_head(phone, person)
+    hand_band = _phone_in_hand_band(phone, person)
+    earcup_like = _lateral_upper_earcup_like(phone, person, area_ratio=area_ratio)
     width_frac = w / max(pw, 1.0)
     tall_vs_body = h >= ph * 0.18
     very_tall_vs_body = h >= ph * 0.28
 
-    # Contrato (docs/TROUBLESHOOTING + momento em que D/eventos funcionavam):
-    # celular vertical real em close-up NÃO é rejeitado só por altura relativa;
-    # garrafa/térmico fino ou conf fraca continua rejeitado.
-    # NÃO usar "bottle_column" agressivo — gerava FN em celular real na mão/rosto.
+    settings = get_settings()
+    conf_thr = float(getattr(settings, "phone_yolo_conf_threshold", 0.30) or 0.30)
+    recall_conf = max(0.32, conf_thr)
+
+    # Contrato: celular vertical close-up NÃO é garrafa só por altura relativa.
     thin_tall = width_frac <= 0.135 and hw >= 1.80
-    keep_vertical_phone = (
+    # width_frac piso 0.08: ByteTrack LIVE full-frame (person ~1400px).
+    phone_like_geom = (
         1.15 <= hw <= 2.40
-        and width_frac >= 0.10
-        and 0.015 <= area_ratio <= 0.11
+        and width_frac >= 0.08
+        and 0.015 <= area_ratio <= 0.22
         and w >= 26
-        and h <= ph * 0.38
-        and not (thin_tall and float(conf) < 0.62 and not wrist_near)
-        and (
-            wrist_near
-            or float(conf) >= 0.50  # alinhado ao hold temporal / fase estável
-        )
+        and h <= ph * 0.70
+    )
+    # Close-up: handset inteiro ~50–65% da bbox da pessoa (rejeitar isso deixava
+    # magenta só no bloco das câmeras e o YOLO cheio ia para bottle_like).
+    closeup_handset = (
+        width_frac >= 0.18
+        and 1.10 <= hw <= 2.20
+        and area_ratio >= 0.04
+        and w >= 80
+        and h <= ph * 0.78
+    )
+    # near_face ∧ conf_thr NÃO libera earcup lateral miúdo (FP C).
+    near_face_unlock = near_face and float(conf) >= conf_thr and not earcup_like
+    # Mid-hand LIVE: conf ~0.36 sem wrist — unlock se handset real na faixa.
+    # width_frac<=0.16: ByteTrack handset; térmico/copa larga mid-body não libera.
+    hand_band_unlock = (
+        hand_band
+        and phone_like_geom
+        and float(conf) >= recall_conf
+        and not earcup_like
+        and area_ratio >= 0.012
+        and width_frac <= 0.16
+    )
+    keep_vertical_phone = (phone_like_geom or closeup_handset) and not (
+        thin_tall and float(conf) < 0.62 and not wrist_near and not near_face_unlock
+    ) and (
+        wrist_near
+        or near_face_unlock
+        or hand_band_unlock
+        or float(conf) >= 0.50
+        or closeup_handset
     )
 
     if not keep_vertical_phone:
@@ -181,18 +275,52 @@ def _context_reject_reason(
         elif hw >= 1.9 and h >= ph * 0.40:
             return "bottle_like_relative_height"
 
+    # --- Anti-FP headset ESTREITO (C) ---
+    if not wrist_near:
+        lateral = pcx < px + pw * 0.30 or pcx > px + pw * 0.70
+        upper = pcy <= py + ph * 0.42
+        headset_earcup = (
+            (in_ear or (lateral and upper and area_ratio <= 0.048))
+            and area_ratio <= 0.050
+            and w < 120
+            and h < 175
+            and float(conf) < 0.82
+            and not (
+                area_ratio >= 0.032
+                and 1.25 <= hw <= 2.35
+                and w >= 100
+                and h >= 150
+                and float(conf) >= 0.62
+            )
+        )
+        if headset_earcup and not keep_vertical_phone:
+            return "headset_earcup"
+        if headset_earcup and keep_vertical_phone and (
+            area_ratio <= 0.040 or w < 95 or float(conf) < 0.55
+        ):
+            # P1: celular real na orelha (handset + conf alta) passa; earcup miúdo não.
+            real_ear_handset = (
+                phone_like_geom
+                and float(conf) >= 0.62
+                and area_ratio >= 0.028
+                and w >= 36
+                and h >= 55
+            )
+            if not real_ear_handset:
+                return "headset_earcup"
+
     if in_ear:
         if wrist_near:
             return None
 
         phone_like = (
-            area_ratio >= 0.030
+            area_ratio >= 0.035
             and 1.15 <= hw <= 2.45
-            and float(conf) >= 0.48
-            and w >= 22
-            and h >= 38
+            and float(conf) >= 0.55
+            and w >= 36
+            and h >= 55
         )
-        if phone_like and (stable_hits >= 2 or float(conf) >= 0.62 or area_ratio >= 0.038):
+        if phone_like and (stable_hits >= 2 or float(conf) >= 0.68 or area_ratio >= 0.045):
             return None
 
         small = area_ratio <= 0.038
@@ -207,11 +335,17 @@ def _context_reject_reason(
             return "ear_region_implausible"
         if small and incompatible_geom and unstable and float(conf) < 0.65:
             return "ear_region_implausible"
+        if area_ratio <= 0.048 and unstable and float(conf) < 0.70 and w < 100:
+            return "ear_region_implausible"
 
-    # Objeto alto lateral no tronco (térmico na mão lateral) — conf fraca.
-    # Mantém limiar documentado (não endurecer sem amostras; evita FN em celular lateral).
+    # Objeto alto lateral no tronco (térmico) — conf fraca.
     if hw >= 1.7 and conf < 0.55 and (pcx < px + pw * 0.22 or pcx > px + pw * 0.78):
-        return "implausible_lateral_tall_object"
+        if not (
+            (near_face_unlock or hand_band_unlock)
+            and phone_like_geom
+            and float(conf) >= recall_conf
+        ):
+            return "implausible_lateral_tall_object"
 
     return None
 
@@ -263,6 +397,63 @@ def _filter_phones_with_person_context(
             if _ear_stability[k] <= 0:
                 del _ear_stability[k]
     dets_debug[:] = kept_debug
+    return _apply_earcup_fragment_filter(kept, dets_debug, rejected)
+
+
+_BORDERLINE_TALL_HW = 2.15
+_SIBLING_AR_IOU = 0.15
+
+
+def _earcup_fragment_reject_reason(
+    phone: Tuple[int, int, int, int, float],
+    rejected_detections: List[dict],
+) -> Optional[str]:
+    """
+    Anti-FP C estreito: só fragmento PEQUENO de earcup tall / sibling de AR reject.
+    NÃO matar handset real (área alta) — isso causava FN D/E3.
+    """
+    _x, _y, w, h, conf = phone
+    hw = h / max(w, 1)
+    area = float(w * h)
+    if hw >= _BORDERLINE_TALL_HW and w < 95 and area < 18000:
+        return "aspect_tall_borderline_phone"
+    for r in rejected_detections or []:
+        if str(r.get("reject_reason") or "") != "aspect_ratio_unlikely_phone":
+            continue
+        bb = r.get("bbox") or []
+        if len(bb) >= 4 and _iou_xywh(phone, (int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3]))) >= _SIBLING_AR_IOU:
+            # Handset LIVE grande: não sibling-kill
+            if area >= 25000 or (w >= 120 and h >= 200):
+                return None
+            if w <= 110 and area <= 21000:
+                return "sibling_aspect_ratio_unlikely_phone"
+    return None
+
+
+def _apply_earcup_fragment_filter(
+    phones: List[Tuple[int, int, int, int, float]],
+    dets_debug: List[dict],
+    rejected: List[dict],
+) -> List[Tuple[int, int, int, int, float]]:
+    if not phones:
+        return phones
+    kept: List[Tuple[int, int, int, int, float]] = []
+    kept_debug: List[dict] = []
+    for i, ph in enumerate(phones):
+        reason = _earcup_fragment_reject_reason(ph, rejected)
+        entry = (
+            dets_debug[i]
+            if i < len(dets_debug)
+            else {"bbox": list(ph[:4]), "confidence": ph[4], "class_name": "cell phone"}
+        )
+        if reason:
+            rej = dict(entry)
+            rej["reject_reason"] = reason
+            rejected.append(rej)
+            continue
+        kept.append(ph)
+        kept_debug.append(entry)
+    dets_debug[:] = kept_debug
     return kept
 
 
@@ -270,10 +461,32 @@ def _torso_roi(person: Tuple[float, float, float, float]) -> Tuple[int, int, int
     """ROI peito + laterais (mão com celular costuma ficar fora do peito estreito)."""
     px, py, pw, ph = person
     return (
-        int(px - pw * 0.08),
-        int(py + ph * 0.10),
-        max(16, int(pw * 1.16)),
-        max(16, int(ph * 0.62)),
+        int(px - pw * 0.12),
+        int(py + ph * 0.08),
+        max(16, int(pw * 1.24)),
+        max(16, int(ph * 0.68)),
+    )
+
+
+def _chest_phone_roi(person: Tuple[float, float, float, float]) -> Tuple[int, int, int, int]:
+    """ROI estreito no esterno — E4 close-up. ROI largo deixa o aparelho minúsculo no YOLO."""
+    px, py, pw, ph = person
+    return (
+        int(px + pw * 0.30),
+        int(py + ph * 0.36),
+        max(16, int(pw * 0.40)),
+        max(16, int(ph * 0.36)),
+    )
+
+
+def _raised_phone_roi(person: Tuple[float, float, float, float]) -> Tuple[int, int, int, int]:
+    """ROI à frente do rosto — D/E3. Um pouco mais alto para caber o handset, não só as câmeras."""
+    px, py, pw, ph = person
+    return (
+        int(px + pw * 0.22),
+        int(py + ph * 0.02),
+        max(16, int(pw * 0.56)),
+        max(16, int(ph * 0.56)),
     )
 
 
@@ -281,11 +494,37 @@ def _upper_phone_roi(person: Tuple[float, float, float, float]) -> Tuple[int, in
     """ROI cabeça/ombros — celular na mão perto do rosto (fora do peito puro)."""
     px, py, pw, ph = person
     return (
-        int(px - pw * 0.06),
-        int(py - ph * 0.04),
-        max(16, int(pw * 1.12)),
-        max(16, int(ph * 0.48)),
+        int(px - pw * 0.15),
+        int(py - ph * 0.06),
+        max(16, int(pw * 1.30)),
+        max(16, int(ph * 0.55)),
     )
+
+
+def _hand_phone_roi(person: Tuple[float, float, float, float]) -> Tuple[int, int, int, int]:
+    """ROI largo mão+tronco — LIVE close-up com celular fora do peito YOLO."""
+    px, py, pw, ph = person
+    return (
+        int(px - pw * 0.28),
+        int(py - ph * 0.02),
+        max(16, int(pw * 1.56)),
+        max(16, int(ph * 0.82)),
+    )
+
+
+def _downscale_frame_for_phone(
+    frame: np.ndarray, *, max_side: int = 960
+) -> Tuple[np.ndarray, float]:
+    """Reduz 1920p → ~960 (YOLO ~4s em full HD matava recall/fluidez)."""
+    import cv2
+
+    h, w = frame.shape[:2]
+    m = max(h, w)
+    if m <= max_side:
+        return frame, 1.0
+    scale = float(max_side) / float(m)
+    nw, nh = max(32, int(w * scale)), max(32, int(h * scale))
+    return cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA), scale
 
 
 def _iou_xywh(a: Tuple[int, ...], b: Tuple[int, ...]) -> float:
@@ -424,77 +663,143 @@ def detect_phones(
             path = getattr(settings, "phone_yolo_model_path", None) or "yolov8n.pt"
             _model = YOLO(path)
             logger.info("phone_yolo_loaded", path=path)
-        out, dets_debug, rejected = _infer_phones_on_image(
-            _model,
-            frame,
-            conf_thr=conf_thr,
-            max_tall_ratio=max_tall,
-            max_wide_ratio=max_wide,
-            source="full_frame",
-        )
 
-        if torso_pass and person_boxes:
-            ih, iw = frame.shape[:2]
-            import cv2
+        out: List[Tuple[int, int, int, int, float]] = []
+        dets_debug: List[dict] = []
+        rejected: List[dict] = []
+        ih, iw = frame.shape[:2]
+        import cv2
 
-            def _roi_pass(
-                roi_fn,
-                *,
-                source: str,
-                conf: float,
-            ) -> None:
-                nonlocal out, dets_debug, rejected
-                for _pid, pb in person_boxes.items():
-                    if _person_has_nearby_phone(out, pb):
-                        continue
-                    rx, ry, rw, rh = roi_fn(pb)
-                    x1, y1 = max(0, rx), max(0, ry)
-                    x2, y2 = min(iw, rx + rw), min(ih, ry + rh)
-                    crop = frame[y1:y2, x1:x2]
-                    if crop.size == 0 or crop.shape[0] < 24 or crop.shape[1] < 24:
-                        continue
-                    ch, cw = crop.shape[:2]
-                    infer_img = crop
-                    scale = 1.0
-                    if max(cw, ch) < 280:
-                        scale = 280.0 / max(cw, ch)
-                        infer_img = cv2.resize(
-                            crop,
-                            (max(24, int(cw * scale)), max(24, int(ch * scale))),
-                            interpolation=cv2.INTER_LINEAR,
-                        )
-                    roi_out, _roi_dets, roi_rej = _infer_phones_on_image(
-                        _model,
-                        infer_img,
-                        conf_thr=conf,
-                        max_tall_ratio=max_tall,
-                        max_wide_ratio=max_wide,
-                        source=source,
+        def _roi_pass(
+            roi_fn,
+            *,
+            source: str,
+            conf: float,
+        ) -> None:
+            nonlocal out, dets_debug, rejected
+            if not person_boxes:
+                return
+            for _pid, pb in person_boxes.items():
+                if _person_has_nearby_phone(out, pb):
+                    continue
+                rx, ry, rw, rh = roi_fn(pb)
+                x1, y1 = max(0, rx), max(0, ry)
+                x2, y2 = min(iw, rx + rw), min(ih, ry + rh)
+                crop = frame[y1:y2, x1:x2]
+                if crop.size == 0 or crop.shape[0] < 24 or crop.shape[1] < 24:
+                    continue
+                ch, cw = crop.shape[:2]
+                infer_img = crop
+                scale = 1.0
+                # Upscale crops pequenos; downscale crops enormes (close-up USB).
+                mside = max(cw, ch)
+                if mside < 280:
+                    scale = 280.0 / mside
+                    infer_img = cv2.resize(
+                        crop,
+                        (max(24, int(cw * scale)), max(24, int(ch * scale))),
+                        interpolation=cv2.INTER_LINEAR,
                     )
-                    inv = 1.0 / scale
-                    for tx, ty, tw, th, tconf in roi_out:
-                        fx = int(x1 + tx * inv)
-                        fy = int(y1 + ty * inv)
-                        fw_, fh_ = int(tw * inv), int(th * inv)
-                        candidate = (fx, fy, fw_, fh_, tconf)
-                        if any(_iou_xywh(candidate, existing) >= 0.35 for existing in out):
-                            continue
-                        out.append(candidate)
-                        dets_debug.append(
-                            {
-                                "class_id": _CELL_PHONE_CLASS,
-                                "class_name": "cell phone",
-                                "confidence": round(tconf, 3),
-                                "bbox": [fx, fy, fw_, fh_],
-                                "source": source,
-                                "person_bbox": [int(v) for v in pb[:4]],
-                            }
-                        )
-                    rejected.extend(roi_rej)
+                elif mside > 720:
+                    scale = 720.0 / mside
+                    infer_img = cv2.resize(
+                        crop,
+                        (max(24, int(cw * scale)), max(24, int(ch * scale))),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                roi_out, _roi_dets, roi_rej = _infer_phones_on_image(
+                    _model,
+                    infer_img,
+                    conf_thr=conf,
+                    max_tall_ratio=max_tall,
+                    max_wide_ratio=max_wide,
+                    source=source,
+                )
+                inv = 1.0 / scale
+                for tx, ty, tw, th, tconf in roi_out:
+                    fx = int(x1 + tx * inv)
+                    fy = int(y1 + ty * inv)
+                    fw_, fh_ = int(tw * inv), int(th * inv)
+                    candidate = (fx, fy, fw_, fh_, tconf)
+                    if any(_iou_xywh(candidate, existing) >= 0.35 for existing in out):
+                        continue
+                    out.append(candidate)
+                    dets_debug.append(
+                        {
+                            "class_id": _CELL_PHONE_CLASS,
+                            "class_name": "cell phone",
+                            "confidence": round(tconf, 3),
+                            "bbox": [fx, fy, fw_, fh_],
+                            "source": source,
+                            "person_bbox": [int(v) for v in pb[:4]],
+                        }
+                    )
+                for rj in roi_rej:
+                    mapped = dict(rj)
+                    bb = rj.get("bbox") or []
+                    if len(bb) >= 4:
+                        mapped["bbox"] = [
+                            int(x1 + bb[0] * inv),
+                            int(y1 + bb[1] * inv),
+                            int(bb[2] * inv),
+                            int(bb[3] * inv),
+                        ]
+                    mapped["source"] = source
+                    rejected.append(mapped)
 
-            # Peito (já existente) + faixa superior (celular perto do rosto).
-            _roi_pass(_torso_roi, source="torso_roi", conf=torso_conf)
-            _roi_pass(_upper_phone_roi, source="upper_roi", conf=torso_conf)
+        # LIVE: crops estreitos primeiro (D/E3 cara, depois E4 peito).
+        # hand_roi enorme + downscale 720 = lento e FN com aparelho óbvio.
+        roi_conf = min(float(torso_conf), 0.22)
+        if torso_pass and person_boxes:
+            _roi_pass(_raised_phone_roi, source="raised_roi", conf=roi_conf)
+            if not out:
+                _roi_pass(_chest_phone_roi, source="chest_roi", conf=roi_conf)
+            if not out:
+                _roi_pass(_upper_phone_roi, source="upper_roi", conf=roi_conf)
+
+        if not out:
+            small, ds = _downscale_frame_for_phone(frame, max_side=960)
+            ff_out, ff_dets, ff_rej = _infer_phones_on_image(
+                _model,
+                small,
+                conf_thr=conf_thr,
+                max_tall_ratio=max_tall,
+                max_wide_ratio=max_wide,
+                source="full_frame_scaled",
+            )
+            inv = 1.0 / ds
+            for tx, ty, tw, th, tconf in ff_out:
+                candidate = (
+                    int(tx * inv),
+                    int(ty * inv),
+                    int(tw * inv),
+                    int(th * inv),
+                    tconf,
+                )
+                out.append(candidate)
+            for d in ff_dets:
+                mapped = dict(d)
+                bb = d.get("bbox") or []
+                if len(bb) >= 4:
+                    mapped["bbox"] = [
+                        int(bb[0] * inv),
+                        int(bb[1] * inv),
+                        int(bb[2] * inv),
+                        int(bb[3] * inv),
+                    ]
+                mapped["source"] = "full_frame_scaled"
+                dets_debug.append(mapped)
+            for rj in ff_rej:
+                mapped = dict(rj)
+                bb = rj.get("bbox") or []
+                if len(bb) >= 4:
+                    mapped["bbox"] = [
+                        int(bb[0] * inv),
+                        int(bb[1] * inv),
+                        int(bb[2] * inv),
+                        int(bb[3] * inv),
+                    ]
+                rejected.append(mapped)
 
         out = _filter_phones_with_person_context(
             out, dets_debug, rejected, person_boxes, wrists=wrists
@@ -540,7 +845,7 @@ def detect_phones(
             "status": "available",
             "frame_width": fw,
             "frame_height": fh,
-            "inference_width": fw,
+            "inference_width": min(fw, 960),
             "detections": dets_debug,
             "rejected_detections": rejected,
             "inference_ms": round((time.perf_counter() - t0) * 1000.0, 2),
@@ -555,6 +860,7 @@ def detect_phones(
             "rejected_count": len(rejected),
             "detection_hold_active": held,
             "detection_hold_seconds": _PHONE_DETECT_HOLD_SECONDS,
+            "pipeline": "roi_first_then_scaled_full",
         }
         return out
     except Exception as e:

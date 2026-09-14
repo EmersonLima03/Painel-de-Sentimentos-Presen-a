@@ -93,10 +93,10 @@ class StablePersonTrackManager:
         self.strong_confidence_threshold = float(strong_confidence_threshold)
         self.minimum_reassociation_iou = float(minimum_reassociation_iou)
         self.maximum_center_distance_ratio = float(maximum_center_distance_ratio)
-        # reclaim mais permissivo (oclusão / bbox oscila)
-        self._loose_iou = min(0.12, self.minimum_reassociation_iou)
-        self._loose_dist = max(0.70, self.maximum_center_distance_ratio * 2.0)
-        self._force_dist = 0.85
+        # reclaim mais permissivo (oclusão / cabeça baixa / bbox oscila)
+        self._loose_iou = min(0.10, self.minimum_reassociation_iou)
+        self._loose_dist = min(0.58, max(0.40, self.maximum_center_distance_ratio * 1.35))
+        self._force_dist = 0.55
         self._next_id = 1
         self._states: Dict[str, _StableState] = {}
         self._events: List[dict] = []
@@ -139,11 +139,17 @@ class StablePersonTrackManager:
         )
 
     def _ok_loose(self, metrics: Dict[str, float], score: float) -> bool:
-        """Reclaim de track lost / oclusão — evita person-002 paralelo."""
+        """Reclaim de track lost / oclusão / H — evita person-002 paralelo."""
         return (
             metrics["iou"] >= self._loose_iou
-            or metrics["center_dist_ratio"] <= self._loose_dist
-            or score >= 0.22
+            or (
+                metrics["center_dist_ratio"] <= self._loose_dist
+                and (
+                    metrics.get("size_ok", 0) >= 1.0
+                    or metrics["iou"] >= 0.06
+                )
+            )
+            or score >= 0.25
         )
 
     def update(self, raw_tracks: List[PersonTrack], now: Optional[float] = None) -> List[PersonTrack]:
@@ -198,7 +204,10 @@ class StablePersonTrackManager:
                 sid = unmatched_stable[0]
                 i = unmatched_raw[0]
                 score, metrics = self._score(self._states[sid].last_bbox, raw_tracks[i].bounding_box)
-                if metrics["center_dist_ratio"] <= self._force_dist or metrics["iou"] >= 0.05:
+                if (
+                    metrics["center_dist_ratio"] <= self._force_dist
+                    and metrics.get("size_ok", 0) >= 1.0
+                ) or metrics["iou"] >= 0.10:
                     used_stable.add(sid)
                     used_raw.add(i)
                     assignments[sid] = (i, score, metrics, "forced_single")
@@ -212,7 +221,10 @@ class StablePersonTrackManager:
                         if sid in used_stable:
                             continue
                         score, metrics = self._score(self._states[sid].last_bbox, raw_tracks[i].bounding_box)
-                        if metrics["center_dist_ratio"] <= self._force_dist or metrics["iou"] >= 0.08:
+                        if (
+                            metrics["center_dist_ratio"] <= self._force_dist
+                            and metrics.get("size_ok", 0) >= 1.0
+                        ) or metrics["iou"] >= 0.10:
                             if best is None or score > best[0]:
                                 best = (score, sid, metrics)
                     if best is not None:

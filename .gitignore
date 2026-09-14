@@ -64,6 +64,9 @@ models/
 *.onnx
 *.bin
 
+# Capturas LIVE de observação (rosto do testador — nunca versionar)
+experiments/tri_live_monitor/output/_observe/
+
 # OS
 .DS_Store
 Thumbs.db

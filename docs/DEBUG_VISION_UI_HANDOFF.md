@@ -189,6 +189,7 @@ interface HeadStatePayload {
 
 type HeadStateEnum =
   | "head_forward"
+  | "head_turned"
   | "head_down_short"
   | "head_down_persistent"
   | "head_supported"
@@ -398,8 +399,11 @@ Não usa `live_event_buffer`.
 - **phone.state:** `not_detected` | `phone_visible` | `phone_near_person` | `phone_in_hand` | `possible_phone_interaction` | `probable_phone_interaction`
 - **module status:** `available` | `unavailable` | `disabled` | `error` | `inconclusive` | `not_implemented` | `sem_dado`
 - **observation_quality.status:** `observable` | `partially_observable` | `inconclusive` | `not_visible` (+ `low_quality` em validação)
-- **head_state.state:** `head_forward` | `head_down_short` | `head_down_persistent` | `head_supported` | `pose_inconclusive`
+- **head_state.state:** `head_forward` | `head_turned` | `head_down_short` | `head_down_persistent` | `head_supported` | `pose_inconclusive`
+- **Contrato I (perfil/lateral):** `head_turned` **ou** `pose_inconclusive` válidos; proibido inventar `head_down_*` / possible|probable drowsiness só por perfil
 - **face_occlusion.state (amostra):** `none` | `possible_face_occlusion_by_hand` | `persistent_possible_face_occlusion`
+- **hands.state:** `not_near_face` | `hand_near_face` (sinal **opcional**; L parcial com face observável pode ficar em `not_near_face` + `occlusion=none`)
+- **Contrato:** proximidade ≠ oclusão; oclusão só quando a mão prejudica observabilidade (~5s → persistent)
 - **attribution_status:** `confirmed` | `pending` | `track_only`
 - **Estado operacional (client):** `live` | `delayed` | `stale` | `unavailable` | `recovering` | `no_tracks`
 - **module_modes:** `disabled` | `debug` | `shadow` | `production`

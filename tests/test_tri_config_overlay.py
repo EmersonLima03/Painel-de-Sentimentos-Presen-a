@@ -22,11 +22,14 @@ def test_presenca_config_overlay_merges_fer_onnx(monkeypatch):
     monkeypatch.delenv("EXPRESSION_PROVIDER", raising=False)
     monkeypatch.delenv("EXPRESSION_FALLBACK_CHAIN", raising=False)
     monkeypatch.delenv("MODULE_EXPRESSION_MODE", raising=False)
+    monkeypatch.delenv("EXPRESSION_EMOTION_BACKEND", raising=False)
     s = reload_settings()
     assert s.expression_provider == "fer_onnx"
     assert "fer_onnx" in (s.expression_fallback_chain or "")
     assert "hsemotion" not in (s.expression_fallback_chain or "").lower()
     assert s.module_expression_mode == "debug"
+    # Recuperação baseline: TRI overlay usa fer_onnx + smile_boost (EX+/EX= 2026-08-03)
+    assert str(s.expression_emotion_backend).lower() == "fer_onnx"
 
 
 @tri

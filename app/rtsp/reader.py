@@ -274,6 +274,7 @@ class RTSPReader:
             return {
                 "camera_id": self.camera_id,
                 "is_connected": st["is_connected"],
+                "signal_ok": st.get("signal_ok", st["is_connected"]),
                 "last_frame_time": st["last_frame_time"],
                 "frame_count": st["frame_count"],
                 "last_error": st["last_error"],

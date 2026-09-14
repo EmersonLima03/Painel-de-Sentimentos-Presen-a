@@ -21,6 +21,7 @@ class _Settings:
     module_phone_mode = "debug"
     phone_yolo_enabled = False
     expression_provider = "fer_legacy"
+    expression_emotion_backend = "fer_onnx"
     analytics_quality_interval_seconds = 0.0
     analytics_landmarks_interval_seconds = 0.0
     expression_interval_seconds = 0.0

@@ -20,7 +20,7 @@ def test_tick_promotes_short_to_persistent_after_8s():
     cache.head_state = {
         "state": "head_down_short",
         "confidence": 0.6,
-        "reasons": ["face_missing_no_forward_while_shoulders"],
+        "reasons": ["shoulders_without_face_look_down", "ears_above_shoulders"],
     }
     cache.head_down_since = 100.0
     cache.facial_features = {"status": "inconclusive"}

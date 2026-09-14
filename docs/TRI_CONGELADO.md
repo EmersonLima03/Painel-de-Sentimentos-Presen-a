@@ -2,6 +2,7 @@
 
 **Branch oficial deste congelamento:** `tri/congelado-baseline-validado`  
 **Data do congelamento:** 2026-08-31  
+**Recongelamento LIVE:** 2026-09-14 — ver [`CONGELAMENTO_LIVE_20260914.md`](CONGELAMENTO_LIVE_20260914.md)  
 **Base Git anterior:** `98a9daa` → este branch inclui todo o trabalho acumulado até o congelamento.
 
 ---
@@ -46,6 +47,10 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 | **J/K** | Oclusão 1/2 mãos | `body_pose.py`, `occlusion_head_arbitration.py`, `analytics_track.py` (hold oclusão) |
 | **B** | Garrafa ≠ celular | `phone_yolo.py`, `person_phone.py` |
 | **D** | Celular real | idem + filtros de associação |
+| **E3** | Celular na cara / uso | `person_phone.py` (`_phone_raised_to_face`) + `phone_yolo.py` (`raised_roi`) |
+| **E4** | Celular no peito ≠ uso | `person_phone.py` (`_phone_on_chest`) + `chest_roi` |
+| **C** | Fone ≠ celular | `phone_yolo.py` / `_phone_in_ear_zone` |
+| **E-lat** | Celular ao lado, olhar câmera ≠ uso | `phone_lateral_visible_not_use` |
 | **G** | Olhos fechados | `analytics_track.py` (drowsiness / `eyes_observable`) |
 | **H** | Cabeça baixa | `body_pose.py`, `occlusion_head_arbitration.py`, `analytics_track.py` (head_down) |
 | **ATTN** | Baixa atenção persistente | atenção + agregador + relatório |
@@ -81,8 +86,10 @@ pytest tests/test_occlusion_continuity.py tests/test_occlusion_hysteresis.py tes
 
 ## O que ainda falta para TRI 100%
 
-Matriz manual incompleta: A, C×3, E1–E3, F, I, L×3, P1–P5, EX−.  
-Ver [`VALIDACAO_FINAL_CENARIOS_TRI.md`](VALIDACAO_FINAL_CENARIOS_TRI.md).
+Matriz manual incompleta: A, C×3 formais, E1, E2, F, P1–P5.  
+E3/E4/D/C (1 take) e lateral-sem-uso **reaprovados LIVE 2026-09-13/14**.  
+H/I/L/J/EX+ não foram o take desta sessão (contratos de agosto seguem).  
+Ver [`VALIDACAO_FINAL_CENARIOS_TRI.md`](VALIDACAO_FINAL_CENARIOS_TRI.md) e [`CONGELAMENTO_LIVE_20260914.md`](CONGELAMENTO_LIVE_20260914.md).
 
 **Este congelamento não declara TRI 100%** — declara **baseline ✅ protegido** + código versionado para continuar o fechamento com segurança.
 

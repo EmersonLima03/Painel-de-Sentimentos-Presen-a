@@ -591,16 +591,32 @@ function isDisplayableTrack(t) {
   if (tstate === "expired") return false;
   const id = t.identity || {};
   const faceVis = !!id.face_visible;
+  const hasFaceBbox = !!(t.face_bbox && t.face_bbox.length >= 4);
   const sid = t.student_id || id.student_id;
   const idState = id.identity_state || "unknown";
-  const hasIdentity = !!sid || ["face_confirmed", "body_continuity", "uncertain"].includes(idState);
-  if (faceVis || hasIdentity) return true;
-  if (tstate !== "active") return false;
+  const conf = Number(t.track_confidence || 0);
+  const secsLost = Number(t.seconds_since_person_detection || 0);
   const obs = t.observability || {};
-  if (obs.body_detected || obs.body_observable) {
-    return Number(t.track_confidence || 0) >= 0.2;
+  const occ = (t.face_occlusion || {}).state || "none";
+  const occActive = occ === "possible_face_occlusion_by_hand" || occ === "persistent_possible_face_occlusion";
+  const handsNear = (t.hands || {}).state === "hand_near_face";
+  const occlusionHold = (occActive || handsNear) && secsLost <= 4.0;
+
+  if (tstate === "active") {
+    if (obs.body_detected || obs.body_observable) return conf >= 0.2;
+    if (faceVis || hasFaceBbox) return true;
+    if (sid) return true;
+    return conf >= 0.2;
   }
-  return false;
+  if (tstate === "temporarily_lost") {
+    if (faceVis || hasFaceBbox) return secsLost <= 6.0;
+    if (sid && (idState === "face_confirmed" || idState === "body_continuity")) {
+      return secsLost <= (occlusionHold ? 6.0 : 2.5);
+    }
+    if (idState === "uncertain" && occlusionHold) return secsLost <= 4.0;
+    return false;
+  }
+  return faceVis || hasFaceBbox || !!sid;
 }
 
 function displayableTracks(tracks) {
@@ -669,12 +685,17 @@ function renderStatusBar(data, fr) {
     (data && data.latencies_ms && data.latencies_ms.total_analytics) ||
     (tracks[0] && tracks[0].latencies_ms && tracks[0].latencies_ms.total_analytics) ||
     null;
-  const camOk = fr !== "unavailable";
+  const camSignal = data && data.camera_signal ? data.camera_signal : null;
+  const camSignalOk = !camSignal || camSignal.ok !== false;
+  const camOk = fr !== "unavailable" && camSignalOk;
+  const camLabel = !camOk
+    ? (camSignal && camSignal.last_error === "black frame" ? "Sinal perdido (preto)" : "Desconectada")
+    : "Conectada";
   const ageSec = data && data.updated_at ? (Date.now() / 1000 - Number(data.updated_at)).toFixed(1) : "—";
 
   const chips = [
     { label: "Sistema", value: op.label, color: op.color },
-    { label: "Câmera", value: camOk ? "Conectada" : "Desconectada", color: camOk ? "green" : "red" },
+    { label: "Câmera", value: camLabel, color: camOk ? "green" : "red" },
     { label: "Pessoas detectadas", value: String(tracks.length), color: tracks.length ? "green" : "muted" },
     { label: "Última atualização", value: data ? fmtTime(data.updated_at) + " (" + ageSec + "s)" : "—", color: "muted" },
     { label: "Processamento total", value: fmtMs(totalMs), color: "muted" },
@@ -691,8 +712,15 @@ function renderStatusBar(data, fr) {
 function renderCamBadges(data, fr) {
   const tracks = displayableTracks((data && data.tracks) || []);
   const recording = data && data.security ? data.security.stores_frames : false;
-  const liveBadge =
-    fr === "unavailable" ? badge("red", "Sem sinal") : fr === "stale" || fr === "delayed" ? badge("yellow", "Ao vivo (atrasado)") : badge("green", "Ao vivo");
+  const camSignal = data && data.camera_signal ? data.camera_signal : null;
+  const signalLost = camSignal && camSignal.ok === false;
+  const liveBadge = signalLost
+    ? badge("red", "Sinal da câmera perdido")
+    : fr === "unavailable"
+      ? badge("red", "Sem sinal")
+      : fr === "stale" || fr === "delayed"
+        ? badge("yellow", "Ao vivo (atrasado)")
+        : badge("green", "Ao vivo");
   const parts = [
     liveBadge,
     tracks.length

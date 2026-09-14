@@ -127,7 +127,7 @@ class Settings(BaseSettings):
     data_retention_days: int = Field(default=90, env="DATA_RETENTION_DAYS")
     phone_yolo_enabled: bool = Field(default=False, env="PHONE_YOLO_ENABLED")
     phone_yolo_model_path: str = Field(default="", env="PHONE_YOLO_MODEL_PATH")
-    phone_yolo_conf_threshold: float = Field(default=0.42, env="PHONE_YOLO_CONF")
+    phone_yolo_conf_threshold: float = Field(default=0.30, env="PHONE_YOLO_CONF")
     phone_yolo_max_height_width_ratio: float = Field(default=2.7, env="PHONE_YOLO_MAX_HW_RATIO")
     phone_yolo_max_width_height_ratio: float = Field(default=4.0, env="PHONE_YOLO_MAX_WH_RATIO")
     phone_yolo_torso_pass_enabled: bool = Field(default=True, env="PHONE_YOLO_TORSO_PASS")
@@ -150,10 +150,9 @@ class Settings(BaseSettings):
     behavioral_event_clear_hold_drowsiness_seconds: float = Field(
         default=4.0, env="BEHAVIORAL_EVENT_CLEAR_HOLD_DROWSINESS_SECONDS"
     )
-    # Celular: YOLO pisca — hold maior evita N “aparecimentos” no ao vivo para o mesmo uso contínuo.
-    # Não altera o merge pedagógico de 45s no relatório; só reduz fechar/reabrir episódio técnico.
+    # Celular: hold curto anti-flicker YOLO — NÃO manter magenta/evento >~2–3s sem aparelho.
     behavioral_event_clear_hold_phone_seconds: float = Field(
-        default=12.0, env="BEHAVIORAL_EVENT_CLEAR_HOLD_PHONE_SECONDS"
+        default=2.5, env="BEHAVIORAL_EVENT_CLEAR_HOLD_PHONE_SECONDS"
     )
     head_down_pitch_threshold: float = Field(default=0.45, env="HEAD_DOWN_PITCH_THRESHOLD")
     head_down_event_min_seconds: float = Field(default=8.0, env="HEAD_DOWN_EVENT_MIN_SECONDS")
@@ -196,6 +195,18 @@ class Settings(BaseSettings):
     )
     module_lxp_mode: str = Field(default="disabled", env="MODULE_LXP_MODE")
     expression_provider: str = Field(default="none", env="EXPRESSION_PROVIDER")
+    # Backend oficial de emoção (2026-09-09): hsemotion_vgaf = worker async + VGAF.
+    # Rollback simples: EXPRESSION_EMOTION_BACKEND=fer_onnx (ou emotion_backend: fer_onnx).
+    # fer_onnx permanece disponível como fallback explícito (não removido).
+    expression_emotion_backend: str = Field(
+        default="hsemotion_vgaf", env="EXPRESSION_EMOTION_BACKEND"
+    )
+    expression_hsemotion_interval_seconds: float = Field(
+        default=2.0, env="EXPRESSION_HSEMOTION_INTERVAL"
+    )
+    expression_hsemotion_max_batch: int = Field(
+        default=5, env="EXPRESSION_HSEMOTION_MAX_BATCH"
+    )
     debug_vision_allow_remote: bool = Field(default=False, env="DEBUG_VISION_ALLOW_REMOTE")
     rule_engine_version: str = Field(default="rules-v0-baseline", env="RULE_ENGINE_VERSION")
     threshold_profile: str = Field(default="presence-yaml-2026-07-23", env="THRESHOLD_PROFILE")
@@ -219,6 +230,9 @@ class Settings(BaseSettings):
     expression_minimum_negative_samples: int = Field(
         default=2, env="EXPRESSION_MIN_NEGATIVE_SAMPLES"
     )
+    expression_negative_min_seconds: float = Field(
+        default=6.0, env="EXPRESSION_NEGATIVE_MIN_SECONDS"
+    )
     expression_smile_boost_enabled: bool = Field(default=False, env="EXPRESSION_SMILE_BOOST")
     expression_frown_boost_enabled: bool = Field(default=True, env="EXPRESSION_FROWN_BOOST")
     expression_ab_secondary: Optional[str] = Field(default=None, env="EXPRESSION_AB_SECONDARY")
@@ -234,12 +248,21 @@ class Settings(BaseSettings):
     drowsiness_minimum_observation_quality: float = Field(default=0.60, env="DROWSINESS_MIN_QUALITY")
     drowsiness_cooldown_seconds: float = Field(default=20.0, env="DROWSINESS_COOLDOWN")
     drowsiness_eye_closed_ear_threshold: float = Field(default=0.18, env="DROWSINESS_EAR_THRESHOLD")
+    drowsiness_head_down_possible_multiplier: float = Field(
+        default=2.0, env="DROWSINESS_HEAD_DOWN_POSSIBLE_MULT"
+    )
+    drowsiness_head_down_probable_seconds: float = Field(
+        default=45.0, env="DROWSINESS_HEAD_DOWN_PROBABLE_AFTER"
+    )
     drowsiness_observation_gap_inconclusive_seconds: float = Field(
         default=8.0, env="DROWSINESS_OBS_GAP_INCONCLUSIVE"
     )
     phone_possible_after_seconds: float = Field(default=5.0, env="PHONE_POSSIBLE_AFTER")
     phone_probable_after_seconds: float = Field(default=12.0, env="PHONE_PROBABLE_AFTER")
     phone_interaction_requires_in_hand: bool = Field(default=True, env="PHONE_INTERACTION_REQUIRES_IN_HAND")
+    phone_association_clear_hold_seconds: float = Field(
+        default=2.0, env="PHONE_ASSOCIATION_CLEAR_HOLD_SECONDS"
+    )
     experimental_perclos_enabled: bool = Field(default=False, env="EXPERIMENTAL_PERCLOS")
     experimental_perclos_window_seconds: float = Field(default=60.0, env="PERCLOS_WINDOW")
     experimental_perclos_min_coverage: float = Field(default=0.50, env="PERCLOS_MIN_COVERAGE")
@@ -501,6 +524,20 @@ class Settings(BaseSettings):
             ex = config["expression"]
             if "provider" in ex:
                 object.__setattr__(self, "expression_provider", str(ex["provider"]))
+            if "emotion_backend" in ex:
+                object.__setattr__(
+                    self, "expression_emotion_backend", str(ex["emotion_backend"]).strip().lower()
+                )
+            if "hsemotion_interval_seconds" in ex:
+                object.__setattr__(
+                    self,
+                    "expression_hsemotion_interval_seconds",
+                    float(ex["hsemotion_interval_seconds"]),
+                )
+            if "hsemotion_max_batch" in ex:
+                object.__setattr__(
+                    self, "expression_hsemotion_max_batch", int(ex["hsemotion_max_batch"])
+                )
             for yk, attr in (
                 ("interval_seconds", "expression_interval_seconds"),
                 ("window_seconds", "expression_window_seconds"),
@@ -509,6 +546,7 @@ class Settings(BaseSettings):
                 ("minimum_confidence_positive", "expression_minimum_confidence_positive"),
                 ("minimum_confidence_negative", "expression_minimum_confidence_negative"),
                 ("minimum_negative_samples", "expression_minimum_negative_samples"),
+                ("negative_min_seconds", "expression_negative_min_seconds"),
                 ("minimum_observation_quality", "expression_minimum_observation_quality"),
             ):
                 if yk in ex:
@@ -555,6 +593,8 @@ class Settings(BaseSettings):
                 ("minimum_observation_quality", "drowsiness_minimum_observation_quality"),
                 ("cooldown_seconds", "drowsiness_cooldown_seconds"),
                 ("eye_closed_ear_threshold", "drowsiness_eye_closed_ear_threshold"),
+                ("head_down_possible_multiplier", "drowsiness_head_down_possible_multiplier"),
+                ("head_down_probable_seconds", "drowsiness_head_down_probable_seconds"),
                 ("observation_gap_inconclusive_seconds", "drowsiness_observation_gap_inconclusive_seconds"),
             ):
                 if yk in dr:
@@ -567,6 +607,12 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "phone_probable_after_seconds", float(ph["probable_after_seconds"]))
             if "interaction_requires_in_hand" in ph:
                 object.__setattr__(self, "phone_interaction_requires_in_hand", bool(ph["interaction_requires_in_hand"]))
+            if "association_clear_hold_seconds" in ph:
+                object.__setattr__(
+                    self,
+                    "phone_association_clear_hold_seconds",
+                    float(ph["association_clear_hold_seconds"]),
+                )
         if "provenance" in config and isinstance(config["provenance"], dict):
             pr = config["provenance"]
             for k, attr in (
@@ -762,6 +808,16 @@ def _apply_expression_env_overrides(settings: "Settings") -> None:
     elif prov is not None and str(prov).strip().lower() in ("fer_onnx", "ferplus", "emotion_ferplus"):
         # Evita fallback silencioso para HSEmotion/DeepFace quando só o provider TRI é setado via env
         object.__setattr__(settings, "expression_fallback_chain", "fer_onnx")
+    backend = os.environ.get("EXPRESSION_EMOTION_BACKEND")
+    if backend is not None and str(backend).strip() != "":
+        object.__setattr__(
+            settings, "expression_emotion_backend", str(backend).strip().lower()
+        )
+    hs_iv = os.environ.get("EXPRESSION_HSEMOTION_INTERVAL")
+    if hs_iv is not None and str(hs_iv).strip() != "":
+        object.__setattr__(
+            settings, "expression_hsemotion_interval_seconds", float(hs_iv)
+        )
 
 
 def _log_settings_loaded(settings: "Settings", paths: list) -> None:

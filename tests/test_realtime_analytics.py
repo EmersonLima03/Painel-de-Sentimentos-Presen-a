@@ -17,6 +17,8 @@ class _FakeSettings:
     module_phone_mode = "debug"
     phone_yolo_enabled = False
     expression_provider = "fer_legacy"
+    # Testes de contrato snapshot usam path sync FER/legado (não dependem de pesos VGAF).
+    expression_emotion_backend = "fer_onnx"
     pose_body_enabled = False
     person_tracking_enabled = True
     analytics_quality_interval_seconds = 0.0
@@ -121,6 +123,9 @@ def test_engine_snapshot_contract_no_empty_objects():
         "disabled",
         "dependency_missing",
         "not_loaded",
+        "pending",
+        "waiting_first_inference",
+        "degraded",
     )
     assert t["phone"].get("status") in ("unavailable", "disabled", "available", "error")
     counts = eng.classroom_counts(tracks, present_count=1)
