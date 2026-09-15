@@ -46,10 +46,10 @@ Não persistir frames sem consentimento. Vídeos locais: `data/validation/tri/` 
 | D | Celular real na mão | 2/5/12/15s | progressão temporal | confirmed_* auto | preservar | Manual: “detecção ótima” | **✅ 2026-08-03 / LIVE 2026-09-13** |
 | E3 | Pegar e usar / celular na frente do rosto | 15s+ | in_hand → possible/probable; **não** “não indica uso” | confirmed; FN na cara ao corrigir peito | — | LIVE: `phone_raised_to_face` + recorte colado = uso | **✅ LIVE 2026-09-13/14** |
 | E4 | Celular no peito, olhar à câmera | 20s | visível/near; sem uso; attn não baixa por phone | probable + attn baixa | — | Manual 2026-09-03; LIVE 2026-09-13 peito = near | **✅ 2026-09-03 / 2026-09-13** |
-| E1 | Celular na mesa parado | 30s | visible/near ok; sem in_hand | uso | — | Auto: mesa ≠ in_hand | pendente manual |
-| E2 | Mão perto sem pegar | 10s | sem possible/probable | interação | — | Auto: wrist longe OK | pendente manual |
-| F | Digitando / olhar teclado | 60s | head_down / inconclusivo ok | possible/probable drowsiness | risco EAR↓ | Auto: pause por `eyes_observable` | pendente manual (G ✅) |
-| G | Olhos fechados frontais | limiares 6s/30s | possible/probable nos limiares | evento &lt;2.5s | — | Manual: “olhos fechados ótimo” | **✅ 2026-08-03** |
+| E1 | Celular na mesa parado | 30s | visible/near ok; sem in_hand | uso | — | LIVE: near/not_detected sem uso (retake resting ok) | **✅ LIVE 2026-09-14/15** |
+| E2 | Mão perto sem pegar | 10s | sem possible/probable | interação | — | LIVE: mão junto ao aparelho na mesa; 0 uso | **✅ LIVE 2026-09-14** |
+| F | Digitando / olhar teclado | 60s | head_down / inconclusivo ok | possible/probable drowsiness | risco EAR↓ | LIVE 14/09: `look_down_soft_pitch=0.14` + EAR aberto zera accum | **✅ LIVE 2026-09-14** |
+| G | Olhos fechados frontais | limiares 6s/30s | possible/probable nos limiares | evento &lt;2.5s | — | Manual + LIVE 14/09 possible→probable; anti-sticky ao abrir | **✅ 2026-08-03 / LIVE 2026-09-14** |
 | H | Cabeça baixa parcial | &lt;8s / ≥8s | short / persistent; evento + card com duração ≈ real | sono auto; 0s; banner 2s após 40s | misto / parcial 10:17 | Print 10:31 **37s**; LIVE 14/09 ereto→baixo→ergue limpa | **✅ 2026-08-03 / LIVE 2026-09-14** |
 | EX− | Expressão negativa | ~8–10s sustentado | predominantly_negative (triste/raiva); séria→neutra; positiva→positiva | FP cara séria; DeepFace A/B | 0s FER+; VGAF 4/4 | HSEmotion VGAF default 2026-09-09: EX triste/raiva OK; EXseria neutra; EX+ positiva | **✅ FECHADO 2026-09-09** (VGAF default) |
 | I | Perfil / rosto lateral ou sumiu | 20s | `head_turned` **ou** `pose_inconclusive`; sem inventar head_down/sono | `head_down_persistent`; possible/probable drowsiness só por perfil | contrato alinhado | `Iperfil.mp4`: head_turned maj. + pose_inconclusive; 0 head_down; 0 sono; identidade `p01` OK | **✅ FECHADO 2026-09-09** (contrato + vídeo) |
@@ -63,11 +63,11 @@ Não persistir frames sem consentimento. Vídeos locais: `data/validation/tri/` 
 
 | ID | Controle | Esperado | Depois (auto) | Aprovado |
 |----|----------|----------|---------------|----------|
-| P1 | Celular real na orelha | não rejeitar só por zona; in_hand com punho | `_context_reject` passa; wrist→in_hand | pendente manual |
-| P2 | Celular real vertical | detectável / in_hand com punho | aspect+assoc OK | pendente manual |
-| P3 | Celular segurado no colo | in_hand / near com punho | assoc OK | pendente manual |
+| P1 | Celular real na orelha | não rejeitar só por zona; in_hand com punho | LIVE: probable + wrist; 0 ear-reject | **✅ LIVE 2026-09-14** |
+| P2 | Celular real vertical | detectável / in_hand com punho | LIVE: probable + persistent_in_hand | **✅ LIVE 2026-09-14** |
+| P3 | Celular segurado no colo | in_hand / near com punho | LIVE: near/magenta (não FN); resting se punho fraco | **✅ LIVE 2026-09-14** |
 | P4 | Celular parcialmente coberto pela mão | ainda associado (**near**/in_hand/possible); detecção fresca | wrist OK | **✅ T5 oficial 2026-09-09** (near sob oclusão; conf 0.30 + ROI tampo) |
-| P5 | Celular na mesa → pegar de verdade | idle sem interação → in_hand após pegar | table→pickup OK | pendente manual |
+| P5 | Celular na mesa → pegar de verdade | idle sem interação → in_hand após pegar | LIVE 15/09: idle → in_hand → possible → probable | **✅ LIVE 2026-09-15** |
 
 ### Template de registro manual (copiar por repetição)
 
@@ -203,7 +203,7 @@ Aprovado/Reprovado: PENDENTE (definir melhor no próximo passo)
 
 **Depois (automático):** regressões A/B/C/E/F/H/I + oclusão continuity + P1–P5.  
 **Depois (manual):** **J ✅ K ✅** (2026-07-30); **B ✅ D ✅ G ✅ ATTN ✅ EX+/EX= ✅ H ✅** + revalidação J/K (2026-08-03).  
-**Aberto / revalidar:** A; sync matriz com closes offline (C/F/E1–E2/P). **EX− ✅ 2026-09-09** (HSEmotion VGAF default, 4/4). **I ✅ 2026-09-09**. **L ✅ 2026-09-09**.
+**Aberto / revalidar:** **A** (garrafa transparente). E1/E2/P1–P3/P5 ✅ LIVE 14–15/09 — ver [`LIVE_E1_E2_P_20260915.md`](LIVE_E1_E2_P_20260915.md). **EX− ✅ 2026-09-09** (VGAF). **I/L ✅**. C ×3 opcional.
 
 Consulta permanente do que já está aprovado: **`docs/BASELINE_MANUAL_APROVADO_TRI.md`**.
 

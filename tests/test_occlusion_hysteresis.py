@@ -236,3 +236,27 @@ def test_pitch_may_promote_requires_quality():
         pitch_threshold=0.45,
         require_landmarks_quality=0.45,
     )
+
+
+def test_stale_wrist_occlusion_clears_when_face_visible_and_hand_gone():
+    """Alerta J não pode ficar 1+ min com o rosto já na tela e punho longe."""
+    eng = _engine()
+    cache = TrackAnalyticsCache(track_key="t1")
+    cache.face_occlusion = {
+        "state": "persistent_possible_face_occlusion",
+        "reasons": ["wrist_near_face", "occlusion_hold"],
+        "duration_seconds": 90.0,
+    }
+    cache.hands = {"state": "not_near_face"}
+    cache.hand_near_since = None
+    cache.hand_near_last_seen = 10.0
+    cache.head_state = {"state": "head_forward", "confidence": 0.7, "reasons": []}
+    cache.facial_features = {
+        "status": "available",
+        "landmarks_quality": 0.85,
+        "average_eye_openness": 0.2,
+        "yaw": 0.0,
+        "pitch": 0.1,
+    }
+    eng._arbitrate_occlusion_vs_head(cache, face_visible=True, now=30.0)
+    assert cache.face_occlusion.get("state") == "none"

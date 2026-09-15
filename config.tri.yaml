@@ -82,3 +82,5 @@ drowsiness:
   minimum_observation_quality: 0.60
   head_down_possible_multiplier: 2.0
   head_down_probable_seconds: 45.0
+  # F digitar (pitch~0.15–0.18) vs G frontal (pitch~0.10–0.12). Não baixar sem reteste F+G.
+  look_down_soft_pitch: 0.14

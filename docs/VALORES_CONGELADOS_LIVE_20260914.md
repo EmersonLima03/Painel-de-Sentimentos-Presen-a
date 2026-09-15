@@ -31,10 +31,24 @@ UI: http://127.0.0.1:8000/debug/vision
 | **J** | Emerson (bonus no mesmo LIVE) | 1 mão no rosto → evento oclusão / rosto coberto |
 | **K** | Emerson (bonus no mesmo LIVE) | 2 mãos no rosto → evento oclusão contínuo |
 | **EX+ / EX=** | Emerson (bonus no mesmo LIVE) | sorriso → positiva; neutro → neutra (`fer_onnx` + `smile_boost`) |
+| **C** | Agente + Emerson LIVE 14/09 | fone grande → `phone=not_detected` (take extra; ×3 formais ainda opcional) |
+| **L** | Agente + Emerson LIVE 14/09 | mão no queixo, rosto visível → `face_occlusion=none` |
+| **F** | Agente + Emerson LIVE 14/09 | digitar / olhar teclado → **sem** possible/probable drowsiness |
+| **G** | Agente + Emerson LIVE 14/09 | olhos fechados de frente → possible→probable; ao abrir, card some em ~2s (anti-sticky) |
+| **E1** | Agente + Emerson LIVE 14–15/09 | celular na mesa / resting → `near` ou `not_detected`; **sem** in_hand / possible / probable |
+| **E2** | Agente + Emerson LIVE 14/09 | mão perto do aparelho sem pegar → **sem** uso / interação |
+| **P1** | Agente + Emerson LIVE 14/09 | celular na orelha → detecção + `probable_phone_interaction` (não rejeita ear/headset) |
+| **P2** | Agente + Emerson LIVE 14/09 | celular vertical na mão → detecção + `probable` / `persistent_in_hand` |
+| **P3** | Agente + Emerson LIVE 14/09 | celular no colo → magenta / `phone_near_person` (não FN); in_hand explícito opcional se punho fraco |
+| **P5** | Agente + Emerson LIVE 15/09 | mesa idle → pegar → `phone_in_hand` → possible → probable (punho visível, afastado do peito) |
 
 Take H (agente): ereto `head_forward` attn alta; baixo `head_down_persistent` ~9 s → ~20 s no overlay; ao erguer `head_forward` imediato, eventos ativos vazios. Episódio fechou em ~63 s (tempo real do take + `inconclusive_hold` 12 s).
 
-Ainda aberto neste smoke: **I** (perfil) e **L** (mão no queixo sem cobrir).
+**Ainda aberto (LIVE):** **A** (garrafa transparente). **C ×3** opcional.
+
+**Catálogo completo desta extensão (evidência + cadência + contratos):** [`LIVE_E1_E2_P_20260915.md`](LIVE_E1_E2_P_20260915.md)
+
+**Pós-TRI (sala real):** fusão multicâmera — ver [`BACKLOG_FUSAO_MULTICAMERA.md`](BACKLOG_FUSAO_MULTICAMERA.md).
 
 ---
 
@@ -94,7 +108,7 @@ Ainda aberto neste smoke: **I** (perfil) e **L** (mão no queixo sem cobrir).
 | `phone.association_clear_hold_seconds` | `2.0` |
 | `behavioral_events.clear_hold_phone_seconds` | `2.5` |
 
-### Sonolência (G — não mexer para “salvar” H/J)
+### Sonolência (G + F — reteste conjunto se mexer)
 
 | Chave | Valor |
 |-------|--------|
@@ -104,11 +118,12 @@ Ainda aberto neste smoke: **I** (perfil) e **L** (mão no queixo sem cobrir).
 | `drowsiness.minimum_observation_quality` | `0.60` |
 | `drowsiness.head_down_possible_multiplier` | `2.0` |
 | `drowsiness.head_down_probable_seconds` | `45.0` |
+| `drowsiness.look_down_soft_pitch` | `0.14` |
 
----
+**Anti-sticky (LIVE 14/09):** EAR aberto zera accum mesmo com observação inválida; clear-hold de evento de sonolência ~**2 s** com olhos abertos (não 1 min+).
 
-## KEEP / NEVER (H · J · K · EX)
+**KEEP / NEVER (H · J · K · EX · F · G)**
 
-**KEEP:** `fer_onnx` + smile_boost; H limpa ao erguer; J/K = mão cobrindo → oclusão (não head_down); punho no peito ≠ oclusão; G intocado.
+**KEEP:** `fer_onnx` + smile_boost; H limpa ao erguer; J/K = mão cobrindo → oclusão (não head_down); punho no peito ≠ oclusão; F digitar ≠ sono; G frontal possible→probable; `look_down_soft_pitch=0.14`.
 
-**NEVER:** VGAF no TRI; sticky head_down com usuário ereto; J/K virar sono; mexer `confirm_seconds` / holds de oclusão sem reteste J+K+L+H juntos.
+**NEVER:** VGAF no TRI; sticky head_down com usuário ereto; J/K virar sono; sticky de sono/oclusão com rosto/olhos já ok; mexer `look_down_soft_pitch` / limiares G sem reteste **F+G** juntos; mexer `confirm_seconds` / holds de oclusão sem reteste J+K+L+H juntos.

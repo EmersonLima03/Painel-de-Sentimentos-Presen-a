@@ -257,6 +257,10 @@ class Settings(BaseSettings):
     drowsiness_observation_gap_inconclusive_seconds: float = Field(
         default=8.0, env="DROWSINESS_OBS_GAP_INCONCLUSIVE"
     )
+    # Look-down / digitar (F): pitch moderado + EAR “fechado” ≠ sono. G frontal (~0.12) abaixo.
+    drowsiness_look_down_soft_pitch: float = Field(
+        default=0.14, env="DROWSINESS_LOOK_DOWN_SOFT_PITCH"
+    )
     phone_possible_after_seconds: float = Field(default=5.0, env="PHONE_POSSIBLE_AFTER")
     phone_probable_after_seconds: float = Field(default=12.0, env="PHONE_PROBABLE_AFTER")
     phone_interaction_requires_in_hand: bool = Field(default=True, env="PHONE_INTERACTION_REQUIRES_IN_HAND")
@@ -596,6 +600,7 @@ class Settings(BaseSettings):
                 ("head_down_possible_multiplier", "drowsiness_head_down_possible_multiplier"),
                 ("head_down_probable_seconds", "drowsiness_head_down_probable_seconds"),
                 ("observation_gap_inconclusive_seconds", "drowsiness_observation_gap_inconclusive_seconds"),
+                ("look_down_soft_pitch", "drowsiness_look_down_soft_pitch"),
             ):
                 if yk in dr:
                     object.__setattr__(self, attr, float(dr[yk]))

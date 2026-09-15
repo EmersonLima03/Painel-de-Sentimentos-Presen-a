@@ -195,7 +195,7 @@ def test_partial_ear_head_forward_pauses_like_typing_look_down():
 
 
 def test_deep_ear_still_allows_drowsiness_when_partial_band_skipped():
-    """Olhos realmente fechados (EAR profundo) continuam gerando possible (G)."""
+    """Olhos realmente fechados de frente (EAR profundo, pitch baixo) → possible (G)."""
     eng = _eng()
     cache = TrackAnalyticsCache(track_key="t1")
     cache.observation_quality = {
@@ -207,7 +207,8 @@ def test_deep_ear_still_allows_drowsiness_when_partial_band_skipped():
         "status": "available",
         "average_eye_openness": 0.05,
         "yaw": 0.0,
-        "pitch": 0.14,
+        "pitch": 0.05,
+        "gaze_vertical": 0.05,
         "landmarks_quality": 0.85,
     }
     cache.head_state = {"state": "head_forward", "confidence": 0.8, "pose_score": 0.8}
@@ -218,3 +219,178 @@ def test_deep_ear_still_allows_drowsiness_when_partial_band_skipped():
     _, drow = eng._compute_attention_drowsiness(cache, now=205.0, face_visible=True)
     assert drow["state"] == "possible"
     assert cache.eyes_closed_accum_seconds >= 10.0
+
+
+def test_live_g_frontal_eyes_closed_pitch_near_012_still_accumulates():
+    """G LIVE: olhos fechados de frente com pitch~0.12 NÃO deve pausar (≠ teclado)."""
+    eng = _eng()
+    cache = TrackAnalyticsCache(track_key="t1")
+    cache.observation_quality = {
+        "overall_score": 0.85,
+        "overall_observability": 0.85,
+        "status": "observable",
+    }
+    cache.facial_features = {
+        "status": "available",
+        "average_eye_openness": 0.055,
+        "yaw": 0.0,
+        "pitch": 0.122,
+        "gaze_vertical": 0.122,
+        "landmarks_quality": 0.85,
+    }
+    cache.head_state = {"state": "head_forward", "confidence": 0.8, "pose_score": 0.8}
+    cache.face_occlusion = {"state": "none"}
+    cache.eyes_closed_accum_seconds = 8.0
+    cache.eyes_last_tick = 200.0
+    cache.eyes_closed_since = 192.0
+    _, drow = eng._compute_attention_drowsiness(cache, now=205.0, face_visible=True)
+    assert drow["state"] == "possible"
+    assert cache.eyes_closed_accum_seconds >= 8.0
+    assert drow.get("observation_paused") is not True
+
+
+def test_live_f_look_down_deep_ear_false_positive_pauses():
+    """LIVE F 2026-09-14: head_forward + pitch~0.17 + EAR profundo falso ≠ sono."""
+    eng = _eng()
+    cache = TrackAnalyticsCache(track_key="t1")
+    cache.observation_quality = {
+        "overall_score": 0.74,
+        "overall_observability": 0.74,
+        "status": "observable",
+    }
+    cache.facial_features = {
+        "status": "available",
+        "average_eye_openness": 0.067,
+        "yaw": -0.04,
+        "pitch": 0.174,
+        "gaze_vertical": 0.174,
+        "landmarks_quality": 0.85,
+    }
+    cache.head_state = {"state": "head_forward", "confidence": 0.7, "pose_score": 0.7}
+    cache.face_occlusion = {"state": "none"}
+    cache.eyes_closed_accum_seconds = 120.0
+    cache.eyes_last_tick = 200.0
+    cache.eyes_closed_since = 80.0
+    _, drow = eng._compute_attention_drowsiness(cache, now=205.0, face_visible=True)
+    assert drow["state"] == "inconclusive"
+    assert drow.get("observation_paused") is True
+    assert cache.eyes_closed_accum_seconds == 120.0  # não incrementa
+    assert cache.eyes_last_tick is None
+
+
+def test_look_down_invalid_gap_clears_sticky_accum():
+    """Pausa look-down sustentada zera debt sticky após gap (não vira probable na hora)."""
+    eng = _eng()
+    cache = TrackAnalyticsCache(track_key="t1")
+    cache.observation_quality = {
+        "overall_score": 0.74,
+        "overall_observability": 0.74,
+        "status": "observable",
+    }
+    cache.facial_features = {
+        "status": "available",
+        "average_eye_openness": 0.07,
+        "yaw": 0.0,
+        "pitch": 0.17,
+        "gaze_vertical": 0.17,
+        "landmarks_quality": 0.85,
+    }
+    cache.head_state = {"state": "head_forward", "confidence": 0.7, "pose_score": 0.7}
+    cache.face_occlusion = {"state": "none"}
+    cache.eyes_closed_accum_seconds = 120.0
+    cache.eyes_invalid_since = 100.0
+    _, drow = eng._compute_attention_drowsiness(cache, now=109.0, face_visible=True)
+    assert drow["state"] == "inconclusive"
+    assert cache.eyes_closed_accum_seconds == 0.0
+
+
+def test_open_ear_resets_sticky_accum_even_when_observation_invalid():
+    """Olhos abertos (EAR alto) zera debt mesmo com eyes_observable=False (anti-sticky G→UI)."""
+    eng = _eng()
+    cache = TrackAnalyticsCache(track_key="t1")
+    cache.observation_quality = {
+        "overall_score": 0.50,  # abaixo do min_q_dr 0.60 → observable gate falha
+        "overall_observability": 0.50,
+        "status": "partially_observable",
+    }
+    cache.facial_features = {
+        "status": "available",
+        "average_eye_openness": 0.28,
+        "yaw": 0.0,
+        "pitch": 0.10,
+        "gaze_vertical": 0.10,
+        "landmarks_quality": 0.85,
+    }
+    cache.head_state = {"state": "head_forward", "confidence": 0.7, "pose_score": 0.7}
+    cache.face_occlusion = {"state": "none"}
+    cache.eyes_closed_accum_seconds = 90.0
+    cache.eyes_closed_since = 100.0
+    cache.eyes_last_tick = 200.0
+    _, drow = eng._compute_attention_drowsiness(cache, now=205.0, face_visible=True)
+    assert drow["state"] in ("none", "inconclusive")
+    assert cache.eyes_closed_accum_seconds == 0.0
+
+
+def test_frontal_deep_ear_still_probable_at_30s():
+    """G: frente + EAR profundo 30s+ → probable (não afetado pelo gate F)."""
+    eng = _eng()
+    cache = TrackAnalyticsCache(track_key="t1")
+    cache.observation_quality = {
+        "overall_score": 0.9,
+        "overall_observability": 0.9,
+        "status": "observable",
+    }
+    cache.facial_features = {
+        "status": "available",
+        "average_eye_openness": 0.04,
+        "yaw": 0.0,
+        "pitch": 0.03,
+        "gaze_vertical": 0.03,
+        "landmarks_quality": 0.9,
+    }
+    cache.head_state = {"state": "head_forward", "confidence": 0.9, "pose_score": 0.9}
+    cache.face_occlusion = {"state": "none"}
+    cache.eyes_closed_accum_seconds = 30.0
+    cache.eyes_last_tick = 200.0
+    cache.eyes_closed_since = 170.0
+    _, drow = eng._compute_attention_drowsiness(cache, now=205.0, face_visible=True)
+    assert drow["state"] == "probable"
+    assert cache.eyes_closed_accum_seconds >= 30.0
+
+
+def test_drowsiness_event_clears_fast_when_eyes_open():
+    """Evento probable some em ~2s com EAR aberto + state none (não fica 1min+)."""
+    eng = _eng(
+        behavioral_event_clear_hold_seconds=0.5,
+        behavioral_event_clear_hold_drowsiness_seconds=4.0,
+        face_occlusion_clear_hold_seconds=0.5,
+    )
+    tid = "cam-web-person-001"
+    eng._open_events[f"{tid}:probable_drowsiness"] = {
+        "event_id": "e1",
+        "event_type": "probable_drowsiness",
+        "started_at": 100.0,
+        "opened_at": 100.0,
+        "duration_seconds": 60.0,
+        "reasons": ["eyes_closed_duration"],
+        "provenance": {},
+    }
+    cache = eng._get_cache(tid)
+    track = {
+        "track_id": tid,
+        "person_track_id": tid,
+        "drowsiness": {"state": "none", "duration_seconds": 0.0, "reasons": ["brief_blink_or_closed"]},
+        "facial_features": {"average_eye_openness": 0.26, "status": "available"},
+        "visual_attention": {"state": "high", "duration_seconds": 5.0},
+        "phone": {"status": "available", "state": "not_detected"},
+        "head_state": {"state": "head_forward"},
+        "face_occlusion": {"state": "none"},
+        "hands": {"state": "not_near_face"},
+        "identity": {"identity_state": "face_confirmed", "student_id": "p01", "face_visible": True},
+        "observation_quality": {"status": "observable"},
+    }
+    eng._sync_temporal_events(track, now=200.0)
+    assert f"{tid}:probable_drowsiness" in eng._open_events  # hold iniciado
+    eng._sync_temporal_events(track, now=202.1)
+    assert f"{tid}:probable_drowsiness" not in eng._open_events
+

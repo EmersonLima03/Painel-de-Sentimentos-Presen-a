@@ -148,6 +148,199 @@ def _lm_xy(lms, idx: int, w: int, h: int, min_vis: float = 0.4) -> Optional[Tupl
     return float(p.x) * w, float(p.y) * h, vis
 
 
+def nose_in_profile_face(
+    nose: Optional[Tuple[float, float, float]],
+    face_bbox: Optional[Tuple[float, float, float, float]],
+) -> bool:
+    """I: nariz no terço esquerdo/direito da caixa YuNet (perfil 2D).
+
+    De lado, o nariz continua 'no meio' dos ombros — o corte 0.35 falha.
+    Nariz fora da caixa (ventilador FP) não conta.
+    """
+    if nose is None or face_bbox is None:
+        return False
+    fx, fy, fw, fh = (float(face_bbox[0]), float(face_bbox[1]), float(face_bbox[2]), float(face_bbox[3]))
+    if fw < 12.0 or fh < 12.0:
+        return False
+    nx, ny = float(nose[0]), float(nose[1])
+    if not (fx - 0.12 * fw <= nx <= fx + fw + 0.12 * fw):
+        return False
+    if not (fy - 0.18 * fh <= ny <= fy + fh + 0.18 * fh):
+        return False
+    rel = (nx - fx) / fw
+    # Terço lateral (I). >0.78 costuma ser YuNet FP (cortina/headset) no H.
+    return (rel <= 0.38 or rel >= 0.62) and (0.18 <= rel <= 0.78)
+
+
+def nose_inside_face_bbox(
+    nose: Optional[Tuple[float, float, float]],
+    face_bbox: Optional[Tuple[float, float, float, float]],
+) -> bool:
+    """Nariz dentro da caixa YuNet (com folga). Cortina/ventilador sem nariz = False."""
+    if nose is None or face_bbox is None:
+        return False
+    fx, fy, fw, fh = (float(face_bbox[0]), float(face_bbox[1]), float(face_bbox[2]), float(face_bbox[3]))
+    if fw < 12.0 or fh < 12.0:
+        return False
+    nx, ny = float(nose[0]), float(nose[1])
+    if not (fx - 0.12 * fw <= nx <= fx + fw + 0.12 * fw):
+        return False
+    if not (fy - 0.18 * fh <= ny <= fy + fh + 0.18 * fh):
+        return False
+    return True
+
+
+def _face_crop_bgr(
+    frame: Optional[np.ndarray],
+    face_bbox: Optional[Tuple[float, float, float, float]],
+) -> Optional[np.ndarray]:
+    if frame is None or face_bbox is None or frame.size == 0:
+        return None
+    fx, fy, fw, fh = (int(face_bbox[0]), int(face_bbox[1]), int(face_bbox[2]), int(face_bbox[3]))
+    if fw < 16 or fh < 16:
+        return None
+    ih, iw = frame.shape[:2]
+    x1, y1 = max(0, fx), max(0, fy)
+    x2, y2 = min(iw, fx + fw), min(ih, fy + fh)
+    if x2 - x1 < 16 or y2 - y1 < 16:
+        return None
+    crop = frame[y1:y2, x1:x2]
+    if crop.size == 0:
+        return None
+    return crop
+
+
+def face_crop_skin_ratio(
+    frame: Optional[np.ndarray],
+    face_bbox: Optional[Tuple[float, float, float, float]],
+) -> Optional[float]:
+    """Fração de pixels tipo pele no crop YuNet. Cabelo/cortina fica baixo."""
+    crop = _face_crop_bgr(frame, face_bbox)
+    if crop is None:
+        return None
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    ycr = cv2.cvtColor(crop, cv2.COLOR_BGR2YCrCb)
+    m_hsv = cv2.inRange(hsv, (0, 40, 50), (25, 180, 255))
+    m_ycr = cv2.inRange(ycr, (0, 133, 77), (255, 173, 127))
+    return float(np.mean((m_hsv > 0) | (m_ycr > 0)))
+
+
+def face_crop_dark_ratio(
+    frame: Optional[np.ndarray],
+    face_bbox: Optional[Tuple[float, float, float, float]],
+) -> Optional[float]:
+    """Fração de pixels escuros (HSV V). Cabelo no LIVE BGR; JPEG comprime e engana só a pele."""
+    crop = _face_crop_bgr(frame, face_bbox)
+    if crop is None:
+        return None
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    return float(np.mean(hsv[:, :, 2] < 90))
+
+
+def crown_look_down_face(
+    frame: Optional[np.ndarray],
+    nose: Optional[Tuple[float, float, float]],
+    face_bbox: Optional[Tuple[float, float, float, float]],
+    *,
+    skin_max: float = 0.24,
+) -> bool:
+    """H: YuNet no topo da cabeça (cabelo). Rosto real tem pele alta — não entra."""
+    if not nose_inside_face_bbox(nose, face_bbox):
+        return False
+    skin = face_crop_skin_ratio(frame, face_bbox)
+    if skin is None:
+        return False
+    if skin < skin_max:
+        return True
+    # Pele alta (rosto real, mesmo com fone/cabelo na caixa) NÃO é topo da cabeça.
+    return False
+
+
+def unilateral_ear_profile(
+    left_ear: Optional[Tuple[float, float, float]],
+    right_ear: Optional[Tuple[float, float, float]],
+) -> bool:
+    """I: só uma orelha no pose (a outra some de lado). Ambos ausentes ≠ perfil (pode ser H)."""
+    return (left_ear is None) != (right_ear is None)
+
+
+def nose_ear_distance_profile(
+    nose: Optional[Tuple[float, float, float]],
+    left_ear: Optional[Tuple[float, float, float]],
+    right_ear: Optional[Tuple[float, float, float]],
+    shoulder_w: float,
+) -> bool:
+    """I / 3/4: uma orelha fica colada no nariz (a de trás projetada); a visível fica longe.
+
+    De frente as duas distâncias são parecidas.
+    """
+    if nose is None or left_ear is None or right_ear is None:
+        return False
+    dl = math.hypot(float(nose[0]) - float(left_ear[0]), float(nose[1]) - float(left_ear[1]))
+    dr = math.hypot(float(nose[0]) - float(right_ear[0]), float(nose[1]) - float(right_ear[1]))
+    near, far = min(dl, dr), max(dl, dr)
+    if far < 12.0:
+        return False
+    sw = max(1.0, float(shoulder_w))
+    return (near / far) < 0.48 and (far / sw) > 0.18
+
+
+def ears_stacked_profile(
+    left_ear: Optional[Tuple[float, float, float]],
+    right_ear: Optional[Tuple[float, float, float]],
+    shoulder_w: float,
+) -> bool:
+    """I: orelhas quase na mesma X (perfil); de frente o vão é largo."""
+    if left_ear is None or right_ear is None:
+        return False
+    sw = max(1.0, float(shoulder_w))
+    return abs(float(left_ear[0]) - float(right_ear[0])) / sw < 0.14
+
+
+def wrist_in_true_head_zone(
+    wrist: Tuple[float, float, float],
+    *,
+    nose: Optional[Tuple[float, float, float]],
+    left_shoulder: Optional[Tuple[float, float, float]],
+    right_shoulder: Optional[Tuple[float, float, float]],
+    face_bbox: Optional[Tuple[float, float, float, float]],
+) -> bool:
+    """J: punho na cabeça. I/E4: punho no ombro/peito não conta."""
+    if float(wrist[2]) < 0.28:
+        return False
+    if not (left_shoulder and right_shoulder):
+        return False
+    ls, rs = left_shoulder, right_shoulder
+    shoulder_cy = (ls[1] + rs[1]) / 2.0
+    shoulder_w = max(1.0, abs(rs[0] - ls[0]))
+    cx = (ls[0] + rs[0]) / 2.0
+    y_max = shoulder_cy + 0.18 * shoulder_w
+    if face_bbox is not None:
+        y_max = min(y_max, float(face_bbox[1]) + float(face_bbox[3]) * 1.08)
+    # Perfil: caixa do rosto fica alta e o punho no ombro entra no 1.08×. Exigir y de cabeça.
+    if nose is not None:
+        y_slack = 0.25 * shoulder_w
+        # J: palma no rosto, punho no queixo (alinhado em X com o nariz). Sem caixa YuNet.
+        if face_bbox is None and abs(float(wrist[0]) - float(nose[0])) / shoulder_w < 0.32:
+            y_slack = 0.50 * shoulder_w
+        y_max = min(y_max, float(nose[1]) + y_slack)
+    if wrist[1] > y_max:
+        return False
+    if abs(wrist[0] - cx) / shoulder_w > 0.90:
+        return False
+    if face_bbox is not None:
+        fx, _fy, fw, _fh = (
+            float(face_bbox[0]),
+            float(face_bbox[1]),
+            float(face_bbox[2]),
+            float(face_bbox[3]),
+        )
+        pad = 0.28 * fw
+        if not (fx - pad <= wrist[0] <= fx + fw + pad):
+            return False
+    return True
+
+
 def estimate_body_pose(
     frame: np.ndarray,
     person_bbox: Tuple[float, float, float, float],
@@ -246,7 +439,7 @@ def estimate_body_pose(
     re = abs_pt(_RIGHT_ELBOW)
     lh = abs_pt(_LEFT_HIP)
     rh = abs_pt(_RIGHT_HIP)
-    ear_vis = 0.20 if face_missing else min_keypoint_confidence
+    ear_vis = 0.20 if face_missing else 0.28
     lear = abs_pt(_LEFT_EAR, min_vis=ear_vis)
     rear = abs_pt(_RIGHT_EAR, min_vis=ear_vis)
 
@@ -258,6 +451,8 @@ def estimate_body_pose(
         "right_elbow": None if re is None else {"x": re[0], "y": re[1], "v": re[2]},
         "left_wrist": None if lw is None else {"x": lw[0], "y": lw[1], "v": lw[2]},
         "right_wrist": None if rw is None else {"x": rw[0], "y": rw[1], "v": rw[2]},
+        "left_ear": None if lear is None else {"x": lear[0], "y": lear[1], "v": lear[2]},
+        "right_ear": None if rear is None else {"x": rear[0], "y": rear[1], "v": rear[2]},
     }
 
     reasons: List[str] = []
@@ -266,22 +461,13 @@ def estimate_body_pose(
     torso_ori = None
 
     def _wrist_on_head_zone() -> bool:
-        """Mão na cabeça/rosto (acima dos ombros). Peito NÃO conta — senão mata head_down."""
-        if not (ls and rs):
-            return False
-        shoulder_cy = (ls[1] + rs[1]) / 2.0
-        shoulder_w = max(1.0, abs(rs[0] - ls[0]))
-        cx = (ls[0] + rs[0]) / 2.0
-        # Um pouco abaixo da linha dos ombros ainda pode ser queixo; peito fica bem abaixo.
-        y_max = shoulder_cy + 0.18 * shoulder_w
-        # Close-up: ombros caem no peito da imagem — sem cap no queixo, punho no
-        # celular ao lado vira "mão na cabeça" e dispara oclusão falsa.
-        if face_bbox is not None:
-            y_max = min(y_max, float(face_bbox[1]) + float(face_bbox[3]) * 1.08)
+        """Mão na cabeça/rosto (acima dos ombros). Peito/ombro NÃO conta — senão mata H e inventa J no I."""
         for wrist in (lw, rw):
-            if wrist is None or float(wrist[2]) < 0.28:
+            if wrist is None:
                 continue
-            if wrist[1] <= y_max and abs(wrist[0] - cx) / shoulder_w <= 0.90:
+            if wrist_in_true_head_zone(
+                wrist, nose=nose, left_shoulder=ls, right_shoulder=rs, face_bbox=face_bbox
+            ):
                 return True
         return False
 
@@ -311,6 +497,28 @@ def estimate_body_pose(
         if head_pitch_proxy and abs(dx) / shoulder_w < 0.45:
             head_down_geom = True
         head_turned = abs(nose[0] - shoulder_cx) / shoulder_w > 0.35
+        if crown_look_down_face(frame, nose, face_bbox):
+            # Topo da cabeça visível: caixa YuNet é cabelo, não perfil.
+            head_down_geom = True
+            head_turned = False
+            skin = face_crop_skin_ratio(frame, face_bbox)
+            dark = face_crop_dark_ratio(frame, face_bbox)
+            reasons.append(
+                f"yunet_crown_look_down_skin={0.0 if skin is None else skin:.2f}"
+                f"_dark={0.0 if dark is None else dark:.2f}"
+            )
+        elif nose_in_profile_face(nose, face_bbox):
+            head_turned = True
+            reasons.append("face_nose_yaw_profile")
+        elif unilateral_ear_profile(lear, rear):
+            head_turned = True
+            reasons.append("ear_unilateral_profile")
+        elif nose_ear_distance_profile(nose, lear, rear, shoulder_w):
+            head_turned = True
+            reasons.append("ear_nose_span_profile")
+        elif ears_stacked_profile(lear, rear, shoulder_w):
+            head_turned = True
+            reasons.append("ear_asymmetric_profile")
 
         # Nariz fraco / acima dos ombros com face ausente = falso positivo no topo da cabeça.
         # Com head_down_since já ativo, permite mesmo com punho na zona (braço apoiado

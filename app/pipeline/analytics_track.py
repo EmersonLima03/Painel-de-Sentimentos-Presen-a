@@ -16,6 +16,16 @@ logger = get_logger(__name__)
 
 BBox = Tuple[float, float, float, float]
 
+
+def _face_bbox_usable(face_bbox: Optional[BBox]) -> bool:
+    """YuNet associado e grande o bastante — o overlay já mostra o rosto."""
+    if face_bbox is None:
+        return False
+    try:
+        return float(face_bbox[2]) >= 55.0 and float(face_bbox[3]) >= 70.0
+    except (TypeError, IndexError, ValueError):
+        return False
+
 PHONE_OCCLUSION_SUPPRESS_STATES = frozenset(
     {
         "phone_in_hand",
@@ -240,6 +250,7 @@ class TrackAnalyticsCache:
     eyes_unobservable_since: Optional[float] = None
     eyes_observation_paused: bool = False
     eyes_recover_since: Optional[float] = None  # face voltou — só limpa unobs após hold
+    eyes_invalid_since: Optional[float] = None  # EAR/ângulo inválido — gap zera accum sticky
     head_down_accum_seconds: float = 0.0
     head_down_last_tick: Optional[float] = None
     head_down_since: Optional[float] = None
@@ -778,7 +789,9 @@ class RealtimeAnalyticsEngine:
             )
             sid = identity.get("student_id")
             conf = float(identity.get("confidence") or 0.0)
-            face_visible = bool(identity.get("face_visible"))
+            # Identidade pode ficar body_continuity com o rosto já na tela (cooldown).
+            # Sem isso a oclusão J nunca limpa: face_visible=False + occlusion_hold.
+            face_visible = bool(identity.get("face_visible")) or _face_bbox_usable(face_bbox)
 
             t0 = time.perf_counter()
             # crops: face se visÃ­vel, senÃ£o ROI cabeÃ§a (topo do person)
@@ -890,9 +903,12 @@ class RealtimeAnalyticsEngine:
                             and float(face_bbox[3]) >= 70.0
                         )
                     ):
-                        cache.head_down_since = None
-                        cache.head_down_accum_seconds = 0.0
-                        cache.head_down_last_tick = None
+                        _pitch = (cache.facial_features or {}).get("pitch")
+                        # Look-down real (H) às vezes sai head_turned por YuNet FP — não zerar.
+                        if _pitch is None or float(_pitch) <= 0.32:
+                            cache.head_down_since = None
+                            cache.head_down_accum_seconds = 0.0
+                            cache.head_down_last_tick = None
                     confirm_sec = float(
                         getattr(self.settings, "face_occlusion_confirm_seconds", 0.7) or 0.7
                     )
@@ -2218,18 +2234,38 @@ class RealtimeAnalyticsEngine:
         head_down = head_down_pose or (
             pitch is not None and float(pitch) > pitch_thr
         )
-        # Digitar / olhar teclado: EAR na faixa PARCIAL (abaixo do thr de “fechado”,
-        # acima do fechamento profundo) é evidência geométrica fraca — típica de
-        # gaze/look-down com cabeça ainda “forward”, não de sono. Pausar acumulador.
-        # Sono aparente exige EAR profundo (<= thr*0.5). Gate head_down_pose mantido.
+        # Digitar / olhar teclado: EAR baixo por foreshortening com cabeça ainda
+        # "forward" ≠ sono (cenário F). LIVE 2026-09-14: pitch~0.17 + EAR 0.05–0.12
+        # flickerava entre pausa (faixa parcial) e probable (EAR “profundo” falso).
+        # - Faixa parcial: pausa com head_forward / head_down_pose
+        # - Ângulo look-down moderado + qualquer EAR<thr + head_forward: pausa
+        #   (inclui EAR profundo falso). G frontal (pitch baixo) intacto.
+        # - Pitch >= head_down thr + EAR profundo: NÃO pausar (sono com tilt).
         deep_close_thr = ear_thr * 0.50
-        # "Fechamento parcial" tende a aparecer em olhar/teclado com cabeça ainda
-        # "forward" (não é sono profundo). Para preservar o contrato dos testes:
-        # - head_forward/facing_forward: pausa (não acumula)
-        # - pose_inconclusive (oclusão / ausência de evidência): acumulador continua
+        look_down_soft = float(
+            getattr(self.settings, "drowsiness_look_down_soft_pitch", 0.14) or 0.14
+        )
+        pitch_abs = abs(float(pitch)) if pitch is not None else 0.0
+        gaze_v = ff.get("gaze_vertical")
+        if gaze_v is not None:
+            try:
+                pitch_abs = max(pitch_abs, abs(float(gaze_v)))
+            except (TypeError, ValueError):
+                pass
+        forward_like = head_st in ("head_forward", "facing_forward")
+        look_down_moderate = look_down_soft <= pitch_abs < pitch_thr
         if ear is not None and deep_close_thr < float(ear) < ear_thr and (
-            head_down_pose or head_st in ("head_forward", "facing_forward")
+            head_down_pose or forward_like
         ):
+            eyes_observable = False
+            cache.eyes_last_tick = None
+        elif (
+            forward_like
+            and look_down_moderate
+            and ear is not None
+            and float(ear) < ear_thr
+        ):
+            # Teclado / gaze baixo: EAR “fechado” não é observável para sono
             eyes_observable = False
             cache.eyes_last_tick = None
         elif head_down_pose and pitch is not None and float(pitch) > pitch_thr * 0.70:
@@ -2238,20 +2274,37 @@ class RealtimeAnalyticsEngine:
                 cache.eyes_last_tick = None
         eyes_closed_valid = bool(eyes_closed and eyes_observable)
         if eyes_closed_valid:
+            cache.eyes_invalid_since = None
             if cache.eyes_last_tick is not None:
                 cache.eyes_closed_accum_seconds += max(0.0, now - cache.eyes_last_tick)
             cache.eyes_last_tick = now
             if cache.eyes_closed_since is None:
                 cache.eyes_closed_since = now
-        elif eyes_observable and ear is not None and not eyes_closed:
-            # Olhos verdadeiramente abertos e observáveis → reset
+        elif ear is not None and not eyes_closed:
+            # EAR aberto = pálpebra não fechada: zera accum SEMPRE, mesmo se
+            # eyes_observable=False (ângulo/qualidade). Evita debt sticky após G:
+            # pausa com accum alto → frame frontal com EAR ainda “fechado” falso
+            # reabria probable na hora; ou após abrir os olhos o card ficava 1min+.
+            cache.eyes_invalid_since = None
             cache.eyes_closed_accum_seconds = 0.0
             cache.eyes_closed_since = None
             cache.eyes_last_tick = None
+            if not eyes_observable:
+                cache.eyes_observation_paused = True
         else:
-            # Observação inválida: pausar sem incrementar nem resetar indevidamente
+            # Observação inválida com EAR ainda “fechado”: pausar sem incrementar;
+            # gap zera debt sticky (F / look-down).
             cache.eyes_last_tick = None
             cache.eyes_observation_paused = True
+            if cache.eyes_invalid_since is None:
+                cache.eyes_invalid_since = now
+            elif (
+                (now - float(cache.eyes_invalid_since)) >= gap_limit
+                and float(cache.eyes_closed_accum_seconds or 0.0) > 0
+            ):
+                cache.eyes_closed_accum_seconds = 0.0
+                cache.eyes_closed_since = None
+                cache.force_close_observation_gap = True
 
         if head_down:
             if cache.head_down_since is None:
@@ -2820,7 +2873,23 @@ class RealtimeAnalyticsEngine:
             if cache.eyes_unobservable_since is None:
                 cache.eyes_unobservable_since = now
         else:
-            # Face voltou: limpa oclusão genérica sem punho
+            hands_st = str((cache.hands or {}).get("state") or "")
+            last = cache.hand_near_last_seen
+            hold = float(
+                getattr(self.settings, "face_occlusion_clear_hold_seconds", 4.0) or 4.0
+            )
+            expired = last is None or (now - float(last)) >= hold
+            if hands_st != "hand_near_face" and expired and cache.hand_near_since is None:
+                occ0 = cache.face_occlusion or {}
+                if str(occ0.get("state") or "none") in (
+                    "possible_face_occlusion_by_hand",
+                    "persistent_possible_face_occlusion",
+                ):
+                    cache.face_occlusion = {
+                        "state": "none",
+                        "confidence": 0.0,
+                        "reasons": ["cleared_face_visible_wrist_gone"],
+                    }
             occ = cache.face_occlusion or {}
             reasons = list(occ.get("reasons") or [])
             has_wrist = any("wrist" in str(r) for r in reasons)
@@ -2987,15 +3056,19 @@ class RealtimeAnalyticsEngine:
             return
         from app.pipeline.occlusion_head_arbitration import pitch_may_promote_head_down
 
-        thr = float(getattr(self.settings, "head_down_pitch_threshold", 0.45) or 0.45)
         min_lq = float(getattr(self.settings, "head_down_require_landmarks_quality", 0.45) or 0.45)
         ff = cache.facial_features or {}
+        hs = str((cache.head_state or {}).get("state") or "pose_inconclusive")
+        if hs in ("head_down_short", "head_down_persistent", "head_supported"):
+            return
+        # Perfil (I) não pode ganhar de look-down real: pitch 0.42 já é cabeça baixa
+        # (limiar global 0.45 deixava H virar head_turned).
+        thr = float(getattr(self.settings, "head_down_pitch_threshold", 0.45) or 0.45)
+        if hs == "head_turned":
+            thr = min(thr, 0.32)
         if not pitch_may_promote_head_down(
             ff, pitch_threshold=thr, require_landmarks_quality=min_lq
         ):
-            return
-        hs = str((cache.head_state or {}).get("state") or "pose_inconclusive")
-        if hs in ("head_down_short", "head_down_persistent", "head_supported"):
             return
         pitch = float(ff.get("pitch") or 0.0)
         dur = (now - cache.head_down_since) if cache.head_down_since else 0.0
@@ -3371,9 +3444,34 @@ class RealtimeAnalyticsEngine:
                     ),
                 )
             if "drowsiness" in etype:
-                return max(base, float(getattr(self.settings, "behavioral_event_clear_hold_drowsiness_seconds", 4.0) or 4.0))
+                # Olhos abertos (EAR): clear rápido — mesmo padrão do sticky de oclusão.
+                # Hold longo só enquanto o EAR ainda parece fechado (anti-piscar).
+                ff = track.get("facial_features") or {}
+                ear_now = ff.get("average_eye_openness")
+                ear_thr = float(
+                    getattr(self.settings, "drowsiness_eye_closed_ear_threshold", 0.18) or 0.18
+                )
+                dr_state = str((track.get("drowsiness") or {}).get("state") or "")
+                if (
+                    ear_now is not None
+                    and float(ear_now) >= ear_thr
+                    and dr_state in ("none", "inconclusive")
+                ):
+                    return max(base, 2.0)
+                return max(
+                    base,
+                    float(getattr(self.settings, "behavioral_event_clear_hold_drowsiness_seconds", 4.0) or 4.0),
+                )
             if etype == "face_occluded_persistent":
-                # Mão na cara: não fechar o evento por flicker de pose / rosto sumido
+                id_ = track.get("identity") or {}
+                fb = track.get("face_bbox")
+                fb_t = tuple(fb[:4]) if isinstance(fb, (list, tuple)) and len(fb) >= 4 else None
+                face_back = bool(id_.get("face_visible")) or _face_bbox_usable(fb_t)
+                occ_now = str((track.get("face_occlusion") or {}).get("state") or "none")
+                hands_now = str((track.get("hands") or {}).get("state") or "")
+                if face_back and occ_now == "none" and hands_now != "hand_near_face":
+                    return max(base, float(getattr(self.settings, "face_occlusion_clear_hold_seconds", 4.0) or 4.0))
+                # Mão na cara / rosto sumido: não fechar por flicker curto
                 return max(
                     base,
                     float(getattr(self.settings, "face_occlusion_clear_hold_seconds", 4.0) or 4.0),

@@ -24,6 +24,17 @@ Observação desta sessão: JPEG overlay + `GET /api/v1/live/debug-snapshot` (se
 | **K** | Duas mãos cobrindo o rosto | evento oclusão contínuo (Emerson, mesmo LIVE) |
 | **EX+ / EX=** | Sorriso / neutro | positiva / neutra com `fer_onnx` + smile_boost (Emerson, mesmo LIVE) |
 
+### Extensão 14–15/09 (não regressar) — [`LIVE_E1_E2_P_20260915.md`](LIVE_E1_E2_P_20260915.md)
+
+| ID | Pose | Contrato observado |
+|----|------|-------------------|
+| **E1** | Celular na mesa / resting | near ou not_detected; **sem** uso |
+| **E2** | Mão perto sem pegar | **sem** interação |
+| **P1** | Celular na orelha | probable + wrist; não reject ear-only |
+| **P2** | Vertical na mão | detecção + probable / in_hand |
+| **P3** | Colo | near/magenta (não FN) |
+| **P5** | Mesa → pegar | idle → in_hand → possible → probable |
+
 **E4 e E3 sempre retestados juntos.** Ajuste de peito ou “ao lado” sem reteste na cara = regressão.
 
 Números do perfil: [`VALORES_CONGELADOS_LIVE_20260914.md`](VALORES_CONGELADOS_LIVE_20260914.md).
@@ -72,4 +83,4 @@ $env:PRESENCA_CONFIG_OVERLAY = "config.tri.yaml"
 pytest tests/test_phone_filters.py tests/test_phone_positive_controls.py tests/test_phone_false_positive_regression.py tests/test_frame_usable_black.py tests/test_l_occlusion_contract.py -q
 ```
 
-Depois, na webcam, no mínimo: **E4 peito → E3 cara → C fone**; se mexer pose/oclusão: **H + J + K**.
+Depois, na webcam, no mínimo: **E4 peito → E3 cara → C fone**; se mexer pose/oclusão: **H + J + K**. Se mexer mesa/pickup/orelha: **E1 + P1 + P5**.
