@@ -453,19 +453,37 @@ function ClassesAdmin({ schoolId, organizationId }: { schoolId: string; organiza
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
-    const { error } = await upsertClassGroup({
+    const name = form.name.trim();
+    if (!name) {
+      setMsg("Erro: informe o nome da turma.");
+      return;
+    }
+    if (!schoolId || !organizationId) {
+      setMsg("Erro: escola/organização não selecionada.");
+      return;
+    }
+    const { data, error } = await upsertClassGroup({
       school_id: schoolId,
       organization_id: organizationId,
-      name: form.name.trim(),
+      name,
       year_label: form.year_label.trim() || null,
       shift: form.shift.trim() || null,
       is_active: true,
     });
-    setMsg(error ? `Erro: ${error.message}` : "Turma criada.");
-    if (!error) {
-      setForm({ name: "", year_label: "", shift: "" });
-      await reload();
+    if (error) {
+      setMsg(`Erro: ${error.message}`);
+      return;
     }
+    setMsg("Turma criada.");
+    setForm({ name: "", year_label: "", shift: "" });
+    if (data) {
+      setRows((prev) => {
+        const row = data as ClassGroupRow;
+        if (prev.some((r) => r.id === row.id)) return prev;
+        return [...prev, row].sort((a, b) => a.name.localeCompare(b.name));
+      });
+    }
+    await reload();
   }
 
   async function doAssign(e: React.FormEvent) {
@@ -526,6 +544,7 @@ function ClassesAdmin({ schoolId, organizationId }: { schoolId: string; organiza
             placeholder="Ex.: Manhã"
           />
         </label>
+        <Flash msg={msg} />
         <button className="btn primary" type="submit">
           Adicionar
         </button>
@@ -741,7 +760,7 @@ function StudentsAdmin({ schoolId, organizationId }: { schoolId: string; organiz
                     className="btn ghost"
                     onClick={async () => {
                       if (!confirm("Retirar aluno da turma?")) return;
-                      await setEnrollmentStatus(e.id, "withdrawn");
+                      await setEnrollmentStatus(e.id, "ended");
                       await reload();
                     }}
                   >

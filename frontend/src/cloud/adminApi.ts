@@ -194,7 +194,7 @@ export async function enrollStudent(row: {
     .single();
 }
 
-export async function setEnrollmentStatus(id: string, status: "active" | "inactive" | "withdrawn") {
+export async function setEnrollmentStatus(id: string, status: "active" | "ended") {
   return sb().from("enrollments").update({ status }).eq("id", id);
 }
 
