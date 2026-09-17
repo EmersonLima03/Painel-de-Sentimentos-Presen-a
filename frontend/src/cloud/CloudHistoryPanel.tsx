@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { UnavailableState, EmptyState, LoadingState } from "../components/ui/EmptyState";
 import { PageHeader } from "../components/layout/PageHeader";
-import { supabase, supabaseConfigured } from "../lib/supabaseClient";
+import { supabase, supabaseConfigured } from "./supabaseClient";
 
 type SessionRow = {
   id: string;

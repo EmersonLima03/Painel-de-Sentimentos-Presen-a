@@ -70,3 +70,6 @@ experiments/tri_live_monitor/output/_observe/
 # OS
 .DS_Store
 Thumbs.db
+
+supabase/.temp/
+

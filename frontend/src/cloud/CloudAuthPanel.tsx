@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase, supabaseConfigured, type MembershipRow } from "../lib/supabaseClient";
+import { supabase, supabaseConfigured, type MembershipRow } from "./supabaseClient";
 
 type Props = {
   onAuthChange?: (email: string | null) => void;
