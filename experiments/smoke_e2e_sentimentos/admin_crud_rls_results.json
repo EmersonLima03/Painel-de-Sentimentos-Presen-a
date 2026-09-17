@@ -1,0 +1,79 @@
+{
+  "results": [
+    {
+      "test": "login_gestor",
+      "ok": true
+    },
+    {
+      "test": "login_professor",
+      "ok": true
+    },
+    {
+      "test": "login_monitor",
+      "ok": true
+    },
+    {
+      "test": "gestor_create_subject",
+      "ok": true,
+      "http": 201
+    },
+    {
+      "test": "gestor_create_class",
+      "ok": true,
+      "http": 201
+    },
+    {
+      "test": "gestor_create_student",
+      "ok": true,
+      "http": 201
+    },
+    {
+      "test": "gestor_enroll",
+      "ok": true,
+      "http": 201
+    },
+    {
+      "test": "gestor_create_room",
+      "ok": true,
+      "http": 201
+    },
+    {
+      "test": "gestor_create_camera",
+      "ok": true,
+      "http": 201
+    },
+    {
+      "test": "gestor_denied_school_b_write",
+      "ok": true,
+      "http": 403
+    },
+    {
+      "test": "gestor_denied_school_b_read",
+      "ok": true,
+      "rows": []
+    },
+    {
+      "test": "professor_cannot_write_subject",
+      "ok": true,
+      "http": 403
+    },
+    {
+      "test": "monitor_cannot_write_student",
+      "ok": true,
+      "http": 403
+    },
+    {
+      "test": "professor_reads_assigned_only",
+      "ok": true,
+      "ids": [
+        "3f4b690c-d809-4dbb-a471-f5b93db84e1e"
+      ]
+    },
+    {
+      "test": "gestor_assign_teacher",
+      "ok": true,
+      "http": 201
+    }
+  ],
+  "pass": true
+}
