@@ -666,6 +666,7 @@ async def stats() -> Dict:
             "events": stats_data,
             "events_by_type": events_by_type,
             "events_by_status": events_by_status,
+            "outbox_lanes": event_repo.get_outbox_lane_stats(),
             "orchestrator": orchestrator_status
         }
     except Exception as e:

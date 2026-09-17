@@ -43,11 +43,65 @@ class EventRepository:
         self.session.commit()
         return event
     
-    def get_pending_events(self, limit: int = 100) -> List[Event]:
-        """Retorna eventos pendentes."""
-        return self.session.query(Event).filter(
-            Event.status == "pending"
-        ).order_by(Event.created_at).limit(limit).all()
+    def get_pending_events(
+        self,
+        limit: int = 100,
+        *,
+        event_types: Optional[Union[List[str], tuple]] = None,
+        prioritize_types: Optional[Union[List[str], tuple]] = None,
+    ) -> List[Event]:
+        """Retorna eventos pendentes.
+
+        IMPORTANTE: quando ``event_types`` é informado, o filtro é aplicado
+        *antes* do LIMIT (evita FIFO + whitelist vazia).
+        """
+        from sqlalchemy import case
+
+        q = self.session.query(Event).filter(Event.status == "pending")
+        if event_types:
+            types = [t for t in event_types if t]
+            if types:
+                q = q.filter(Event.event_type.in_(types))
+        if prioritize_types:
+            pri = [t for t in prioritize_types if t]
+            if pri:
+                whens = [(Event.event_type == t, i) for i, t in enumerate(pri)]
+                q = q.order_by(case(*whens, else_=len(pri)), Event.created_at.asc())
+            else:
+                q = q.order_by(Event.created_at.asc())
+        else:
+            q = q.order_by(Event.created_at.asc())
+        return q.limit(limit).all()
+
+    def get_outbox_lane_stats(self) -> dict:
+        """Contagens pending por lane (product / telemetry / ignored)."""
+        from sqlalchemy import func
+        from app.sync.outbox_contract import (
+            CLOUD_MVP_SYNCABLE_SET,
+            TELEMETRY_LOCAL_TYPES,
+            classify_outbox_lane,
+        )
+
+        rows = (
+            self.session.query(Event.event_type, func.count(Event.id))
+            .filter(Event.status == "pending")
+            .group_by(Event.event_type)
+            .all()
+        )
+        by_type = {t: int(n) for t, n in rows}
+        product_pending = sum(n for t, n in by_type.items() if t in CLOUD_MVP_SYNCABLE_SET)
+        telemetry_pending = sum(n for t, n in by_type.items() if t in TELEMETRY_LOCAL_TYPES)
+        ignored_pending = sum(
+            n
+            for t, n in by_type.items()
+            if classify_outbox_lane(t) == "ignored"
+        )
+        return {
+            "product_pending": product_pending,
+            "telemetry_pending": telemetry_pending,
+            "ignored_pending": ignored_pending,
+            "pending_by_type": by_type,
+        }
     
     def mark_sent(self, event_id: str) -> None:
         """Marca evento como enviado."""

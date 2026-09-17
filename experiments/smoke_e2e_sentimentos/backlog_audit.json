@@ -1,0 +1,903 @@
+{
+  "db_path": "C:\\Users\\dulin\\OneDrive\\Documentos\\Teste de monitoramento\\Presenca\\data\\dulino_edge.db",
+  "db_size_mb": 33.449,
+  "page_count": 8563,
+  "page_size": 4096,
+  "freelist_count": 0,
+  "by_status": [
+    {
+      "status": "pending",
+      "n": 35902
+    },
+    {
+      "status": "sent",
+      "n": 2229
+    },
+    {
+      "status": "failed",
+      "n": 12
+    }
+  ],
+  "pending_by_type": [
+    {
+      "event_type": "engagement_window",
+      "n": 20010
+    },
+    {
+      "event_type": "climate_window",
+      "n": 12907
+    },
+    {
+      "event_type": "behavioral_event",
+      "n": 2959
+    },
+    {
+      "event_type": "test",
+      "n": 13
+    },
+    {
+      "event_type": "session_event_upsert",
+      "n": 4
+    },
+    {
+      "event_type": "class_session_upsert",
+      "n": 4
+    },
+    {
+      "event_type": "session_report_snapshot",
+      "n": 3
+    },
+    {
+      "event_type": "attendance_checkin",
+      "n": 2
+    }
+  ],
+  "all_type_status": [
+    {
+      "event_type": "attendance_checkin",
+      "status": "pending",
+      "n": 2
+    },
+    {
+      "event_type": "attendance_checkin",
+      "status": "sent",
+      "n": 12
+    },
+    {
+      "event_type": "behavioral_event",
+      "status": "pending",
+      "n": 2959
+    },
+    {
+      "event_type": "class_session_upsert",
+      "status": "pending",
+      "n": 4
+    },
+    {
+      "event_type": "climate_window",
+      "status": "pending",
+      "n": 12907
+    },
+    {
+      "event_type": "engagement_window",
+      "status": "failed",
+      "n": 12
+    },
+    {
+      "event_type": "engagement_window",
+      "status": "pending",
+      "n": 20010
+    },
+    {
+      "event_type": "engagement_window",
+      "status": "sent",
+      "n": 2212
+    },
+    {
+      "event_type": "session_event_upsert",
+      "status": "pending",
+      "n": 4
+    },
+    {
+      "event_type": "session_report_snapshot",
+      "status": "pending",
+      "n": 3
+    },
+    {
+      "event_type": "test",
+      "status": "pending",
+      "n": 13
+    },
+    {
+      "event_type": "test",
+      "status": "sent",
+      "n": 5
+    }
+  ],
+  "pending_range": {
+    "min_created": "2026-07-23 12:44:40.838228",
+    "max_created": "2026-09-17 16:26:20.997800",
+    "n": 35902
+  },
+  "pending_by_day": [
+    {
+      "day": "2026-07-23",
+      "n": 3474
+    },
+    {
+      "day": "2026-07-24",
+      "n": 2340
+    },
+    {
+      "day": "2026-07-27",
+      "n": 3148
+    },
+    {
+      "day": "2026-07-28",
+      "n": 4009
+    },
+    {
+      "day": "2026-07-29",
+      "n": 2543
+    },
+    {
+      "day": "2026-07-30",
+      "n": 1693
+    },
+    {
+      "day": "2026-07-31",
+      "n": 1189
+    },
+    {
+      "day": "2026-08-03",
+      "n": 2737
+    },
+    {
+      "day": "2026-08-31",
+      "n": 813
+    },
+    {
+      "day": "2026-09-01",
+      "n": 1411
+    },
+    {
+      "day": "2026-09-03",
+      "n": 2345
+    },
+    {
+      "day": "2026-09-04",
+      "n": 6
+    },
+    {
+      "day": "2026-09-10",
+      "n": 1598
+    },
+    {
+      "day": "2026-09-11",
+      "n": 2201
+    },
+    {
+      "day": "2026-09-14",
+      "n": 4473
+    },
+    {
+      "day": "2026-09-15",
+      "n": 1328
+    },
+    {
+      "day": "2026-09-16",
+      "n": 5
+    },
+    {
+      "day": "2026-09-17",
+      "n": 589
+    }
+  ],
+  "pending_by_day_type": [
+    {
+      "day": "2026-07-23",
+      "event_type": "attendance_checkin",
+      "n": 1
+    },
+    {
+      "day": "2026-07-23",
+      "event_type": "behavioral_event",
+      "n": 345
+    },
+    {
+      "day": "2026-07-23",
+      "event_type": "climate_window",
+      "n": 1023
+    },
+    {
+      "day": "2026-07-23",
+      "event_type": "engagement_window",
+      "n": 2092
+    },
+    {
+      "day": "2026-07-23",
+      "event_type": "test",
+      "n": 13
+    },
+    {
+      "day": "2026-07-24",
+      "event_type": "behavioral_event",
+      "n": 644
+    },
+    {
+      "day": "2026-07-24",
+      "event_type": "climate_window",
+      "n": 654
+    },
+    {
+      "day": "2026-07-24",
+      "event_type": "engagement_window",
+      "n": 1042
+    },
+    {
+      "day": "2026-07-27",
+      "event_type": "behavioral_event",
+      "n": 378
+    },
+    {
+      "day": "2026-07-27",
+      "event_type": "climate_window",
+      "n": 1090
+    },
+    {
+      "day": "2026-07-27",
+      "event_type": "engagement_window",
+      "n": 1680
+    },
+    {
+      "day": "2026-07-28",
+      "event_type": "behavioral_event",
+      "n": 370
+    },
+    {
+      "day": "2026-07-28",
+      "event_type": "climate_window",
+      "n": 1443
+    },
+    {
+      "day": "2026-07-28",
+      "event_type": "engagement_window",
+      "n": 2196
+    },
+    {
+      "day": "2026-07-29",
+      "event_type": "behavioral_event",
+      "n": 107
+    },
+    {
+      "day": "2026-07-29",
+      "event_type": "climate_window",
+      "n": 949
+    },
+    {
+      "day": "2026-07-29",
+      "event_type": "engagement_window",
+      "n": 1487
+    },
+    {
+      "day": "2026-07-30",
+      "event_type": "behavioral_event",
+      "n": 43
+    },
+    {
+      "day": "2026-07-30",
+      "event_type": "climate_window",
+      "n": 638
+    },
+    {
+      "day": "2026-07-30",
+      "event_type": "engagement_window",
+      "n": 1012
+    },
+    {
+      "day": "2026-07-31",
+      "event_type": "behavioral_event",
+      "n": 97
+    },
+    {
+      "day": "2026-07-31",
+      "event_type": "climate_window",
+      "n": 436
+    },
+    {
+      "day": "2026-07-31",
+      "event_type": "engagement_window",
+      "n": 656
+    },
+    {
+      "day": "2026-08-03",
+      "event_type": "behavioral_event",
+      "n": 159
+    },
+    {
+      "day": "2026-08-03",
+      "event_type": "climate_window",
+      "n": 1037
+    },
+    {
+      "day": "2026-08-03",
+      "event_type": "engagement_window",
+      "n": 1541
+    },
+    {
+      "day": "2026-08-31",
+      "event_type": "behavioral_event",
+      "n": 83
+    },
+    {
+      "day": "2026-08-31",
+      "event_type": "climate_window",
+      "n": 289
+    },
+    {
+      "day": "2026-08-31",
+      "event_type": "engagement_window",
+      "n": 441
+    },
+    {
+      "day": "2026-09-01",
+      "event_type": "behavioral_event",
+      "n": 125
+    },
+    {
+      "day": "2026-09-01",
+      "event_type": "climate_window",
+      "n": 520
+    },
+    {
+      "day": "2026-09-01",
+      "event_type": "engagement_window",
+      "n": 766
+    },
+    {
+      "day": "2026-09-03",
+      "event_type": "behavioral_event",
+      "n": 120
+    },
+    {
+      "day": "2026-09-03",
+      "event_type": "climate_window",
+      "n": 883
+    },
+    {
+      "day": "2026-09-03",
+      "event_type": "engagement_window",
+      "n": 1342
+    },
+    {
+      "day": "2026-09-04",
+      "event_type": "climate_window",
+      "n": 3
+    },
+    {
+      "day": "2026-09-04",
+      "event_type": "engagement_window",
+      "n": 3
+    },
+    {
+      "day": "2026-09-10",
+      "event_type": "behavioral_event",
+      "n": 88
+    },
+    {
+      "day": "2026-09-10",
+      "event_type": "climate_window",
+      "n": 625
+    },
+    {
+      "day": "2026-09-10",
+      "event_type": "engagement_window",
+      "n": 885
+    },
+    {
+      "day": "2026-09-11",
+      "event_type": "behavioral_event",
+      "n": 132
+    },
+    {
+      "day": "2026-09-11",
+      "event_type": "climate_window",
+      "n": 852
+    },
+    {
+      "day": "2026-09-11",
+      "event_type": "engagement_window",
+      "n": 1217
+    },
+    {
+      "day": "2026-09-14",
+      "event_type": "attendance_checkin",
+      "n": 1
+    },
+    {
+      "day": "2026-09-14",
+      "event_type": "behavioral_event",
+      "n": 220
+    },
+    {
+      "day": "2026-09-14",
+      "event_type": "climate_window",
+      "n": 1716
+    },
+    {
+      "day": "2026-09-14",
+      "event_type": "engagement_window",
+      "n": 2536
+    },
+    {
+      "day": "2026-09-15",
+      "event_type": "behavioral_event",
+      "n": 30
+    },
+    {
+      "day": "2026-09-15",
+      "event_type": "climate_window",
+      "n": 523
+    },
+    {
+      "day": "2026-09-15",
+      "event_type": "engagement_window",
+      "n": 775
+    },
+    {
+      "day": "2026-09-16",
+      "event_type": "climate_window",
+      "n": 2
+    },
+    {
+      "day": "2026-09-16",
+      "event_type": "engagement_window",
+      "n": 3
+    },
+    {
+      "day": "2026-09-17",
+      "event_type": "behavioral_event",
+      "n": 18
+    },
+    {
+      "day": "2026-09-17",
+      "event_type": "class_session_upsert",
+      "n": 4
+    },
+    {
+      "day": "2026-09-17",
+      "event_type": "climate_window",
+      "n": 224
+    },
+    {
+      "day": "2026-09-17",
+      "event_type": "engagement_window",
+      "n": 336
+    },
+    {
+      "day": "2026-09-17",
+      "event_type": "session_event_upsert",
+      "n": 4
+    },
+    {
+      "day": "2026-09-17",
+      "event_type": "session_report_snapshot",
+      "n": 3
+    }
+  ],
+  "retries_pending": [
+    {
+      "retries": 0,
+      "n": 35902
+    }
+  ],
+  "failed_by_type": [
+    {
+      "event_type": "engagement_window",
+      "n": 12,
+      "avg_retries": 4.0
+    }
+  ],
+  "product_pending": [
+    {
+      "event_type": "class_session_upsert",
+      "n": 4,
+      "min_c": "2026-09-17 16:26:06.162834",
+      "max_c": "2026-09-17 16:26:20.997800"
+    },
+    {
+      "event_type": "session_event_upsert",
+      "n": 4,
+      "min_c": "2026-09-17 16:26:06.165800",
+      "max_c": "2026-09-17 16:26:07.570618"
+    },
+    {
+      "event_type": "session_report_snapshot",
+      "n": 3,
+      "min_c": "2026-09-17 16:26:06.165800",
+      "max_c": "2026-09-17 16:26:10.798305"
+    }
+  ],
+  "oldest_pending": [
+    {
+      "event_id": "5ef2cc3f-1dd8-4276-a8ef-b95b268a1717",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:44:40.838228",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "f10f811a-3808-4f50-856b-92f11b129304",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:44:40.839228",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "6226a0f6-6554-480f-9364-335ec133eb87",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:44:40.839228",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "98dc4b9c-aaac-41b7-9656-303bc74df46c",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:44:40.840210",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "4f657082-ea8c-4d74-b9ea-948ed7c7d6bf",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:44:40.840210",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "5acf6f93-6075-4e6f-80db-b908009569b2",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:55:10.211148",
+      "retries": 0,
+      "payload_bytes": 63
+    },
+    {
+      "event_id": "3d808220-fcfb-45e1-a802-452cf3c76955",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:55:10.213237",
+      "retries": 0,
+      "payload_bytes": 63
+    },
+    {
+      "event_id": "891980c9-b7fa-42fa-8cb1-6c3b0094873c",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:55:10.214156",
+      "retries": 0,
+      "payload_bytes": 63
+    },
+    {
+      "event_id": "7908d255-8a6a-4f9c-b4a6-025391f36658",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:55:10.236293",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "f46f1f59-32d9-4b07-9a11-af68b4352013",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:55:10.237576",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "be7b7ccc-5a80-4a5f-a8d7-c38c64deb419",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:55:10.238289",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "fa71bef3-7ef5-496f-8566-8ce0eb4db43c",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:55:10.238289",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "bed89ac7-9bd1-458c-8cb3-13d927e843f3",
+      "event_type": "test",
+      "created_at": "2026-07-23 12:55:10.239218",
+      "retries": 0,
+      "payload_bytes": 11
+    },
+    {
+      "event_id": "96322c95-3f11-476f-b3fe-c68a286d9099",
+      "event_type": "engagement_window",
+      "created_at": "2026-07-23 13:47:25.329745",
+      "retries": 0,
+      "payload_bytes": 387
+    },
+    {
+      "event_id": "1bcb7db8-a276-486a-8efa-9369ca3ee072",
+      "event_type": "climate_window",
+      "created_at": "2026-07-23 13:47:31.469420",
+      "retries": 0,
+      "payload_bytes": 663
+    },
+    {
+      "event_id": "68037cdc-9503-4a75-9810-5b868dd13168",
+      "event_type": "engagement_window",
+      "created_at": "2026-07-23 13:47:35.513729",
+      "retries": 0,
+      "payload_bytes": 387
+    },
+    {
+      "event_id": "285188c0-5b4f-4439-9902-affbc5457595",
+      "event_type": "engagement_window",
+      "created_at": "2026-07-23 13:47:45.685620",
+      "retries": 0,
+      "payload_bytes": 387
+    },
+    {
+      "event_id": "b4b2ee62-eb43-4867-973c-ef31833479e0",
+      "event_type": "climate_window",
+      "created_at": "2026-07-23 13:47:47.720423",
+      "retries": 0,
+      "payload_bytes": 663
+    },
+    {
+      "event_id": "7f9f7884-bf18-4297-9b1b-e6df66144477",
+      "event_type": "engagement_window",
+      "created_at": "2026-07-23 13:47:55.829904",
+      "retries": 0,
+      "payload_bytes": 387
+    },
+    {
+      "event_id": "010cfe1f-4e12-49b9-8d24-e8f59df9c238",
+      "event_type": "climate_window",
+      "created_at": "2026-07-23 13:48:03.936035",
+      "retries": 0,
+      "payload_bytes": 663
+    }
+  ],
+  "newest_pending": [
+    {
+      "event_id": "session:699f2395-8dcb-48df-aa7b-594fd8d6c43e:active",
+      "event_type": "class_session_upsert",
+      "created_at": "2026-09-17 16:26:20.997800",
+      "retries": 0
+    },
+    {
+      "event_id": "snap:f00d0733-a7f3-4ad0-a35c-4b7c77f43ab9:1789662370:1",
+      "event_type": "session_report_snapshot",
+      "created_at": "2026-09-17 16:26:10.798305",
+      "retries": 0
+    },
+    {
+      "event_id": "session:f00d0733-a7f3-4ad0-a35c-4b7c77f43ab9:ended",
+      "event_type": "class_session_upsert",
+      "created_at": "2026-09-17 16:26:10.795659",
+      "retries": 0
+    },
+    {
+      "event_id": "snap:f00d0733-a7f3-4ad0-a35c-4b7c77f43ab9:1789662367:0",
+      "event_type": "session_report_snapshot",
+      "created_at": "2026-09-17 16:26:07.575615",
+      "retries": 0
+    },
+    {
+      "event_id": "evt:325b7a4d-21ab-4b5f-9c4e-1d6432a68c4a:open",
+      "event_type": "session_event_upsert",
+      "created_at": "2026-09-17 16:26:07.570618",
+      "retries": 0
+    },
+    {
+      "event_id": "evt:51f7c2fe-5cd0-4036-9274-7adce886139f:open",
+      "event_type": "session_event_upsert",
+      "created_at": "2026-09-17 16:26:07.569622",
+      "retries": 0
+    },
+    {
+      "event_id": "evt:bdd7a578-fca7-44df-8c39-f215e4a3ee4f:open",
+      "event_type": "session_event_upsert",
+      "created_at": "2026-09-17 16:26:07.568611",
+      "retries": 0
+    },
+    {
+      "event_id": "session:f00d0733-a7f3-4ad0-a35c-4b7c77f43ab9:active",
+      "event_type": "class_session_upsert",
+      "created_at": "2026-09-17 16:26:07.568099",
+      "retries": 0
+    },
+    {
+      "event_id": "evt:dbfc353d-37d2-42d4-89fd-aca994f2933d:open",
+      "event_type": "session_event_upsert",
+      "created_at": "2026-09-17 16:26:06.165800",
+      "retries": 0
+    },
+    {
+      "event_id": "snap:25fcfe02-4d4d-4128-ba54-2f2fe01425b7:1789662367:0",
+      "event_type": "session_report_snapshot",
+      "created_at": "2026-09-17 16:26:06.165800",
+      "retries": 0
+    },
+    {
+      "event_id": "session:25fcfe02-4d4d-4128-ba54-2f2fe01425b7:active",
+      "event_type": "class_session_upsert",
+      "created_at": "2026-09-17 16:26:06.162834",
+      "retries": 0
+    },
+    {
+      "event_id": "2c05153a-1555-4835-8e40-a54342879097",
+      "event_type": "engagement_window",
+      "created_at": "2026-09-17 14:33:18.119100",
+      "retries": 0
+    },
+    {
+      "event_id": "2359d51a-6cde-469f-b233-82ac121cc280",
+      "event_type": "engagement_window",
+      "created_at": "2026-09-17 14:33:18.119100",
+      "retries": 0
+    },
+    {
+      "event_id": "b049229f-9914-4009-b8a6-420b5bcfa745",
+      "event_type": "climate_window",
+      "created_at": "2026-09-17 14:33:08.299018",
+      "retries": 0
+    },
+    {
+      "event_id": "a678125b-4d55-4341-8140-8920f366c5c6",
+      "event_type": "engagement_window",
+      "created_at": "2026-09-17 14:33:01.996650",
+      "retries": 0
+    },
+    {
+      "event_id": "6f07d65e-2ca0-4d4d-b079-ac3d84ecfb06",
+      "event_type": "climate_window",
+      "created_at": "2026-09-17 14:32:50.614635",
+      "retries": 0
+    },
+    {
+      "event_id": "af082bc8-c4d9-43c8-aeab-e84466c8fbe8",
+      "event_type": "engagement_window",
+      "created_at": "2026-09-17 14:32:50.528733",
+      "retries": 0
+    },
+    {
+      "event_id": "4b0e3433-8c20-46f6-9e19-d6e7197c8d14",
+      "event_type": "engagement_window",
+      "created_at": "2026-09-17 14:32:37.450385",
+      "retries": 0
+    },
+    {
+      "event_id": "4263bc36-af44-4ba4-ac25-57322607211c",
+      "event_type": "climate_window",
+      "created_at": "2026-09-17 14:32:35.233416",
+      "retries": 0
+    },
+    {
+      "event_id": "f066c69a-26d0-4f52-9dcc-1ae182a9bcc5",
+      "event_type": "engagement_window",
+      "created_at": "2026-09-17 14:32:25.947123",
+      "retries": 0
+    }
+  ],
+  "payload_bytes_pending": [
+    {
+      "event_type": "climate_window",
+      "n": 12907,
+      "bytes": 8642776,
+      "avg_bytes": 669.6,
+      "max_bytes": 679,
+      "mb": 8.242
+    },
+    {
+      "event_type": "engagement_window",
+      "n": 20010,
+      "bytes": 7774514,
+      "avg_bytes": 388.5,
+      "max_bytes": 391,
+      "mb": 7.414
+    },
+    {
+      "event_type": "behavioral_event",
+      "n": 2959,
+      "bytes": 3251725,
+      "avg_bytes": 1098.9,
+      "max_bytes": 1620,
+      "mb": 3.101
+    },
+    {
+      "event_type": "session_event_upsert",
+      "n": 4,
+      "bytes": 2996,
+      "avg_bytes": 749.0,
+      "max_bytes": 749,
+      "mb": 0.003
+    },
+    {
+      "event_type": "class_session_upsert",
+      "n": 4,
+      "bytes": 2295,
+      "avg_bytes": 573.8,
+      "max_bytes": 596,
+      "mb": 0.002
+    },
+    {
+      "event_type": "session_report_snapshot",
+      "n": 3,
+      "bytes": 1615,
+      "avg_bytes": 538.3,
+      "max_bytes": 539,
+      "mb": 0.002
+    },
+    {
+      "event_type": "attendance_checkin",
+      "n": 2,
+      "bytes": 872,
+      "avg_bytes": 436.0,
+      "max_bytes": 436,
+      "mb": 0.001
+    },
+    {
+      "event_type": "test",
+      "n": 13,
+      "bytes": 299,
+      "avg_bytes": 23.0,
+      "max_bytes": 63,
+      "mb": 0.0
+    }
+  ],
+  "oldest_10_pending_composition": [
+    {
+      "event_type": "test",
+      "n": 10
+    }
+  ],
+  "oldest_100_pending_composition": [
+    {
+      "event_type": "attendance_checkin",
+      "n": 1
+    },
+    {
+      "event_type": "climate_window",
+      "n": 11
+    },
+    {
+      "event_type": "engagement_window",
+      "n": 75
+    },
+    {
+      "event_type": "test",
+      "n": 13
+    }
+  ],
+  "first_product_pending": {
+    "event_id": "session:25fcfe02-4d4d-4128-ba54-2f2fe01425b7:active",
+    "event_type": "class_session_upsert",
+    "created_at": "2026-09-17 16:26:06.162834"
+  },
+  "pending_ahead_of_first_product": 35891,
+  "sample_failed_errors": [
+    {
+      "event_type": "engagement_window",
+      "last_error": "Max retries exceeded",
+      "n": 12
+    }
+  ],
+  "sent_by_type": [
+    {
+      "event_type": "engagement_window",
+      "n": 2212
+    },
+    {
+      "event_type": "attendance_checkin",
+      "n": 12
+    },
+    {
+      "event_type": "test",
+      "n": 5
+    }
+  ],
+  "telemetry_pending_total": 32917
+}

@@ -1,0 +1,55 @@
+{
+  "source_db": "C:\\Users\\dulin\\OneDrive\\Documentos\\Teste de monitoramento\\Presenca\\data\\dulino_edge.db",
+  "copy_db": "C:\\Users\\dulin\\OneDrive\\Documentos\\Teste de monitoramento\\Presenca\\experiments\\smoke_e2e_sentimentos\\dulino_edge_outbox_fix_copy.db",
+  "before": {
+    "pending_total": 35902,
+    "product_pending": 11,
+    "telemetry_pending": 35891,
+    "pending_by_type": {
+      "attendance_checkin": 2,
+      "behavioral_event": 2959,
+      "class_session_upsert": 4,
+      "climate_window": 12907,
+      "engagement_window": 20010,
+      "session_event_upsert": 4,
+      "session_report_snapshot": 3,
+      "test": 13
+    }
+  },
+  "after": {
+    "pending_total": 35891,
+    "product_pending": 0,
+    "telemetry_pending": 35891,
+    "pending_by_type": {
+      "attendance_checkin": 2,
+      "behavioral_event": 2959,
+      "climate_window": 12907,
+      "engagement_window": 20010,
+      "test": 13
+    }
+  },
+  "lanes_after": {
+    "product_pending": 0,
+    "telemetry_pending": 35891,
+    "ignored_pending": 0,
+    "pending_by_type": {
+      "attendance_checkin": 2,
+      "behavioral_event": 2959,
+      "climate_window": 12907,
+      "engagement_window": 20010,
+      "test": 13
+    }
+  },
+  "sync_rounds": 2,
+  "product_synced": 11,
+  "synced_types": {
+    "class_session_upsert": 4,
+    "session_event_upsert": 4,
+    "session_report_snapshot": 3
+  },
+  "row_count_unchanged": true,
+  "source_row_count": 38143,
+  "copy_row_count": 38143,
+  "telemetry_still_pending": true,
+  "product_drained": true
+}
