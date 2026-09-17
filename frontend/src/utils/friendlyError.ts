@@ -1,18 +1,57 @@
-/** Mensagem amigável; detalhes técnicos só no console. */
-export function toFriendlyError(err: unknown): string {
+/** Mensagens pedagógicas — sem stack/HTTP bruto na UI. */
+export type EdgeConnectivity =
+  | "live"
+  | "reconnecting"
+  | "offline"
+  | "auth"
+  | "permission"
+  | "broken";
+
+export function classifyFetchFailure(err: unknown): EdgeConnectivity {
   const raw = err instanceof Error ? err.message : String(err || "");
-  console.error("[dashboard]", err);
-  if (/Failed to fetch|NetworkError|ERR_CONNECTION|ECONNREFUSED/i.test(raw)) {
-    return "Não foi possível atualizar os dados. Verifique se o servidor está em execução e tente novamente.";
+  const lower = raw.toLowerCase();
+  if (/\b401\b/.test(raw) || /unauthorized|não autentic|not authenticated/i.test(raw)) {
+    return "auth";
   }
-  if (/401|403|Unauthorized|Forbidden/i.test(raw)) {
+  if (/\b403\b/.test(raw) || /forbidden|permiss/i.test(raw)) {
+    return "permission";
+  }
+  // Rede / Edge fora / proxy caiu
+  if (
+    /failed to fetch|networkerror|net::|load failed|econnrefused|connection refused|timeout|aborted/i.test(
+      lower,
+    ) ||
+    /\b502\b|\b503\b|\b504\b/.test(raw)
+  ) {
+    return "offline";
+  }
+  // 500 transitório durante restart do Edge
+  if (/\b500\b|\binternal server error\b/i.test(raw)) {
+    return "reconnecting";
+  }
+  return "broken";
+}
+
+export function toFriendlyError(err: unknown): string {
+  const kind = classifyFetchFailure(err);
+  console.error("[dashboard]", err);
+  if (kind === "auth") {
     return "Não foi possível autenticar. Verifique o token da API nas configurações.";
   }
-  if (/404|Not Found/i.test(raw)) {
-    return "Um recurso solicitado não foi encontrado. Tente novamente em instantes.";
+  if (kind === "permission") {
+    return "Você não tem permissão para esta operação.";
   }
-  if (/500|502|503|Internal Server/i.test(raw)) {
-    return "O servidor encontrou um problema temporário. Tente novamente em instantes.";
+  if (kind === "offline" || kind === "reconnecting") {
+    return "Conexão com a sala temporariamente indisponível.";
   }
-  return "Não foi possível atualizar os dados. Verifique se o servidor está em execução e tente novamente.";
+  return "Não foi possível atualizar os dados agora. Tente novamente em instantes.";
+}
+
+export function connectivityLabel(kind: EdgeConnectivity, wsState?: string): string {
+  if (kind === "live" && wsState === "connected") return "Ao vivo";
+  if (kind === "reconnecting" || wsState === "connecting") return "Reconectando";
+  if (kind === "offline" || wsState === "disconnected") return "Sem conexão";
+  if (kind === "auth") return "Autenticação";
+  if (kind === "permission") return "Sem permissão";
+  return "Indisponível";
 }

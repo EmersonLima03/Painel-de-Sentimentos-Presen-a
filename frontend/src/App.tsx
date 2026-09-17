@@ -6,7 +6,7 @@ import { SchoolView } from "./components/views/SchoolView";
 import { HistoryView } from "./components/views/HistoryView";
 import { SettingsView } from "./components/views/SettingsView";
 import { AdminShellView } from "./components/views/admin/AdminShellView";
-import { LoadingState, ErrorState } from "./components/ui/EmptyState";
+import { LoadingState, ErrorState, DegradedState } from "./components/ui/EmptyState";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useAuth } from "./cloud/AuthContext";
 import { DEMO_BANNER } from "./labels";
@@ -30,6 +30,9 @@ export function App() {
     report,
     perf,
     wsState,
+    edgeState,
+    edgeDegraded,
+    lastUpdateLabel,
     sessionId,
     isDemo,
     reviewFilter,
@@ -77,7 +80,10 @@ export function App() {
       demoBanner={isDemo ? <div className="demo-banner">{DEMO_BANNER}</div> : null}
     >
       {loading && <LoadingState />}
-      {err && !loading && <ErrorState message={err} />}
+      {edgeDegraded && !loading && (
+        <DegradedState lastUpdateLabel={lastUpdateLabel || undefined} />
+      )}
+      {err && !loading && !edgeDegraded && <ErrorState message={err} />}
 
       {!loading && effectiveTab === "live" && (
         <LiveClassView
@@ -92,6 +98,7 @@ export function App() {
           sessionId={sessionId}
           isDemo={isDemo}
           wsState={wsState}
+          edgeState={edgeState}
           timeline={timeline}
           demoControl={demoControl}
           onOpenReport={() => setTab("report")}

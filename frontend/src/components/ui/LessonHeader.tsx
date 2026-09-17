@@ -2,12 +2,14 @@ import { formatClockFromUnix, type AulaMeta } from "../../utils/aulaMeta";
 import { fmtDur } from "../../labels";
 import { LiveStatusBadge } from "./LiveStatusBadge";
 import type { WsState } from "../../types";
+import type { EdgeConnectivity } from "../../utils/friendlyError";
 
 type Props = {
   meta: AulaMeta;
   startedAt?: number | null;
   elapsedSec?: number | null;
   wsState: WsState;
+  edgeState?: EdgeConnectivity;
   runtimeMode?: string;
   sessionId?: string;
 };
@@ -17,6 +19,7 @@ export function LessonHeader({
   startedAt,
   elapsedSec,
   wsState,
+  edgeState,
   runtimeMode,
   sessionId,
 }: Props) {
@@ -33,7 +36,7 @@ export function LessonHeader({
       <div className="lesson-header-main">
         <div className="lesson-title-row">
           <h1 className="lesson-title">{title}</h1>
-          <LiveStatusBadge wsState={wsState} />
+          <LiveStatusBadge wsState={wsState} edgeState={edgeState} />
         </div>
         <p className="lesson-professor">
           {meta.professor ? (

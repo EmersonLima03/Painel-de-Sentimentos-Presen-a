@@ -43,11 +43,34 @@ export function UnavailableState({
   );
 }
 
-export function ErrorState({ message }: { message: string }) {
+export function ErrorState({
+  message,
+  title = "Não foi possível atualizar",
+  hint,
+}: {
+  message: string;
+  title?: string;
+  hint?: string;
+}) {
   return (
     <div className="state-box error-box" role="alert">
-      <strong>Não foi possível atualizar</strong>
+      <strong>{title}</strong>
       <p>{message}</p>
+      {hint ? <p className="state-hint">{hint}</p> : null}
+    </div>
+  );
+}
+
+export function DegradedState({
+  lastUpdateLabel,
+}: {
+  lastUpdateLabel?: string;
+}) {
+  return (
+    <div className="state-box warn-box" role="status">
+      <strong>Conexão com a sala temporariamente indisponível.</strong>
+      <p>Estamos tentando reconectar. Os dados serão atualizados quando a conexão for restabelecida.</p>
+      {lastUpdateLabel ? <p className="state-hint">Última atualização: {lastUpdateLabel}</p> : null}
     </div>
   );
 }

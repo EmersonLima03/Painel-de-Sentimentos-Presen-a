@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Tab, WsState } from "../types";
-import { toFriendlyError } from "../utils/friendlyError";
+import {
+  classifyFetchFailure,
+  toFriendlyError,
+  type EdgeConnectivity,
+} from "../utils/friendlyError";
 
 function apiHeaders(): HeadersInit {
   const token = localStorage.getItem("api_token") || "";
@@ -11,6 +15,15 @@ async function apiGet(path: string) {
   const r = await fetch(path, { headers: apiHeaders() });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   return r.json();
+}
+
+function formatLastUpdate(ts: number | null): string {
+  if (!ts) return "";
+  try {
+    return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
 }
 
 export function useDashboardData() {
@@ -26,11 +39,13 @@ export function useDashboardData() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
   const [wsState, setWsState] = useState<WsState>("connecting");
+  const [edgeState, setEdgeState] = useState<EdgeConnectivity>("reconnecting");
+  const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
   const [reviewFilter, setReviewFilter] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const wsRef = useRef<WebSocket | null>(null);
+  const hadSuccessRef = useRef(false);
 
-  /** overview → live (compat); demais IDs preservados */
   const setTab = useCallback((t: Tab) => {
     setTabRaw(t === "overview" ? "live" : t);
   }, []);
@@ -41,7 +56,6 @@ export function useDashboardData() {
 
   const refresh = useCallback(async () => {
     try {
-      setErr("");
       const st = await apiGet("/api/v1/live/status");
       setStatus(st);
       const sm = await apiGet("/api/v1/live/classroom-summary");
@@ -63,9 +77,21 @@ export function useDashboardData() {
         setReport(rp);
         setPerf(pf);
       }
+      setErr("");
+      setEdgeState("live");
+      setLastSuccessAt(Date.now());
+      hadSuccessRef.current = true;
       setLoading(false);
     } catch (e) {
-      setErr(toFriendlyError(e));
+      const kind = classifyFetchFailure(e);
+      setEdgeState(kind === "broken" ? "broken" : kind);
+      if (kind === "auth" || kind === "permission" || kind === "broken") {
+        setErr(toFriendlyError(e));
+      } else if (hadSuccessRef.current) {
+        setErr("");
+      } else {
+        setErr(toFriendlyError(e));
+      }
       setLoading(false);
     }
   }, []);
@@ -135,6 +161,9 @@ export function useDashboardData() {
   const observable = Number(k.observable_people ?? k.observable ?? 0) || 0;
   const obsPct = visible > 0 ? Math.round((100 * observable) / visible) : null;
 
+  const edgeDegraded = edgeState === "offline" || edgeState === "reconnecting";
+  const lastUpdateLabel = formatLastUpdate(lastSuccessAt);
+
   return {
     tab,
     setTab,
@@ -149,6 +178,9 @@ export function useDashboardData() {
     report,
     perf,
     wsState,
+    edgeState,
+    edgeDegraded,
+    lastUpdateLabel,
     sessionId,
     isDemo,
     reviewFilter,

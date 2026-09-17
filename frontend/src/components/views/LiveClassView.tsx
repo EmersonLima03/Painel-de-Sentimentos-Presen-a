@@ -18,6 +18,7 @@ import {
 import { loadAulaMeta, type AulaMeta } from "../../utils/aulaMeta";
 import { fmtPct } from "../../labels";
 import type { WsState } from "../../types";
+import type { EdgeConnectivity } from "../../utils/friendlyError";
 
 type Props = {
   k: any;
@@ -31,6 +32,7 @@ type Props = {
   sessionId?: string;
   isDemo: boolean;
   wsState: WsState;
+  edgeState?: EdgeConnectivity;
   timeline: any[];
   demoControl: (body: Record<string, unknown>) => Promise<void>;
   onOpenReport: () => void;
@@ -56,6 +58,7 @@ export function LiveClassView({
   sessionId,
   isDemo,
   wsState,
+  edgeState,
   timeline,
   demoControl,
   onOpenReport,
@@ -115,6 +118,7 @@ export function LiveClassView({
         startedAt={startedAt}
         elapsedSec={elapsed}
         wsState={wsState}
+        edgeState={edgeState}
         runtimeMode={status?.runtime_mode}
         sessionId={sessionId}
       />
