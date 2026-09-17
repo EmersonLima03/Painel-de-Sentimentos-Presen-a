@@ -1,0 +1,134 @@
+{
+  "started_at": "2026-09-17T16:26:46.989098+00:00",
+  "phases": {
+    "online": {
+      "session_id": "33ec842c-825e-4db9-8d10-3ee2c8f493ea",
+      "event_id": "fcc25e4a-2e0e-4989-a171-eaab4cb0ae1f",
+      "outbox_before": {
+        "by_status": {
+          "pending": 3
+        },
+        "pending_detail": [
+          {
+            "event_id": "session:33ec842c-825e-4db9-8d10-3ee2c8f493ea:active",
+            "event_type": "class_session_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "evt:fcc25e4a-2e0e-4989-a171-eaab4cb0ae1f:open",
+            "event_type": "session_event_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "snap:33ec842c-825e-4db9-8d10-3ee2c8f493ea:1789662408:0",
+            "event_type": "session_report_snapshot",
+            "status": "pending"
+          }
+        ],
+        "total": 3
+      },
+      "outbox_after": {
+        "by_status": {
+          "sent": 3
+        },
+        "pending_detail": [],
+        "total": 3
+      }
+    },
+    "offline": {
+      "session_id": "73bc6640-aea9-44ec-96d8-d7be24048cb5",
+      "event_ids": [
+        "124017b2-1cc3-4089-891b-2d33e603a048",
+        "b5f1f950-80a4-48ea-bd62-bba4e8713358",
+        "14a899ae-acec-4358-a27b-ba7cb19230b0"
+      ],
+      "duration_s": 2.0,
+      "pending_after_enqueue": {
+        "by_status": {
+          "sent": 3,
+          "pending": 5
+        },
+        "pending_detail": [
+          {
+            "event_id": "session:73bc6640-aea9-44ec-96d8-d7be24048cb5:active",
+            "event_type": "class_session_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "evt:124017b2-1cc3-4089-891b-2d33e603a048:open",
+            "event_type": "session_event_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "evt:b5f1f950-80a4-48ea-bd62-bba4e8713358:open",
+            "event_type": "session_event_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "evt:14a899ae-acec-4358-a27b-ba7cb19230b0:open",
+            "event_type": "session_event_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "snap:73bc6640-aea9-44ec-96d8-d7be24048cb5:1789662411:0",
+            "event_type": "session_report_snapshot",
+            "status": "pending"
+          }
+        ],
+        "total": 8
+      },
+      "pending_after_failed_sync": {
+        "by_status": {
+          "sent": 3,
+          "pending": 5
+        },
+        "pending_detail": [
+          {
+            "event_id": "session:73bc6640-aea9-44ec-96d8-d7be24048cb5:active",
+            "event_type": "class_session_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "evt:124017b2-1cc3-4089-891b-2d33e603a048:open",
+            "event_type": "session_event_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "evt:b5f1f950-80a4-48ea-bd62-bba4e8713358:open",
+            "event_type": "session_event_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "evt:14a899ae-acec-4358-a27b-ba7cb19230b0:open",
+            "event_type": "session_event_upsert",
+            "status": "pending"
+          },
+          {
+            "event_id": "snap:73bc6640-aea9-44ec-96d8-d7be24048cb5:1789662411:0",
+            "event_type": "session_report_snapshot",
+            "status": "pending"
+          }
+        ],
+        "total": 8
+      }
+    },
+    "return_online": {
+      "outbox": {
+        "by_status": {
+          "sent": 10
+        },
+        "pending_detail": [],
+        "total": 10
+      }
+    },
+    "restart": {
+      "created_session_id": "da133a25-0a77-4083-8870-f70fc4b26112",
+      "resumed_session_id": "da133a25-0a77-4083-8870-f70fc4b26112",
+      "same_uuid": true,
+      "duplicate_active": false,
+      "active_count": 1,
+      "ok": true
+    }
+  },
+  "finished_at": "2026-09-17T16:27:40.564560+00:00"
+}

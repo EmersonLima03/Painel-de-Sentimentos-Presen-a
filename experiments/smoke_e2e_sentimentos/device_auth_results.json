@@ -1,0 +1,75 @@
+{
+  "results": [
+    {
+      "test": "T1_valid_token",
+      "http": 200,
+      "status": "inserted",
+      "ok": true
+    },
+    {
+      "test": "T2_invalid_token",
+      "http": 401,
+      "status": "unauthorized",
+      "ok": true
+    },
+    {
+      "test": "T3_revoked_token",
+      "http": 401,
+      "status": "unauthorized",
+      "ok": true,
+      "error": "invalid_or_revoked_token"
+    },
+    {
+      "test": "T4_school_mismatch",
+      "http": 403,
+      "status": "unauthorized",
+      "error": "school_mismatch",
+      "ok": true
+    },
+    {
+      "test": "T5_idempotent_session",
+      "first": {
+        "http": 200,
+        "status": "inserted"
+      },
+      "second": {
+        "http": 200,
+        "status": "inserted"
+      },
+      "session_id": "02aa200b-a925-4bbc-aaee-29c8c2f29c2e",
+      "ok": true
+    },
+    {
+      "test": "T5_idempotent_event",
+      "first": {
+        "http": 200,
+        "status": "inserted"
+      },
+      "second": {
+        "http": 200,
+        "status": "inserted"
+      },
+      "event_id": "7b50644b-24b5-4212-a9c8-a6ea6ae96caf",
+      "ok": true
+    },
+    {
+      "test": "T5_idempotent_snapshot",
+      "first": {
+        "http": 200,
+        "status": "inserted"
+      },
+      "second": {
+        "http": 200,
+        "status": "inserted"
+      },
+      "snapshot_id": "5a545d7b-cfa3-4b72-bae8-6c5523303823",
+      "ok": true
+    }
+  ],
+  "ids": {
+    "session_id": "02aa200b-a925-4bbc-aaee-29c8c2f29c2e",
+    "event_id": "7b50644b-24b5-4212-a9c8-a6ea6ae96caf",
+    "snapshot_id": "5a545d7b-cfa3-4b72-bae8-6c5523303823",
+    "captured_at": "2026-09-17T16:19:31.408586+00:00"
+  }
+}

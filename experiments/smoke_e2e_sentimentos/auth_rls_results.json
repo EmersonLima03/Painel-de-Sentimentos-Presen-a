@@ -1,0 +1,75 @@
+{
+  "results": [
+    {
+      "test": "login_gestor",
+      "ok": true,
+      "email": "gestor.demo@sentimentos.test"
+    },
+    {
+      "test": "login_professor",
+      "ok": true,
+      "email": "professor.demo@sentimentos.test"
+    },
+    {
+      "test": "login_monitor",
+      "ok": true,
+      "email": "monitor.demo@sentimentos.test"
+    },
+    {
+      "test": "gestor_sees_school_a",
+      "ok": true,
+      "schools": [
+        "Escola Demo Sentimentos"
+      ]
+    },
+    {
+      "test": "gestor_denied_school_b",
+      "ok": true,
+      "http": 200,
+      "rows": []
+    },
+    {
+      "test": "gestor_history_sessions",
+      "ok": true,
+      "count": 4,
+      "titles": [
+        "Smoke Restart",
+        "Smoke E2E Offline",
+        "Smoke E2E Online",
+        "Smoke Online Session"
+      ]
+    },
+    {
+      "test": "gestor_cannot_write_school_b",
+      "ok": true,
+      "http": 403
+    },
+    {
+      "test": "professor_only_assigned_classes",
+      "ok": true,
+      "class_ids": [
+        "3f4b690c-d809-4dbb-a471-f5b93db84e1e"
+      ]
+    },
+    {
+      "test": "professor_denied_school_b",
+      "ok": true,
+      "rows": []
+    },
+    {
+      "test": "monitor_cannot_write_students",
+      "ok": true,
+      "http": 403
+    },
+    {
+      "test": "monitor_can_read_school",
+      "ok": true,
+      "schools": [
+        {
+          "name": "Escola Demo Sentimentos"
+        }
+      ]
+    }
+  ],
+  "pass": true
+}

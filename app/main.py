@@ -377,6 +377,9 @@ async def dashboard_review_event(event_id: str, body: ReviewBody, _: None = Depe
 @app.post("/sessions/start")
 async def sessions_start(body: SessionBody, _: None = Depends(require_api_token)):
     from app.utils.ids import generate_event_id
+    from app.services.live_session import get_live_session
+    from app.services.session_persistence import enqueue_class_session_upsert
+    import time as _time
 
     settings = get_settings()
     session = get_session()
@@ -387,12 +390,13 @@ async def sessions_start(body: SessionBody, _: None = Depends(require_api_token)
             return {"session_id": active.session_id, "status": "already_active"}
         sid = generate_event_id()
         room = body.room_id or (settings.cameras[0].room_id if settings.cameras else "DEV")
+        title = body.title or "Sessão manual"
         repo.create_session(
             session_id=sid,
             school_id=settings.school_id,
             room_id=room,
             device_id=settings.device_id,
-            title=body.title or "Sessão manual",
+            title=title,
         )
         if orchestrator:
             orchestrator.active_session_id = sid
@@ -402,6 +406,13 @@ async def sessions_start(body: SessionBody, _: None = Depends(require_api_token)
                 b.set_session_id(sid)
             for c in orchestrator.climate_analytics.values():
                 c.session_id = sid
+        get_live_session().bind_session_id(sid)
+        enqueue_class_session_upsert(
+            session_id=sid,
+            status="active",
+            started_at=_time.time(),
+            title=title,
+        )
         return {"session_id": sid, "status": "active"}
     finally:
         close_session(session)
@@ -409,11 +420,44 @@ async def sessions_start(body: SessionBody, _: None = Depends(require_api_token)
 
 @app.post("/sessions/{session_id}/end")
 async def sessions_end(session_id: str, _: None = Depends(require_api_token)):
+    from app.db.models import ClassSession
+    from app.services.session_persistence import enqueue_class_session_upsert, enqueue_report_snapshot
+    from app.services.live_session import get_live_session
+    import time as _time
+
     session = get_session()
     try:
-        ok = ClassSessionRepository(session).end_session(session_id)
+        repo = ClassSessionRepository(session)
+        row = session.query(ClassSession).filter(ClassSession.session_id == session_id).first()
+        ok = repo.end_session(session_id)
         if not ok:
             raise HTTPException(404, "session not found")
+        started = _time.time()
+        title = None
+        if row is not None:
+            title = getattr(row, "title", None)
+            if getattr(row, "started_at", None) is not None:
+                try:
+                    started = row.started_at.timestamp()
+                except Exception:
+                    pass
+        enqueue_class_session_upsert(
+            session_id=session_id,
+            status="ended",
+            started_at=started,
+            ended_at=_time.time(),
+            title=title,
+        )
+        try:
+            live = get_live_session()
+            report = live.build_report({})
+        except Exception:
+            report = {"status": "ended", "session_id": session_id}
+        enqueue_report_snapshot(
+            session_id=session_id,
+            report=report if isinstance(report, dict) else {"status": "ended"},
+            is_final=True,
+        )
         return {"ok": True, "session_id": session_id, "status": "ended"}
     finally:
         close_session(session)

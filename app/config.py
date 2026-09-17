@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     school_id: str = Field(default="1", env="SCHOOL_ID")
     
     # Supabase
+    supabase_url: str = Field(default="", env="SUPABASE_URL")  # project URL (não usar no browser com service_role)
     supabase_ingest_url: str = Field(default="", env="SUPABASE_INGEST_URL")
     supabase_anon_key: str = Field(default="", env="SUPABASE_ANON_KEY")  # Para passar validação inicial
     cloud_organization_id: str = Field(default="", env="CLOUD_ORGANIZATION_ID")

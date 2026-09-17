@@ -73,3 +73,15 @@ Thumbs.db
 
 supabase/.temp/
 
+
+.env.smoke.local
+.env*.local
+
+
+frontend/.env.local
+
+scripts/_smoke_provision_auth.sql
+
+experiments/smoke_e2e_sentimentos/*.db
+
+experiments/smoke_e2e_sentimentos/smoke_edge.db
