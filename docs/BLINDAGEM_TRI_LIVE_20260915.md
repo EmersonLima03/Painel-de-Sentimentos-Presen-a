@@ -66,6 +66,8 @@ Se o patch tocar oclusão: incluir **L**. Não reabrir EX−/VGAF no perfil TRI.
 
 **Encerramento TRI:** A LIVE ✅ + sentinelas ✅ + pytest contratos ✅ + confirmação humana final → só então tag estável.
 
+**Guarda phone YOLO (2026-09-17):** qualquer edição em `app/vision/phone_yolo.py` deve passar `tests/test_phone_yolo_module_guard.py` (import/AST). Ver [`FIX_PHONE_YOLO_INDENT_20260917.md`](FIX_PHONE_YOLO_INDENT_20260917.md). IndentationError no módulo = celular morto com resto do pipeline “ok”.
+
 ## KEEP / NEVER (resumo)
 
 Ver também [`LIVE_E1_E2_P_20260915.md`](LIVE_E1_E2_P_20260915.md).
