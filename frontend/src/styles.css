@@ -1411,3 +1411,53 @@ code { font-size: 0.85em; }
 }
 
 
+
+.admin-shell { max-width: 1100px; }
+.admin-layout {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+.admin-subnav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.admin-content { padding: var(--space-4); }
+.admin-toolbar { margin-bottom: 12px; }
+.admin-toolbar input { width: min(320px, 100%); padding: 8px 10px; }
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 12px 0;
+}
+.admin-table th, .admin-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 6px;
+  text-align: left;
+  vertical-align: middle;
+}
+.admin-form {
+  display: grid;
+  gap: 10px;
+  max-width: 420px;
+  margin-top: 16px;
+}
+.admin-form label { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+.admin-form input, .admin-form select, .admin-toolbar input,
+.admin-table input, .admin-table select {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+}
+.ok-text { color: #7dcea0; }
+.admin-school-switch { display: flex; gap: 8px; align-items: center; font-size: 0.85rem; }
+.muted.small { font-size: 0.75rem; }
+@media (max-width: 900px) {
+  .admin-layout { grid-template-columns: 1fr; }
+}

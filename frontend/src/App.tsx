@@ -5,14 +5,17 @@ import { ReportView } from "./components/views/ReportView";
 import { SchoolView } from "./components/views/SchoolView";
 import { HistoryView } from "./components/views/HistoryView";
 import { SettingsView } from "./components/views/SettingsView";
+import { AdminShellView } from "./components/views/admin/AdminShellView";
 import { LoadingState, ErrorState } from "./components/ui/EmptyState";
 import { useDashboardData } from "./hooks/useDashboardData";
+import { useAuth } from "./cloud/AuthContext";
 import { DEMO_BANNER } from "./labels";
 import type { Tab } from "./types";
 
 const QA_QUERY = new URLSearchParams(window.location.search).get("qa") === "1";
 
 export function App() {
+  const auth = useAuth();
   const {
     tab,
     setTab,
@@ -50,6 +53,10 @@ export function App() {
     { id: "settings", label: "Configurações" },
   ];
 
+  const adminItems: { id: Tab; label: string }[] = auth.email
+    ? [{ id: "admin", label: auth.isGestor ? "Administração" : "Minhas turmas" }]
+    : [];
+
   const qaItems: { id: Tab; label: string }[] = QA_QUERY
     ? [
         { id: "students", label: "Alunos (QA)" },
@@ -65,6 +72,7 @@ export function App() {
       active={effectiveTab}
       onNavigate={setTab}
       productItems={productItems}
+      adminItems={adminItems}
       qaItems={qaItems}
       demoBanner={isDemo ? <div className="demo-banner">{DEMO_BANNER}</div> : null}
     >
@@ -111,6 +119,8 @@ export function App() {
       {!loading && effectiveTab === "settings" && (
         <SettingsView status={status} qaEnabled={QA_QUERY} />
       )}
+
+      {!loading && effectiveTab === "admin" && <AdminShellView />}
 
       {effectiveTab === "students" && QA_QUERY && (
         <section>

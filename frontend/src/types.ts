@@ -8,6 +8,7 @@ export type Tab =
   | "system"
   | "school"
   | "history"
-  | "settings";
+  | "settings"
+  | "admin";
 
 export type WsState = "connecting" | "connected" | "disconnected";

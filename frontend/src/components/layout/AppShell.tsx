@@ -8,6 +8,7 @@ type Props = {
   active: Tab;
   onNavigate: (tab: Tab) => void;
   productItems: NavItem[];
+  adminItems?: NavItem[];
   qaItems?: NavItem[];
   demoBanner?: React.ReactNode;
   children: React.ReactNode;
@@ -17,6 +18,7 @@ export function AppShell({
   active,
   onNavigate,
   productItems,
+  adminItems,
   qaItems,
   demoBanner,
   children,
@@ -38,6 +40,7 @@ export function AppShell({
         active={active}
         onNavigate={onNavigate}
         productItems={productItems}
+        adminItems={adminItems}
         qaItems={qaItems}
         open={menuOpen}
         onClose={() => setMenuOpen(false)}

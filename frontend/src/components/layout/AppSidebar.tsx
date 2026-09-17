@@ -10,12 +10,21 @@ type Props = {
   active: Tab;
   onNavigate: (tab: Tab) => void;
   productItems: NavItem[];
+  adminItems?: NavItem[];
   qaItems?: NavItem[];
   open?: boolean;
   onClose?: () => void;
 };
 
-export function AppSidebar({ active, onNavigate, productItems, qaItems = [], open, onClose }: Props) {
+export function AppSidebar({
+  active,
+  onNavigate,
+  productItems,
+  adminItems = [],
+  qaItems = [],
+  open,
+  onClose,
+}: Props) {
   const go = (id: Tab) => {
     onNavigate(id);
     onClose?.();
@@ -45,6 +54,22 @@ export function AppSidebar({ active, onNavigate, productItems, qaItems = [], ope
             </button>
           ))}
         </nav>
+        {adminItems.length > 0 && (
+          <div className="sidebar-qa">
+            <div className="sidebar-section-label">Administração</div>
+            {adminItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`sidebar-item ${active === item.id ? "active" : ""}`}
+                onClick={() => go(item.id)}
+                aria-current={active === item.id ? "page" : undefined}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )}
         {qaItems.length > 0 && (
           <div className="sidebar-qa">
             <div className="sidebar-section-label">Ferramentas internas</div>
