@@ -89,7 +89,10 @@ export function ReportView({ report, summary: _summary, students, events, tracks
   if (!report) {
     return (
       <section>
-        <PageHeader title="Relatório da aula" subtitle="Respostas acumuladas da sessão" />
+        <PageHeader
+          title="Relatório da sessão atual"
+          subtitle="Dados em memória nesta execução — restart do servidor pode zerar o acumulado"
+        />
         <EmptyState
           title="Aguardando dados da sessão"
           message="Ainda não há dados nesta sessão. Deixe a câmera rodar alguns minutos."
@@ -112,8 +115,8 @@ export function ReportView({ report, summary: _summary, students, events, tracks
   return (
     <section className="report-view">
       <PageHeader
-        title="Relatório da aula"
-        subtitle="Resumo pedagógico da sessão — sem diagnóstico nem ranking"
+        title="Relatório da sessão atual"
+        subtitle="Resumo pedagógico da sessão em memória — sem diagnóstico nem ranking"
         runtimeMode={status?.runtime_mode}
         sessionId={report.session_id}
         elapsed={report.duration_seconds}
@@ -245,7 +248,7 @@ export function ReportView({ report, summary: _summary, students, events, tracks
       {section === "climate" && (
         <div className="panel report-tab-panel">
           <SectionHeader
-            title="Clima visual aparente"
+            title="Expressões aparentes"
             subtitle="Estimativa agregada — não é diagnóstico emocional"
           />
           <p>

@@ -6,6 +6,7 @@ import { UnavailableState, EmptyState } from "../ui/EmptyState";
 import { SectionHeader } from "../ui/SectionHeader";
 import { collectReviewEvents, isPendingReview } from "../../utils/events";
 import { eventTypePt } from "../../labels";
+import { CloudHistoryPanel } from "../../cloud/CloudHistoryPanel";
 
 type Props = {
   events: any[];
@@ -25,9 +26,11 @@ export function HistoryView({ events, tracks, report }: Props) {
 
   return (
     <section className="history-view">
+      <CloudHistoryPanel />
+
       <PageHeader
-        title="Histórico"
-        subtitle="Relatórios semanais e mensais — preparação visual sem dados inventados"
+        title="Sessão atual (edge)"
+        subtitle="Pendências locais em memória — distinto do histórico cloud"
       />
 
       <div className="period-toggle" role="group" aria-label="Período">
@@ -50,8 +53,8 @@ export function HistoryView({ events, tracks, report }: Props) {
       </div>
 
       <UnavailableState
-        title="Agregação histórica indisponível"
-        message={`Ainda não há dados ${period === "week" ? "semanais" : "mensais"} agregados neste dispositivo. Os indicadores abaixo não mostram zeros como se fossem medições reais.`}
+        title="Histórico longitudinal ainda não disponível"
+        message={`A sessão atual vive em memória. Quando as aulas forem persistidas, o histórico ${period === "week" ? "semanal" : "mensal"} aparecerá aqui — sem dados simulados.`}
       />
 
       <div className="metric-row">

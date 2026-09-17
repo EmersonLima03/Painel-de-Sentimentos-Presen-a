@@ -57,7 +57,7 @@ export function SchoolView({ active }: Props) {
     <section className="school-view">
       <PageHeader
         title="Visão da escola"
-        subtitle="Visão operacional do dispositivo local — agregação multi-turma ainda não disponível"
+        subtitle="Dispositivo local — visão multi-turma completa fica para fases posteriores (sem dados inventados)"
       />
 
       {loading && <LoadingState label="Carregando visão da escola…" />}

@@ -2,6 +2,52 @@
  * Deduplica eventos por event_id.
  * Não some o mesmo evento vindo de tracks[].active_events, events[], KPIs ou relatório.
  */
+
+/** Evento ainda aberto (Atenção agora) — não confundir com revisão posterior. */
+export function isActiveNowEvent(ev: any): boolean {
+  const life = String(ev?.lifecycle || "").toLowerCase();
+  if (life === "closed" || life === "ended") return false;
+  if (ev?.ended_at != null || ev?.closed_at != null) return false;
+  if (life === "opened" || life === "updated" || life === "active") return true;
+  // active_events nos tracks costumam ser abertos mesmo sem lifecycle
+  return true;
+}
+
+export function trackHasAttentionNow(track: any): boolean {
+  const active = track?.active_events || track?.alert_events || [];
+  if (Array.isArray(active) && active.some(isActiveNowEvent)) return true;
+  if (track?.alert_type) return true;
+  return false;
+}
+
+/** Alunos com sinais ativos neste momento (KPI / ordenação). */
+export function collectAttentionNow(tracks: any[]): any[] {
+  const out: any[] = [];
+  const seen = new Set<string>();
+  for (const t of tracks || []) {
+    if (!trackHasAttentionNow(t)) continue;
+    const active = (t.active_events || t.alert_events || []).filter(isActiveNowEvent);
+    const key = String(t.student_id || t.person_track_id || t.track_id || "");
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    const primary = active[0] || { event_type: t.alert_type };
+    out.push({
+      ...primary,
+      event_id: primary.event_id || primary.id,
+      full_name: t.full_name,
+      student_id: t.student_id,
+      person_track_id: t.person_track_id || t.track_id,
+      duration_seconds: primary.duration_seconds,
+      _track: t,
+    });
+  }
+  return out;
+}
+
+export function countAttentionNow(tracks: any[]): number {
+  return collectAttentionNow(tracks).length;
+}
+
 export function dedupeEventsById(lists: any[][]): any[] {
   const seen = new Set<string>();
   const out: any[] = [];

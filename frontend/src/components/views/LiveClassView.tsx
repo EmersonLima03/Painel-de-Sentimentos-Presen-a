@@ -1,16 +1,21 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ClimateBars } from "../ClimateBars";
 import { MetricCard } from "../ui/MetricCard";
 import { FilterBar } from "../ui/FilterBar";
 import { Pagination } from "../ui/Pagination";
 import { StudentCompactCard } from "../ui/StudentCompactCard";
-import { ReviewEventCard } from "../ui/ReviewEventCard";
+import { AttentionNowCard } from "../ui/AttentionNowCard";
+import { LessonHeader } from "../ui/LessonHeader";
 import { SessionTimeline } from "../ui/SessionTimeline";
 import { SectionHeader } from "../ui/SectionHeader";
 import { EmptyState } from "../ui/EmptyState";
-import { PageHeader } from "../layout/PageHeader";
 import { useLiveFilters } from "../../hooks/useLiveFilters";
-import { collectReviewEvents, countReviewEvents, isPendingReview } from "../../utils/events";
+import {
+  collectAttentionNow,
+  countAttentionNow,
+  countReviewEvents,
+} from "../../utils/events";
+import { loadAulaMeta, type AulaMeta } from "../../utils/aulaMeta";
 import { fmtPct } from "../../labels";
 import type { WsState } from "../../types";
 
@@ -33,10 +38,10 @@ type Props = {
 
 const FILTERS = [
   { id: "all", label: "Todos" },
-  { id: "present", label: "Presentes" },
+  { id: "present", label: "Em sala" },
+  { id: "attention", label: "Atenção" },
   { id: "for_review", label: "Para revisão" },
   { id: "inconclusive", label: "Inconclusivos" },
-  { id: "not_visible", label: "Não visíveis" },
 ];
 
 export function LiveClassView({
@@ -56,12 +61,27 @@ export function LiveClassView({
   onOpenReport,
 }: Props) {
   const [camOpen, setCamOpen] = useState(false);
+  const [aulaMeta, setAulaMeta] = useState<AulaMeta>(() => loadAulaMeta());
+  const [focusKey, setFocusKey] = useState<string | null>(null);
   const liveFilters = useLiveFilters(tracks);
+
+  useEffect(() => {
+    const onStorage = () => setAulaMeta(loadAulaMeta());
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("presenca-aula-meta", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("presenca-aula-meta", onStorage);
+    };
+  }, []);
 
   const present = k.recognized_people ?? k.present;
   const visible = k.visible_people ?? k.visible ?? tracks.length;
   const observable = k.observable_people ?? k.observable;
   const inconclusive = k.inconclusive_people ?? k.inconclusive;
+
+  const attentionNowCount = countAttentionNow(tracks);
+  const attentionList = useMemo(() => collectAttentionNow(tracks).slice(0, 12), [tracks]);
 
   const reviewCount = countReviewEvents({
     tracks,
@@ -70,22 +90,36 @@ export function LiveClassView({
     kpiActiveEvents: status?.kpis?.active_events ?? k.active_behavioral_signals,
   });
 
-  const reviewList = collectReviewEvents(tracks, events).filter(isPendingReview).slice(0, 12);
+  const startedAt = status?.session?.started_at;
+  const coverage =
+    present != null && present > 0 && observable != null
+      ? Math.round((100 * Number(observable)) / Number(present))
+      : obsPct != null
+        ? Math.round(obsPct)
+        : null;
+
+  const onFocusStudent = (key: string) => {
+    setFocusKey(key);
+    liveFilters.setSearch("");
+    liveFilters.setFilter("all");
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`student-${key}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  };
 
   return (
-    <section className="live-class-view">
-      <PageHeader
-        title="Visão ao vivo da turma"
-        subtitle="Presença e observação assistida — indicadores estimados"
+    <section className="live-class-view live-class-v2">
+      <LessonHeader
+        meta={aulaMeta}
+        startedAt={startedAt}
+        elapsedSec={elapsed}
         wsState={wsState}
-        showLive
-        elapsed={elapsed}
         runtimeMode={status?.runtime_mode}
         sessionId={sessionId}
-        updatedHint="Atualização a cada ~2 s"
       />
 
-      <div className="metric-row">
+      <div className="metric-row metric-row-primary">
         <MetricCard
           label="Presentes"
           value={present != null ? present : "—"}
@@ -93,46 +127,48 @@ export function LiveClassView({
           tone="primary"
         />
         <MetricCard
-          label="Visíveis agora"
-          value={visible != null ? visible : "—"}
-          sub="Detectados no enquadramento"
+          label="Fora agora"
+          value="—"
+          unavailable
         />
         <MetricCard
-          label="Observáveis"
-          value={
-            observable != null
-              ? observable
-              : obsPct != null
-                ? fmtPct(obsPct)
-                : "—"
-          }
-          sub={
-            obsPct != null && observable != null
-              ? `${fmtPct(obsPct)} com qualidade adequada`
-              : "Com qualidade adequada"
-          }
-        />
-        <MetricCard
-          label="Inconclusivos"
-          value={inconclusive != null ? inconclusive : "—"}
-          sub="Observação pausada ou parcial"
+          label="Atenção agora"
+          value={attentionNowCount}
+          sub="Alunos com sinais ativos neste momento"
+          tone={attentionNowCount > 0 ? "warn" : "default"}
         />
         <MetricCard
           label="Para revisão"
           value={reviewCount}
-          sub="Eventos pendentes de verificação"
+          sub="Ocorrências para conferência posterior"
           tone={reviewCount > 0 ? "warn" : "default"}
         />
+      </div>
+
+      <div className="obs-quality-strip" aria-label="Qualidade da observação">
+        <strong>Qualidade da observação</strong>
+        <span>
+          {observable != null && present != null
+            ? `${observable} de ${present} com leitura adequada`
+            : observable != null
+              ? `${observable} com leitura adequada`
+              : "Aguardando leituras adequadas"}
+          {inconclusive != null ? ` · ${inconclusive} leitura(s) inconclusiva(s)` : ""}
+          {coverage != null ? ` · Cobertura estimada: ${fmtPct(coverage)}` : ""}
+        </span>
+        {visible != null && (
+          <span className="muted obs-quality-extra">Visíveis no enquadramento agora: {visible}</span>
+        )}
       </div>
 
       <div className="live-split">
         <div className="live-main-col">
           <SectionHeader
             title="Alunos"
-            subtitle="Grade compacta — presente ≠ visível ≠ observável"
+            subtitle="Quem está na sessão e quem merece atenção agora"
             actions={
               <button type="button" className="btn" onClick={onOpenReport}>
-                Abrir relatório da aula
+                Relatório da sessão atual
               </button>
             }
           />
@@ -145,23 +181,31 @@ export function LiveClassView({
           />
           {liveFilters.total === 0 ? (
             <EmptyState
-              title="Nenhuma pessoa correspondente"
+              title={
+                tracks.length === 0
+                  ? "Nenhum aluno identificado ainda"
+                  : "Nenhum aluno corresponde aos filtros"
+              }
               message={
                 tracks.length === 0
-                  ? "Ainda não há dados nesta sessão. Aguarde detecções da câmera."
-                  : "Nenhum aluno corresponde aos filtros."
+                  ? "Os alunos aparecerão aqui assim que forem identificados. Aguardando leitura da sala…"
+                  : "Ajuste a busca ou o filtro para ver outros alunos."
               }
             />
           ) : (
             <>
               <div className="student-grid compact live-student-grid">
-                {liveFilters.pageItems.map((tr) => (
-                  <StudentCompactCard
-                    key={tr.track_id || tr.person_track_id || tr.student_id}
-                    track={tr}
-                    compact
-                  />
-                ))}
+                {liveFilters.pageItems.map((tr) => {
+                  const key = String(tr.student_id || tr.person_track_id || tr.track_id || "");
+                  return (
+                    <StudentCompactCard
+                      key={key || tr.track_id}
+                      track={tr}
+                      compact
+                      highlight={focusKey != null && key === focusKey}
+                    />
+                  );
+                })}
               </div>
               <Pagination
                 page={liveFilters.page}
@@ -172,38 +216,61 @@ export function LiveClassView({
             </>
           )}
 
-          <div className="panel" style={{ marginTop: 16 }}>
-            <SectionHeader title="Clima visual aparente" subtitle="Distribuição estimada agora" />
-            <ClimateBars distribution={climateDist} dominant={k.apparent_climate ?? k.climate} />
+          <div className="panel panel-soft" style={{ marginTop: 16 }}>
+            <SectionHeader
+              title="Expressões aparentes da turma"
+              subtitle="Distribuição estimada entre alunos com leitura válida — não é estado psicológico"
+            />
+            <ClimateBars
+              distribution={climateDist}
+              dominant={k.apparent_climate ?? k.climate}
+              pedagogical
+            />
           </div>
         </div>
 
         <aside className="live-side-col">
-          <SectionHeader title="Eventos para revisão" subtitle="Sinais visuais — não são afirmações absolutas" />
-          {reviewList.length === 0 ? (
+          <SectionHeader
+            title="Atenção agora"
+            subtitle="Sinais acontecendo neste momento"
+          />
+          {attentionList.length === 0 ? (
             <EmptyState
-              title="Nenhum evento pendente"
-              message="Nenhuma ocorrência para revisão no momento."
+              title="Nenhum sinal que demande atenção agora"
+              message="Quando houver uso aparente de celular, atenção baixa ou olhos fechados, a ocorrência aparece aqui."
             />
           ) : (
-            <div className="review-list">
-              {reviewList.map((ev, i) => (
-                <ReviewEventCard key={ev.event_id || i} event={ev} />
+            <div className="attention-now-list">
+              {attentionList.map((ev, i) => (
+                <AttentionNowCard
+                  key={ev.event_id || i}
+                  item={ev}
+                  onFocusStudent={onFocusStudent}
+                />
               ))}
             </div>
           )}
+          <p className="side-review-hint muted">
+            Para revisão (conferência posterior): <strong>{reviewCount}</strong>
+            {reviewCount > 0 ? " — veja também o relatório da sessão." : ""}
+          </p>
         </aside>
       </div>
 
-      <div className="panel" style={{ marginTop: 16 }}>
-        <SectionHeader title="Linha do tempo" subtitle="Últimos minutos da sessão" />
+      <div className="panel panel-soft" style={{ marginTop: 16 }}>
+        <SectionHeader
+          title="O que aconteceu nesta aula"
+          subtitle="Ocorrências registradas na sessão atual"
+        />
         <SessionTimeline
           climateTimeline={report?.climate_timeline}
           sessionTimeline={timeline}
+          events={events}
+          preferEvents
         />
       </div>
 
-      <div className="panel" style={{ marginTop: 16 }}>
+      <div className="panel panel-soft" style={{ marginTop: 16 }}>
         <SectionHeader
           title="Câmera"
           subtitle="Prévia opcional — visão técnica permanece em /debug/vision"

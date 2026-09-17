@@ -79,15 +79,62 @@ export function fmtDur(sec: number | null | undefined): string {
 
 export function eventTypePt(t: string | undefined): string {
   const map: Record<string, string> = {
-    possible_drowsiness: "Fechamento prolongado dos olhos observado",
-    probable_drowsiness: "Sinais mais consistentes de olhos fechados",
-    possible_phone_interaction: "Possível interação com celular",
-    probable_phone_interaction: "Provável interação com celular",
-    low_visual_attention: "Baixa atenção visual observada",
-    head_down_persistent: "Cabeça baixa ou apoiada",
-    face_occluded_persistent: "Observação inconclusiva (rosto parcialmente coberto)",
+    possible_drowsiness: "Sinal compatível com olhos fechados",
+    probable_drowsiness: "Sinal mais consistente de olhos fechados",
+    possible_phone_interaction: "Uso aparente de celular",
+    probable_phone_interaction: "Uso aparente de celular",
+    low_visual_attention: "Sinal de atenção baixa",
+    head_down_persistent: "Sinal de cabeça baixa",
+    face_occluded_persistent: "Rosto parcialmente coberto (leitura limitada)",
   };
-  return (t && map[t]) || t || "Evento";
+  return (t && map[t]) || t || "Ocorrência observada";
+}
+
+/** Rótulo curto para cards (sem jargão técnico). */
+export function eventTypePtShort(t: string | undefined): string {
+  return eventTypePt(t);
+}
+
+export function attnStatePt(raw: string | undefined): string {
+  switch (raw) {
+    case "high":
+      return "Atenção: estável";
+    case "moderate":
+      return "Atenção: moderada";
+    case "low":
+      return "Sinal de atenção baixa";
+    case "inconclusive":
+      return "Atenção: leitura inconclusiva";
+    default:
+      return "Atenção: sem dado";
+  }
+}
+
+export function phoneStatePt(raw: string | undefined): string {
+  const s = String(raw || "").toLowerCase();
+  if (!s || s === "not_detected" || s === "none") return "Celular: sem sinal atual";
+  if (s.includes("probable") || s.includes("possible") || s === "phone_in_hand") {
+    return "Uso aparente de celular";
+  }
+  if (s.includes("near")) return "Celular: próximo (sem uso confirmado)";
+  return "Celular: sinal observado";
+}
+
+export function qualityReadingPt(raw: string | undefined): string {
+  switch (raw) {
+    case "observable":
+      return "Qualidade da leitura: boa";
+    case "partially_observable":
+      return "Qualidade da leitura: parcial";
+    case "low_quality":
+      return "Qualidade da leitura: limitada";
+    case "inconclusive":
+      return "Qualidade da leitura: inconclusiva";
+    case "not_visible":
+      return "Não localizado neste enquadramento";
+    default:
+      return "Qualidade da leitura: —";
+  }
 }
 
 export const DISCLAIMER =

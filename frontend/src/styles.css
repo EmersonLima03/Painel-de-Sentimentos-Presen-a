@@ -1215,3 +1215,199 @@ button:disabled,
 .timeline-event-list { margin: 0; padding-left: 18px; font-size: 0.85rem; }
 code { font-size: 0.85em; }
 
+/* —— Fase 1: Ao vivo pedagógico —— */
+.lesson-header {
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.lesson-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.lesson-title {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+}
+.lesson-professor {
+  margin: 8px 0 0;
+  font-size: 0.95rem;
+}
+.lesson-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.lesson-dot {
+  margin: 0 8px;
+  opacity: 0.5;
+}
+.lesson-tech {
+  margin-top: 10px;
+  font-size: 0.78rem;
+}
+.lesson-tech summary {
+  cursor: pointer;
+  color: var(--muted);
+  list-style: none;
+}
+.lesson-tech summary::-webkit-details-marker { display: none; }
+.lesson-tech[open] summary { margin-bottom: 4px; }
+
+.metric-row-primary {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+@media (max-width: 1100px) {
+  .metric-row-primary {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+}
+
+.obs-quality-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: var(--panel2);
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid transparent;
+  font-size: 0.88rem;
+}
+.obs-quality-strip strong {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  width: 100%;
+}
+.obs-quality-extra { font-size: 0.8rem; }
+
+.panel-soft {
+  border-color: transparent;
+  background: rgba(15, 28, 40, 0.65);
+  box-shadow: none;
+}
+
+.attention-now-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.attention-now-card {
+  background: var(--panel2);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 12px 12px 10px;
+}
+.anc-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+.anc-name { font-size: 0.95rem; }
+.anc-dur { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.anc-signal {
+  margin: 6px 0 0;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.anc-btn { margin-top: 8px; padding: 4px 8px; font-size: 0.8rem; }
+.side-review-hint {
+  margin-top: 14px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.student-compact {
+  border-width: 1px;
+  border-color: transparent;
+  background: var(--panel2);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.student-compact.has-alert {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.08), var(--panel2));
+}
+.student-compact.sc-highlight {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.sc-line {
+  font-size: 0.8rem;
+  margin-top: 2px;
+  line-height: 1.35;
+}
+.sc-alert-line {
+  margin-top: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fbbf24;
+}
+.sc-alert-dur { font-weight: 500; color: var(--muted); }
+
+.timeline-event-list.lesson-events {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.timeline-event-list.lesson-events li {
+  display: flex;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.88rem;
+}
+.tle-when {
+  flex: 0 0 52px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tle-body { flex: 1; }
+.timeline-quality-details {
+  margin-top: 12px;
+  font-size: 0.8rem;
+}
+.timeline-quality-details summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.settings-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.settings-fieldset legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.settings-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 0.9rem;
+}
+.settings-note { margin-top: 10px; font-size: 0.8rem; max-width: 42rem; }
+
+@media (max-width: 900px) {
+  .live-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+
