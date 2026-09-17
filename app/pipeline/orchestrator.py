@@ -252,9 +252,22 @@ class PipelineOrchestrator:
         try:
             from app.db.repo import ClassSessionRepository
             from app.utils.ids import generate_event_id
+            from app.services.live_session import get_live_session
+            from app.services.session_persistence import (
+                enqueue_class_session_upsert,
+                enqueue_device_heartbeat,
+            )
+            from datetime import datetime
 
             sess_repo = ClassSessionRepository(session)
             active = sess_repo.get_active()
+            orphan_hours = float(getattr(self.settings, "session_orphan_hours", 12) or 12)
+            if active:
+                age_h = (datetime.utcnow() - active.started_at).total_seconds() / 3600.0
+                if age_h > orphan_hours:
+                    sess_repo.end_session(active.session_id)
+                    logger.info("class_session_orphan_ended", session_id=active.session_id, age_h=age_h)
+                    active = None
             if active:
                 self.active_session_id = active.session_id
             else:
@@ -269,6 +282,16 @@ class PipelineOrchestrator:
                 )
                 self.active_session_id = sid
                 logger.info("class_session_auto_started", session_id=sid)
+                enqueue_class_session_upsert(
+                    session_id=sid,
+                    status="active",
+                    started_at=time.time(),
+                    title="Sessão automática",
+                )
+            # Unifica LiveSessionStore ↔ ClassSession
+            if self.active_session_id:
+                get_live_session().bind_session_id(self.active_session_id)
+            enqueue_device_heartbeat()
         except Exception as e:
             logger.warning("class_session_init_failed", error=str(e))
 
@@ -560,6 +583,7 @@ class PipelineOrchestrator:
                 event_repo = EventRepository(session)
                 event_id = event.get("event_id") or generate_event_id()
                 event["event_id"] = event_id
+                event["session_id"] = self.active_session_id
                 started = float(event.get("started_at") or time.time())
                 ended = float(event.get("ended_at") or started)
                 if lifecycle == "opened":
@@ -580,7 +604,7 @@ class PipelineOrchestrator:
                         room_id=str(room_id),
                         device_id=str(self.settings.device_id),
                         camera_id=event.get("camera_id"),
-                        session_id=None,
+                        session_id=self.active_session_id,
                         student_id=event.get("student_id"),
                         anonymous_track_id=event.get("track_id"),
                         started_at=datetime.utcfromtimestamp(started),
@@ -603,12 +627,20 @@ class PipelineOrchestrator:
                             default=str,
                         ),
                     )
+                    try:
+                        from app.services.session_persistence import enqueue_session_event_upsert
+
+                        enqueue_session_event_upsert(event, lifecycle=lifecycle)
+                    except Exception:
+                        pass
                 elif lifecycle in ("updated", "closed"):
                     row = session.query(BehavioralEvent).filter_by(event_id=event_id).first()
                     if row:
                         row.ended_at = datetime.utcfromtimestamp(ended)
                         row.duration_seconds = float(event.get("duration_seconds") or 0.0)
                         row.confidence = float(event.get("confidence") or row.confidence or 0.0)
+                        if self.active_session_id and not row.session_id:
+                            row.session_id = self.active_session_id
                         row.metadata_json = json.dumps(
                             {
                                 "provenance": event.get("provenance"),
@@ -619,6 +651,15 @@ class PipelineOrchestrator:
                             default=str,
                         )
                         session.commit()
+                        try:
+                            from app.services.session_persistence import enqueue_session_event_upsert
+
+                            enqueue_session_event_upsert(
+                                {**event, "session_id": self.active_session_id},
+                                lifecycle=lifecycle,
+                            )
+                        except Exception:
+                            pass
             finally:
                 try:
                     from app.db.init_db import close_session

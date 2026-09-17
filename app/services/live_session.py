@@ -87,6 +87,17 @@ class LiveSessionStore:
     events_seen: Dict[str, dict] = field(default_factory=dict)
     aggregator: SessionAggregator = field(default_factory=SessionAggregator)
 
+    def bind_session_id(self, session_id: str, *, started_at: float | None = None) -> None:
+        """Alinha o store pedagógico ao ClassSession do Edge (UUID estável)."""
+        if not session_id:
+            return
+        if self.session_id == session_id:
+            return
+        self.session_id = session_id
+        if started_at is not None:
+            self.started_at = float(started_at)
+        self.aggregator.reset(started_at=self.started_at)
+
     def reset(self) -> None:
         self.session_id = str(uuid.uuid4())
         self.started_at = time.time()
@@ -202,6 +213,23 @@ class LiveSessionStore:
                         "observable_pct": obs_pct,
                     }
                 )
+            # Snapshot periódico para outbox (não altera TRI)
+            try:
+                from app.services.session_persistence import enqueue_report_snapshot
+
+                report = self.build_report(state)
+                report["provenance"] = {
+                    "storage": "session_snapshot",
+                    "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
+                }
+                enqueue_report_snapshot(
+                    session_id=self.session_id,
+                    report=report,
+                    captured_at=now,
+                    is_final=False,
+                )
+            except Exception:
+                pass
 
     def session_meta(self) -> dict:
         elapsed = round(time.time() - self.started_at, 1)

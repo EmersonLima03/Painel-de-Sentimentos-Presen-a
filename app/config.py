@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     # Supabase
     supabase_ingest_url: str = Field(default="", env="SUPABASE_INGEST_URL")
     supabase_anon_key: str = Field(default="", env="SUPABASE_ANON_KEY")  # Para passar validação inicial
+    cloud_organization_id: str = Field(default="", env="CLOUD_ORGANIZATION_ID")
+    cloud_school_id: str = Field(default="", env="CLOUD_SCHOOL_ID")
     
     # Database
     sqlite_path: str = Field(default="./data/dulino_edge.db", env="SQLITE_PATH")

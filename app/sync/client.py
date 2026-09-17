@@ -55,7 +55,19 @@ class SupabaseClient:
                 )
                 
                 if response.status_code in [200, 201]:
+                    # Idempotência: inserted | duplicate | ignored contam como sucesso
+                    try:
+                        body = response.json()
+                        st = str(body.get("status") or "")
+                        if st in ("unauthorized", "invalid", "retryable_error"):
+                            logger.error("event_send_rejected", body=body, event_id=event_payload.get("event_id"))
+                            return False
+                    except Exception:
+                        pass
                     logger.info("event_sent", event_id=event_payload.get("event_id"), url=self.url)
+                    return True
+                elif response.status_code == 409:
+                    logger.info("event_duplicate", event_id=event_payload.get("event_id"))
                     return True
                 else:
                     error_text = response.text[:500] if hasattr(response, 'text') else str(response.status_code)
