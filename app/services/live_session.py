@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -78,7 +77,8 @@ def dashboard_track_view(track: dict) -> dict:
 
 @dataclass
 class LiveSessionStore:
-    session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    # Vazio até bind com ClassSession SQLite — evita UUID efêmero pré-restart.
+    session_id: str = ""
     started_at: float = field(default_factory=time.time)
     last_sample_at: float = 0.0
     climate_samples: List[dict] = field(default_factory=list)
@@ -92,14 +92,19 @@ class LiveSessionStore:
         if not session_id:
             return
         if self.session_id == session_id:
+            if started_at is not None:
+                self.started_at = float(started_at)
             return
         self.session_id = session_id
         if started_at is not None:
             self.started_at = float(started_at)
+        else:
+            self.started_at = time.time()
         self.aggregator.reset(started_at=self.started_at)
 
     def reset(self) -> None:
-        self.session_id = str(uuid.uuid4())
+        # Não gera UUID novo aqui — quem cria sessão é o bootstrap/orchestrator.
+        self.session_id = ""
         self.started_at = time.time()
         self.last_sample_at = 0.0
         self.climate_samples.clear()
@@ -232,15 +237,16 @@ class LiveSessionStore:
                 pass
 
     def session_meta(self) -> dict:
-        elapsed = round(time.time() - self.started_at, 1)
+        elapsed = round(time.time() - self.started_at, 1) if self.started_at else 0.0
         return {
-            "session_id": self.session_id,
+            "session_id": self.session_id or None,
             "started_at": self.started_at,
             "t_seconds": elapsed,
             "duration_target": None,
-            "playing": True,
+            "playing": bool(self.session_id),
             "speed": 1.0,
             "source": "live_rtsp",
+            "bound": bool(self.session_id),
         }
 
     def aggregate(self, state: dict) -> dict:

@@ -90,6 +90,15 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("validation_db_init_failed", error=str(e))
 
+        # Retoma ClassSession ACTIVE antes de aceitar tráfego (evita UUID efêmero).
+        if mode != RuntimeMode.DEMO:
+            try:
+                from app.services.session_bootstrap import ensure_active_class_session
+
+                ensure_active_class_session(create_if_missing=True)
+            except Exception as e:
+                logger.warning("session_bootstrap_startup_failed", error=str(e))
+
         sync_worker = SyncWorker()
         asyncio.create_task(sync_worker.start())
 

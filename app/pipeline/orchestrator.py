@@ -248,49 +248,16 @@ class PipelineOrchestrator:
             logger.warning("FAISS disabled: %s (using linear fallback)", str(e))
             base_matcher = FaceMatcher(embeddings)
 
-        # Sessão ativa automática por room (presença periódica)
+        # Sessão ativa: retoma ClassSession do SQLite (bootstrap já pode ter feito).
         try:
-            from app.db.repo import ClassSessionRepository
-            from app.utils.ids import generate_event_id
             from app.services.live_session import get_live_session
-            from app.services.session_persistence import (
-                enqueue_class_session_upsert,
-                enqueue_device_heartbeat,
-            )
-            from datetime import datetime
+            from app.services.session_bootstrap import ensure_active_class_session
+            from app.services.session_persistence import enqueue_device_heartbeat
 
-            sess_repo = ClassSessionRepository(session)
-            active = sess_repo.get_active()
-            orphan_hours = float(getattr(self.settings, "session_orphan_hours", 12) or 12)
-            if active:
-                age_h = (datetime.utcnow() - active.started_at).total_seconds() / 3600.0
-                if age_h > orphan_hours:
-                    sess_repo.end_session(active.session_id)
-                    logger.info("class_session_orphan_ended", session_id=active.session_id, age_h=age_h)
-                    active = None
-            if active:
-                self.active_session_id = active.session_id
-            else:
-                sid = generate_event_id()
-                room0 = self.settings.cameras[0].room_id if self.settings.cameras else "DEV"
-                sess_repo.create_session(
-                    session_id=sid,
-                    school_id=self.settings.school_id,
-                    room_id=room0,
-                    device_id=self.settings.device_id,
-                    title="Sessão automática",
-                )
-                self.active_session_id = sid
-                logger.info("class_session_auto_started", session_id=sid)
-                enqueue_class_session_upsert(
-                    session_id=sid,
-                    status="active",
-                    started_at=time.time(),
-                    title="Sessão automática",
-                )
-            # Unifica LiveSessionStore ↔ ClassSession
-            if self.active_session_id:
-                get_live_session().bind_session_id(self.active_session_id)
+            sid = ensure_active_class_session(create_if_missing=True)
+            self.active_session_id = sid
+            if sid:
+                get_live_session().bind_session_id(sid)
             enqueue_device_heartbeat()
         except Exception as e:
             logger.warning("class_session_init_failed", error=str(e))
