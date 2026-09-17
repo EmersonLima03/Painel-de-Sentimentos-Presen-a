@@ -48,9 +48,20 @@ export function CloudAuthPanel({ onAuthChange }: Props) {
     if (!supabase) return;
     setBusy(true);
     setErr("");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setBusy(false);
-    if (error) setErr(error.message);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setErr(
+          /invalid|credencial|password|email/i.test(error.message)
+            ? "E-mail ou senha incorretos. Verifique e tente novamente."
+            : error.message || "Não foi possível entrar. Tente novamente.",
+        );
+      }
+    } catch {
+      setErr("Falha de conexão ao entrar. Verifique a internet e tente novamente.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function logout() {
