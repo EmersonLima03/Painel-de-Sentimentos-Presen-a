@@ -486,12 +486,19 @@ async def sessions_end(session_id: str, _: None = Depends(require_api_token)):
             live = get_live_session()
             report = live.build_report({})
         except Exception:
+            live = None
             report = {"status": "ended", "session_id": session_id}
         enqueue_report_snapshot(
             session_id=session_id,
             report=report if isinstance(report, dict) else {"status": "ended"},
             is_final=True,
         )
+        # Libera acumuladores pedagógicos após snapshot final (não altera TRI).
+        try:
+            if live is not None and getattr(live, "session_id", None) == session_id:
+                live.reset()
+        except Exception:
+            pass
         return {"ok": True, "session_id": session_id, "status": "ended"}
     finally:
         close_session(session)

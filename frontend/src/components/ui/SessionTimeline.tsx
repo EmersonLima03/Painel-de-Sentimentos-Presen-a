@@ -65,7 +65,7 @@ export function SessionTimeline({
             {lessonEvents.map((e: any, i: number) => {
               const when = formatEventWhen(e);
               const name = e.full_name || e.student_id || "";
-              const label = eventTypePt(e.event_type || e.type);
+              const label = eventTypePt(e.event_type || e.label || e.type);
               const life = String(e.lifecycle || "").toLowerCase();
               const closed = life === "closed" || e.ended_at != null || e.closed_at != null;
               return (
@@ -117,7 +117,7 @@ export function SessionTimeline({
         <ul className="timeline-event-list">
           {lessonEvents.slice(-20).map((e: any, i: number) => (
             <li key={e.event_id || i}>
-              <span>{eventTypePt(e.event_type || e.type)}</span>
+              <span>{eventTypePt(e.event_type || e.label || e.type)}</span>
               {e.t != null && <span className="muted"> · t={Math.round(e.t)}s</span>}
             </li>
           ))}

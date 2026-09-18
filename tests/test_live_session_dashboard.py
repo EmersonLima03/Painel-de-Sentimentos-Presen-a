@@ -60,6 +60,28 @@ def test_live_session_accumulates_climate_samples():
     assert store.climate_samples
 
 
+def test_bind_session_id_clears_prior_session_accumulators():
+    """Troca de aula não deve vazar clima/eventos da sessão anterior."""
+    store = LiveSessionStore()
+    store.bind_session_id("sess-old", started_at=1000.0)
+    store.climate_samples.append({"t": 1.0, "apparent_climate": "predominantly_positive"})
+    store.timeline.append({"t": 1.0, "type": "event_opened", "label": "possible_phone_interaction"})
+    store.events_seen["ev-old"] = {
+        "event_id": "ev-old",
+        "event_type": "possible_phone_interaction",
+        "session_id": "sess-old",
+    }
+    store.display_smoothing["student:p01"] = {"last_stable_expression": "predominantly_neutral"}
+
+    store.bind_session_id("sess-new", started_at=2000.0)
+
+    assert store.session_id == "sess-new"
+    assert store.climate_samples == []
+    assert store.timeline == []
+    assert store.events_seen == {}
+    assert store.display_smoothing == {}
+
+
 def test_build_report_uses_aggregator_kpis():
     store = LiveSessionStore()
     store.ingest_live_state(

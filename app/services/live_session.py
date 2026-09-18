@@ -95,11 +95,18 @@ class LiveSessionStore:
             if started_at is not None:
                 self.started_at = float(started_at)
             return
+        # Troca de sessão: zera acumuladores pedagógicos para não vazar clima/eventos
+        # da aula anterior no relatório/timeline da nova (fora do TRI).
         self.session_id = session_id
         if started_at is not None:
             self.started_at = float(started_at)
         else:
             self.started_at = time.time()
+        self.last_sample_at = 0.0
+        self.climate_samples.clear()
+        self.timeline.clear()
+        self.display_smoothing.clear()
+        self.events_seen.clear()
         self.aggregator.reset(started_at=self.started_at)
 
     def reset(self) -> None:
@@ -180,7 +187,10 @@ class LiveSessionStore:
             eid = str(ev.get("event_id") or "")
             if not eid:
                 continue
-            self.events_seen[eid] = ev
+            stored = dict(ev)
+            if self.session_id and not stored.get("session_id"):
+                stored["session_id"] = self.session_id
+            self.events_seen[eid] = stored
             if ev.get("lifecycle") == "opened" and len(self.timeline) < MAX_TIMELINE:
                 self.timeline.append(
                     {

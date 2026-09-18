@@ -344,6 +344,8 @@ async def session_timeline(session_id: str, _: None = Depends(require_api_token)
         snap = _demo_snap()
         return _enrich({"session_id": session_id, "timeline": snap["timeline"]})
     ls = get_live_session()
+    if ls.session_id and ls.session_id != session_id:
+        return _enrich({"session_id": session_id, "timeline": []})
     return _enrich({"session_id": session_id, "timeline": ls.timeline[-80:]})
 
 
@@ -396,7 +398,14 @@ async def session_behavioral(session_id: str, _: None = Depends(require_api_toke
     if is_demo():
         snap = _demo_snap()
         return _enrich({"session_id": session_id, "events": snap["events"]})
-    evs = list(get_live_session().events_seen.values())
+    ls = get_live_session()
+    if ls.session_id and ls.session_id != session_id:
+        return _enrich({"session_id": session_id, "events": []})
+    evs = [
+        e
+        for e in ls.events_seen.values()
+        if not e.get("session_id") or str(e.get("session_id")) == session_id
+    ]
     return _enrich({"session_id": session_id, "events": evs[-100:]})
 
 
