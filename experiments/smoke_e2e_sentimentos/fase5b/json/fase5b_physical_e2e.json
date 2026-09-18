@@ -1,0 +1,175 @@
+{
+  "started_at": "2026-09-18T13:13:49.555950+00:00",
+  "steps": [
+    {
+      "name": "edge_health",
+      "ok": true,
+      "body": {
+        "status": "ok",
+        "version": "0.1.0",
+        "uptime_seconds": 59,
+        "cameras_online": 1,
+        "cameras_total": 1,
+        "simulation_mode": false,
+        "detector_backend": "yunet",
+        "embedder_backend": "facenet",
+        "faiss_enabled": true,
+        "sqlite_path": "./data/dulino_edge.db",
+        "supabase_enabled": true,
+        "presence_debug": {
+          "presence_always_on": true,
+          "in_active_window": false,
+          "matcher_embeddings": 28,
+          "templates_per_student": {
+            "p01": 3,
+            "p10": 3,
+            "p11": 4,
+            "p12": 4,
+            "p13": 4,
+            "p15": 3,
+            "p16": 3,
+            "p17": 2,
+            "p18": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "session_end",
+      "ok": true,
+      "http": 200,
+      "body": "{\"ok\":true,\"session_id\":\"23c5590d-b1b4-41c5-a79b-9956182f63da\",\"status\":\"ended\"}"
+    },
+    {
+      "name": "session_start",
+      "ok": true,
+      "http": 200,
+      "body": {
+        "session_id": "fb5cd196-bf74-4c8d-a597-027f188c6830",
+        "status": "active"
+      }
+    },
+    {
+      "name": "attendance_checkin_p01",
+      "ok": true,
+      "checkin": {
+        "rowid": 41596,
+        "event_id": "64739219-6ec5-45cb-89ca-ec481f96e6a4",
+        "status": "pending",
+        "student_id": "p01",
+        "session_id": "fb5cd196-bf74-4c8d-a597-027f188c6830"
+      }
+    },
+    {
+      "name": "outbox_lxp",
+      "ok": true,
+      "lxp": {
+        "event_id": "lxp-att:64739219-6ec5-45cb-89ca-ec481f96e6a4",
+        "status": "sent",
+        "retries": 0,
+        "last_error": null,
+        "lesson_id": "lesson-8b-math-50",
+        "student_id": "ext-stu-001",
+        "edge_student_key": "p01",
+        "class_session_id": "fb5cd196-bf74-4c8d-a597-027f188c6830",
+        "source_checkin_event_id": "64739219-6ec5-45cb-89ca-ec481f96e6a4"
+      }
+    },
+    {
+      "name": "syncworker_sent",
+      "ok": true,
+      "status": "sent",
+      "last_error": null
+    },
+    {
+      "name": "simulator_attendance_records",
+      "ok": true,
+      "rows": [
+        {
+          "id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+          "external_lesson_id": "lesson-8b-math-50",
+          "external_student_id": "ext-stu-001",
+          "status": "present",
+          "source_event_id": "lxp-att:64739219-6ec5-45cb-89ca-ec481f96e6a4",
+          "created_at": "2026-09-18T12:14:17.038246+00:00"
+        }
+      ]
+    },
+    {
+      "name": "integration_receipts",
+      "ok": false,
+      "rows": {
+        "http": 400,
+        "body": "{\"code\":\"42703\",\"details\":null,\"hint\":null,\"message\":\"column integration_receipts.source_event_id does not exist\"}"
+      },
+      "note": "ok=False se tabela/RLS não exposta; não bloqueia se attendance_records ok"
+    },
+    {
+      "name": "idempotency_same_event_id",
+      "ok": true,
+      "post1": {
+        "http": 200,
+        "body": {
+          "ok": true,
+          "status": "accepted",
+          "result": "duplicate",
+          "event_id": "lxp-att:64739219-6ec5-45cb-89ca-ec481f96e6a4",
+          "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+          "contract_version": "attendance.events.v1"
+        }
+      },
+      "post2": {
+        "http": 200,
+        "body": {
+          "ok": true,
+          "status": "accepted",
+          "result": "duplicate",
+          "event_id": "lxp-att:64739219-6ec5-45cb-89ca-ec481f96e6a4",
+          "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+          "contract_version": "attendance.events.v1"
+        }
+      },
+      "db_count": 1
+    },
+    {
+      "name": "ids_preserved",
+      "ok": true,
+      "ids": {
+        "session_id_before": "23c5590d-b1b4-41c5-a79b-9956182f63da",
+        "events_max_rowid_before": 41589,
+        "session_id": "fb5cd196-bf74-4c8d-a597-027f188c6830",
+        "checkin_event_id": "64739219-6ec5-45cb-89ca-ec481f96e6a4",
+        "edge_student_id": "p01",
+        "event_id": "lxp-att:64739219-6ec5-45cb-89ca-ec481f96e6a4",
+        "lesson_id": "lesson-8b-math-50",
+        "student_id": "ext-stu-001",
+        "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+        "sim_source_event_id": "lxp-att:64739219-6ec5-45cb-89ca-ec481f96e6a4",
+        "sim_student_id": "ext-stu-001",
+        "sim_lesson_id": "lesson-8b-math-50"
+      }
+    },
+    {
+      "name": "session_stable",
+      "ok": true,
+      "session_id": "fb5cd196-bf74-4c8d-a597-027f188c6830"
+    }
+  ],
+  "ids": {
+    "session_id_before": "23c5590d-b1b4-41c5-a79b-9956182f63da",
+    "events_max_rowid_before": 41589,
+    "session_id": "fb5cd196-bf74-4c8d-a597-027f188c6830",
+    "checkin_event_id": "64739219-6ec5-45cb-89ca-ec481f96e6a4",
+    "edge_student_id": "p01",
+    "event_id": "lxp-att:64739219-6ec5-45cb-89ca-ec481f96e6a4",
+    "lesson_id": "lesson-8b-math-50",
+    "student_id": "ext-stu-001",
+    "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+    "sim_source_event_id": "lxp-att:64739219-6ec5-45cb-89ca-ec481f96e6a4",
+    "sim_student_id": "ext-stu-001",
+    "sim_lesson_id": "lesson-8b-math-50"
+  },
+  "passed": true,
+  "verdict": "FASE 5B — FLUXO FÍSICO E2E VALIDADO",
+  "finished_at": "2026-09-18T13:14:37.044775+00:00"
+}

@@ -1,0 +1,72 @@
+{
+  "module_lxp_mode": "disabled",
+  "lxp_url_set": false,
+  "lxp_token_set": false,
+  "lxp_lesson_set": false,
+  "lxp_url_is_simulator": false,
+  "counts": [
+    {
+      "event_type": "attendance_checkin",
+      "status": "pending",
+      "c": 4
+    },
+    {
+      "event_type": "attendance_checkin",
+      "status": "sent",
+      "c": 12
+    },
+    {
+      "event_type": "lxp_attendance_event",
+      "status": "sent",
+      "c": 2
+    }
+  ],
+  "recent_checkins": [
+    {
+      "event_id": "4f4a03b9-948c-49bd-82d9-eae2593b3a94",
+      "status": "pending",
+      "student_id": "p01",
+      "session_id": "a636c54e-1933-4096-b518-609f2e8f7bb1"
+    },
+    {
+      "event_id": "bf65e5d8-5f8a-451e-ad0d-9e96b6659290",
+      "status": "pending",
+      "student_id": "p01",
+      "session_id": "699f2395-8dcb-48df-aa7b-594fd8d6c43e"
+    },
+    {
+      "event_id": "8f561252-083b-4cd9-829f-c5d444af5b9a",
+      "status": "pending",
+      "student_id": "p17",
+      "session_id": "937d6198-e271-4c89-84d7-223c381dc4fe"
+    },
+    {
+      "event_id": "2b80dbf1-5897-4358-b2e6-8bfd41049277",
+      "status": "pending",
+      "student_id": "p01",
+      "session_id": "937d6198-e271-4c89-84d7-223c381dc4fe"
+    },
+    {
+      "event_id": "8f644149-355e-402d-b00f-9f6fca4e799b",
+      "status": "sent",
+      "student_id": "12345",
+      "session_id": null
+    }
+  ],
+  "recent_lxp": [
+    {
+      "event_id": "lxp-att:fase5b-offline-004ab109-85f2-4188-a0ce-91cfd584cac6",
+      "status": "sent",
+      "lesson_id": "lesson-8b-math-50",
+      "student_id": "ext-stu-001",
+      "source": "sentimentos"
+    },
+    {
+      "event_id": "lxp-att:fase5b-offline-cf8c2d2b-ffa3-4e7d-a06c-ecaddc12082c",
+      "status": "sent",
+      "lesson_id": "lesson-8b-math-50",
+      "student_id": "ext-stu-001",
+      "source": "sentimentos"
+    }
+  ]
+}

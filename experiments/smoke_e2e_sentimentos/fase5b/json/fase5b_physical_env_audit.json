@@ -1,0 +1,115 @@
+{
+  "probed_at": "2026-09-18T13:03:24.579244+00:00",
+  "process_env": {
+    "RUNTIME_MODE": null,
+    "PRESENCA_CONFIG_OVERLAY": null,
+    "MODULE_LXP_MODE": null,
+    "LXP_SIM_ATTENDANCE_URL_set": false,
+    "LXP_SIM_INTEGRATION_TOKEN_set": false,
+    "LXP_SIM_ANON_KEY_set": false,
+    "LXP_EXTERNAL_LESSON_ID": null,
+    "LXP_URL_is_simulator": false,
+    "LXP_URL_is_prod_forbidden": false
+  },
+  "settings": {
+    "runtime_mode": "rtsp",
+    "module_lxp_mode": "disabled",
+    "lxp_url_set": false,
+    "lxp_token_set": false,
+    "lxp_anon_set": false,
+    "lxp_lesson": null,
+    "lxp_url_is_simulator": false,
+    "config_overlay_hint": null
+  },
+  "active_sessions": [
+    {
+      "session_id": "a636c54e-1933-4096-b518-609f2e8f7bb1",
+      "status": "active",
+      "title": "Sessão automática",
+      "started_at": "2026-09-18 12:50:04.449507",
+      "metadata_json": null
+    }
+  ],
+  "recent_checkins": [
+    {
+      "event_id": "4f4a03b9-948c-49bd-82d9-eae2593b3a94",
+      "status": "pending",
+      "student_id": "p01",
+      "session_id": "a636c54e-1933-4096-b518-609f2e8f7bb1",
+      "timestamp": 1789736332
+    },
+    {
+      "event_id": "bf65e5d8-5f8a-451e-ad0d-9e96b6659290",
+      "status": "pending",
+      "student_id": "p01",
+      "session_id": "699f2395-8dcb-48df-aa7b-594fd8d6c43e",
+      "timestamp": 1789668073
+    },
+    {
+      "event_id": "8f561252-083b-4cd9-829f-c5d444af5b9a",
+      "status": "pending",
+      "student_id": "p17",
+      "session_id": "937d6198-e271-4c89-84d7-223c381dc4fe",
+      "timestamp": 1789391488
+    },
+    {
+      "event_id": "2b80dbf1-5897-4358-b2e6-8bfd41049277",
+      "status": "pending",
+      "student_id": "p01",
+      "session_id": "937d6198-e271-4c89-84d7-223c381dc4fe",
+      "timestamp": 1784814608
+    },
+    {
+      "event_id": "8f644149-355e-402d-b00f-9f6fca4e799b",
+      "status": "sent",
+      "student_id": "12345",
+      "session_id": null,
+      "timestamp": null
+    },
+    {
+      "event_id": "160420aa-215c-4acd-95a9-4bfad138c6a8",
+      "status": "sent",
+      "student_id": "12345",
+      "session_id": null,
+      "timestamp": null
+    },
+    {
+      "event_id": "2fce7f47-a1e9-44f5-b60f-f6d087c431ca",
+      "status": "sent",
+      "student_id": "p18",
+      "session_id": null,
+      "timestamp": 1780948710
+    },
+    {
+      "event_id": "b0ab8752-d3bc-4de0-8910-13462471bfc3",
+      "status": "sent",
+      "student_id": "p17",
+      "session_id": null,
+      "timestamp": 1780948637
+    }
+  ],
+  "recent_lxp": [
+    {
+      "event_id": "lxp-att:fase5b-offline-004ab109-85f2-4188-a0ce-91cfd584cac6",
+      "status": "sent",
+      "retries": 0,
+      "last_error": "Send failed",
+      "lesson_id": "lesson-8b-math-50",
+      "student_id": "ext-stu-001",
+      "edge_student_key": null,
+      "class_session_id": null,
+      "source_checkin_event_id": null
+    },
+    {
+      "event_id": "lxp-att:fase5b-offline-cf8c2d2b-ffa3-4e7d-a06c-ecaddc12082c",
+      "status": "sent",
+      "retries": 0,
+      "last_error": "Send failed",
+      "lesson_id": "lesson-8b-math-50",
+      "student_id": "ext-stu-001",
+      "edge_student_key": null,
+      "class_session_id": null,
+      "source_checkin_event_id": null
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "tables_sample": [
+    "device_state",
+    "events",
+    "attendance_cache",
+    "sqlite_sequence",
+    "students",
+    "face_embeddings",
+    "class_sessions",
+    "behavioral_events",
+    "student_consents",
+    "privacy_audits",
+    "raw_observation_windows",
+    "engagement_windows_v2",
+    "climate_windows_v2",
+    "model_benchmarks"
+  ],
+  "lxp_events": [
+    {
+      "event_id": "lxp-att:fase5b-offline-004ab109-85f2-4188-a0ce-91cfd584cac6",
+      "event_type": "lxp_attendance_event",
+      "status": "sent",
+      "retries": 0,
+      "payload": {
+        "event_type": "lxp_attendance_event",
+        "event_id": "lxp-att:fase5b-offline-004ab109-85f2-4188-a0ce-91cfd584cac6",
+        "lesson_id": "lesson-8b-math-50",
+        "student_id": "ext-stu-001",
+        "attendance": "present",
+        "occurred_at": "2026-09-18T12:33:15.038638+00:00",
+        "source": "sentimentos"
+      }
+    },
+    {
+      "event_id": "lxp-att:fase5b-offline-cf8c2d2b-ffa3-4e7d-a06c-ecaddc12082c",
+      "event_type": "lxp_attendance_event",
+      "status": "sent",
+      "retries": 0,
+      "payload": {
+        "event_type": "lxp_attendance_event",
+        "event_id": "lxp-att:fase5b-offline-cf8c2d2b-ffa3-4e7d-a06c-ecaddc12082c",
+        "lesson_id": "lesson-8b-math-50",
+        "student_id": "ext-stu-001",
+        "attendance": "present",
+        "occurred_at": "2026-09-18T12:31:21.703236+00:00",
+        "source": "sentimentos"
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "session_id": "699f2395-8dcb-48df-aa7b-594fd8d6c43e",
+      "school_id": "1",
+      "room_id": "DEV",
+      "device_id": "edge-001",
+      "title": "Smoke Restart",
+      "started_at": "2026-09-17 16:26:20.995073",
+      "ended_at": null,
+      "status": "active",
+      "metadata_json": null
+    },
+    {
+      "session_id": "937d6198-e271-4c89-84d7-223c381dc4fe",
+      "school_id": "1",
+      "room_id": "DEV",
+      "device_id": "edge-001",
+      "title": "Sessão automática",
+      "started_at": "2026-07-23 13:47:12.924345",
+      "ended_at": "2026-09-17 16:26:20.992077",
+      "status": "ended",
+      "metadata_json": null
+    }
+  ],
+  "session_table": "class_sessions",
+  "session_cols": [
+    "session_id",
+    "school_id",
+    "room_id",
+    "device_id",
+    "title",
+    "started_at",
+    "ended_at",
+    "status",
+    "metadata_json"
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "started_at": "2026-09-18T12:54:22.164Z",
+  "fe": "http://localhost:5173",
+  "edge": "http://127.0.0.1:8000",
+  "cases": [
+    {
+      "name": "edge_health",
+      "ok": true,
+      "result": "PASS",
+      "status": 200
+    },
+    {
+      "name": "sim_admin_loads",
+      "ok": true,
+      "result": "PASS",
+      "snippet": "LXP Attendance Simulator\n\nHomologação Sentimentos — não é o LXP de produção.\n\nSomente leitura nesta UI. Token de integração fica só na sessão do browser para testes locais — não versionar.\nURL da function \nAnon key (simulador) \nIntegration "
+    },
+    {
+      "name": "gestor_login",
+      "ok": true,
+      "result": "PASS",
+      "sidebar": [
+        "Ao vivo1",
+        "Relatórios",
+        "Escola",
+        "Histórico",
+        "Configurações",
+        "Administração"
+      ],
+      "is_gestor_nav": true
+    },
+    {
+      "name": "nav_04_admin",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "section_05_escola",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "section_06_turmas",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "section_07_alunos",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "section_08_disciplinas",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "nav_09_dashboard",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "nav_05b_escola_produto",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "nav_10_ao_vivo",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "nav_11_historico",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "nav_12_config",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "no_tri_jargon_in_ui",
+      "ok": true,
+      "result": "PASS",
+      "hits": []
+    }
+  ],
+  "jargon_hits": [],
+  "sidebar": [
+    "Ao vivo1",
+    "Relatórios",
+    "Escola",
+    "Histórico",
+    "Configurações",
+    "Administração"
+  ],
+  "nao_observado": 0,
+  "finished_at": "2026-09-18T12:54:46.854Z",
+  "summary": {
+    "total": 14,
+    "pass": 14,
+    "fail": 0,
+    "nao_observado": 0
+  }
+}
