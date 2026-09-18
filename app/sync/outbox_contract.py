@@ -8,12 +8,17 @@ from __future__ import annotations
 
 from typing import Dict, FrozenSet, Tuple
 
-# Lane PRODUCT — únicos tipos enviados ao ingest Sentimentos no MVP
+# Lane PRODUCT — enviados ao ingest Sentimentos no MVP
 CLOUD_MVP_SYNCABLE_TYPES: Tuple[str, ...] = (
     "class_session_upsert",
     "session_event_upsert",
     "session_report_snapshot",
     "device_heartbeat",
+)
+
+# Lane LXP — enviados ao Attendance Simulator (não ao ingest Sentimentos)
+LXP_SYNCABLE_TYPES: Tuple[str, ...] = (
+    "lxp_attendance_event",
 )
 
 # Ordem de prioridade dentro do lane product (menor = primeiro)
@@ -31,12 +36,19 @@ TELEMETRY_LOCAL_TYPES: FrozenSet[str] = frozenset(
 )
 
 CLOUD_MVP_SYNCABLE_SET: FrozenSet[str] = frozenset(CLOUD_MVP_SYNCABLE_TYPES)
+LXP_SYNCABLE_SET: FrozenSet[str] = frozenset(LXP_SYNCABLE_TYPES)
+
+# Tipos que o SyncWorker seleciona (product + lxp)
+SYNC_WORKER_TYPES: Tuple[str, ...] = CLOUD_MVP_SYNCABLE_TYPES + LXP_SYNCABLE_TYPES
+SYNC_WORKER_PRIORITY: Tuple[str, ...] = CLOUD_MVP_SYNCABLE_TYPES + LXP_SYNCABLE_TYPES
 
 
 def classify_outbox_lane(event_type: str) -> str:
-    """product | telemetry | ignored (outros)."""
+    """product | lxp | telemetry | ignored (outros)."""
     if event_type in CLOUD_MVP_SYNCABLE_SET:
         return "product"
+    if event_type in LXP_SYNCABLE_SET:
+        return "lxp"
     if event_type in TELEMETRY_LOCAL_TYPES:
         return "telemetry"
     return "ignored"

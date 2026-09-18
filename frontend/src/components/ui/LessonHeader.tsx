@@ -1,4 +1,4 @@
-import { formatClockFromUnix, type AulaMeta } from "../../utils/aulaMeta";
+import { formatClockFromUnix, formatExternalLessonLabel, type AulaMeta } from "../../utils/aulaMeta";
 import { fmtDur } from "../../labels";
 import { LiveStatusBadge } from "./LiveStatusBadge";
 import type { WsState } from "../../types";
@@ -30,6 +30,7 @@ export function LessonHeader({
     meta.durationMinutes != null && meta.durationMinutes > 0
       ? `${meta.durationMinutes} min`
       : "—";
+  const externalLabel = formatExternalLessonLabel(meta);
 
   return (
     <header className="lesson-header">
@@ -47,6 +48,7 @@ export function LessonHeader({
             <span className="muted">Professor: — (configure em Configurações)</span>
           )}
         </p>
+        <p className={`lesson-external ${meta.externalLessonId ? "" : "muted"}`}>{externalLabel}</p>
         <div className="lesson-meta-row">
           <span>Sessão iniciada às {formatClockFromUnix(startedAt ?? null)}</span>
           <span className="lesson-dot" aria-hidden>

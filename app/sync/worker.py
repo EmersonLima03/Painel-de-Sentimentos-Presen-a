@@ -1,38 +1,44 @@
-"""Worker de sincronização assíncrono — lane PRODUCT (cloud MVP)."""
+"""Worker de sincronização assíncrono — lanes PRODUCT (Sentimentos) + LXP (simulador)."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-from typing import List, Optional
+from typing import Optional
 
 from app.config import get_settings
 from app.db.init_db import close_session, get_session
 from app.db.repo import EventRepository
+from app.integrations.attendance_lxp import LXP_ATTENDANCE_EVENT_TYPE, LxpAttendanceClient
 from app.logging import get_logger
 from app.sync.client import SupabaseClient
-from app.sync.outbox_contract import CLOUD_MVP_PRIORITY_ORDER, CLOUD_MVP_SYNCABLE_TYPES
+from app.sync.outbox_contract import SYNC_WORKER_PRIORITY, SYNC_WORKER_TYPES
 
 logger = get_logger(__name__)
 
 
 class SyncWorker:
-    """Sincroniza apenas tipos do contrato cloud MVP.
+    """Sincroniza tipos product → Sentimentos e lxp_attendance_event → Simulator.
 
     Seleção: filter tipos sincronizáveis → ORDER BY prioridade/created_at → LIMIT.
     Telemetria (climate/engagement/…) permanece pending local e não bloqueia.
     """
 
-    def __init__(self, client: Optional[SupabaseClient] = None):
+    def __init__(
+        self,
+        client: Optional[SupabaseClient] = None,
+        lxp_client: Optional[LxpAttendanceClient] = None,
+    ):
         self.settings = get_settings()
         self.client = client or SupabaseClient()
+        self.lxp_client = lxp_client or LxpAttendanceClient()
         self.running = False
         self.batch_size = getattr(self.settings, "sync_batch_size", 10)
         self.retry_attempts = getattr(self.settings, "sync_retry_attempts", 3)
         self.retry_backoff = getattr(self.settings, "sync_retry_backoff_seconds", 5)
         self.sync_interval = getattr(self.settings, "sync_interval_seconds", 10)
-        self.syncable_types = list(CLOUD_MVP_SYNCABLE_TYPES)
-        self.priority_types = list(CLOUD_MVP_PRIORITY_ORDER)
+        self.syncable_types = list(SYNC_WORKER_TYPES)
+        self.priority_types = list(SYNC_WORKER_PRIORITY)
 
     async def start(self) -> None:
         """Inicia worker de sincronização."""
@@ -65,17 +71,22 @@ class SyncWorker:
             close_session(session)
 
     async def sync_batch(self) -> None:
-        """Sincroniza um lote de eventos do lane product."""
+        """Sincroniza um lote de eventos product + lxp."""
         session = get_session()
         try:
             await self._sync_batch_with_session(session)
         finally:
             close_session(session)
 
+    async def _dispatch(self, payload: dict) -> bool:
+        et = str(payload.get("event_type") or "")
+        if et == LXP_ATTENDANCE_EVENT_TYPE:
+            return await self.lxp_client.send_attendance_event(payload)
+        return await self.client.send_event(payload)
+
     async def _sync_batch_with_session(self, session) -> None:
         event_repo = EventRepository(session)
 
-        # CORRETO: filtrar tipos sincronizáveis ANTES do LIMIT
         pending_events = event_repo.get_pending_events(
             limit=self.batch_size,
             event_types=self.syncable_types,
@@ -94,7 +105,7 @@ class SyncWorker:
         for event in pending_events:
             try:
                 payload = json.loads(event.payload_json)
-                success = await self.client.send_event(payload)
+                success = await self._dispatch(payload)
 
                 if success:
                     event_repo.mark_sent(event.event_id)

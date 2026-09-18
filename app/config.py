@@ -43,6 +43,25 @@ class Settings(BaseSettings):
     supabase_anon_key: str = Field(default="", env="SUPABASE_ANON_KEY")  # Para passar validação inicial
     cloud_organization_id: str = Field(default="", env="CLOUD_ORGANIZATION_ID")
     cloud_school_id: str = Field(default="", env="CLOUD_SCHOOL_ID")
+
+    # LXP Attendance Simulator (homolog) — NUNCA o LXP de produção
+    # module_lxp_mode: disabled | simulator | http_sim
+    lxp_sim_attendance_url: str = Field(
+        default="",
+        env="LXP_SIM_ATTENDANCE_URL",
+    )
+    lxp_sim_integration_token: str = Field(default="", env="LXP_SIM_INTEGRATION_TOKEN")
+    lxp_sim_anon_key: str = Field(default="", env="LXP_SIM_ANON_KEY")
+    lxp_external_lesson_id: str = Field(
+        default="",
+        env="LXP_EXTERNAL_LESSON_ID",
+        description="Aula externa associada à sessão Edge (ex.: lesson-8b-math-50)",
+    )
+    lxp_student_map_json: str = Field(
+        default="",
+        env="LXP_STUDENT_MAP_JSON",
+        description='JSON opcional {"p01":"ext-stu-001"}',
+    )
     
     # Database
     sqlite_path: str = Field(default="./data/dulino_edge.db", env="SQLITE_PATH")

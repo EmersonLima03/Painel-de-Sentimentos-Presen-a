@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LXP Attendance Simulator — Admin</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #122; background: #f6f7f9; }
+    body { margin: 0; padding: 1.5rem; max-width: 1100px; margin-inline: auto; }
+    h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+    .sub { color: #556; margin-bottom: 1.25rem; }
+    .warn { background: #fff3cd; border: 1px solid #e6d28a; padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    label { display: block; font-size: .85rem; margin-top: .75rem; }
+    input { width: 100%; padding: .5rem; box-sizing: border-box; }
+    button { margin-top: .75rem; padding: .55rem 1rem; cursor: pointer; }
+    section { background: #fff; border-radius: 10px; padding: 1rem; margin-top: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; padding: .4rem .35rem; border-bottom: 1px solid #eee; }
+    .ok { color: #0a7; } .err { color: #c22; }
+    code { background: #eef; padding: 0 .25rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>LXP Attendance Simulator</h1>
+  <p class="sub">Homologação Sentimentos — <strong>não</strong> é o LXP de produção.</p>
+  <div class="warn">Somente leitura nesta UI. Token de integração fica só na sessão do browser para testes locais — não versionar.</div>
+
+  <section>
+    <label>URL da function
+      <input id="url" value="https://zasbmqwwkecmjbebejev.supabase.co/functions/v1/attendance-events" />
+    </label>
+    <label>Anon key (simulador)
+      <input id="anon" type="password" placeholder="sb_publishable_… ou eyJ…" autocomplete="off" />
+    </label>
+    <label>Integration token
+      <input id="token" type="password" placeholder="homolog-…" autocomplete="off" />
+    </label>
+    <button id="load" type="button">Carregar aulas e chamadas</button>
+    <p id="status"></p>
+  </section>
+
+  <section>
+    <h2>Aulas / agendamentos</h2>
+    <div id="lessons"></div>
+  </section>
+  <section>
+    <h2>Chamadas recebidas</h2>
+    <div id="attendance"></div>
+  </section>
+  <section>
+    <h2>Recebimentos (integration_receipts)</h2>
+    <div id="receipts"></div>
+  </section>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    async function fetchView(view) {
+      const url = new URL($("url").value.trim());
+      url.searchParams.set("token", $("token").value.trim());
+      url.searchParams.set("view", view);
+      const anon = $("anon").value.trim();
+      const headers = { "X-Integration-Token": $("token").value.trim() };
+      if (anon) { headers.apikey = anon; headers.Authorization = "Bearer " + anon; }
+      const r = await fetch(url.toString(), { headers });
+      const data = await r.json();
+      if (!r.ok) throw new Error(JSON.stringify(data));
+      return data;
+    }
+    function table(rows, cols) {
+      if (!rows || !rows.length) return "<p class='sub'>Nenhum registro.</p>";
+      let h = "<table><thead><tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
+      for (const row of rows) {
+        h += "<tr>" + cols.map(c => {
+          let v = row[c];
+          if (v && typeof v === "object") v = v.name || v.title || v.full_name || JSON.stringify(v);
+          return `<td>${v ?? ""}</td>`;
+        }).join("") + "</tr>";
+      }
+      return h + "</tbody></table>";
+    }
+    $("load").onclick = async () => {
+      $("status").textContent = "Carregando…";
+      try {
+        const lessons = await fetchView("lessons");
+        const att = await fetchView("attendance");
+        const receipts = await fetchView("receipts");
+        $("lessons").innerHTML = table((lessons.lessons || []).map(l => ({
+          external_lesson_id: l.external_lesson_id,
+          title: l.title,
+          starts_at: l.starts_at,
+          ends_at: l.ends_at,
+          status: l.status,
+          turma: l.class_groups,
+          disciplina: l.subjects,
+          professor: l.teachers,
+        })), ["external_lesson_id","title","turma","disciplina","professor","starts_at","ends_at","status"]);
+        $("attendance").innerHTML = table((att.attendance || []).map(a => ({
+          external_lesson_id: a.external_lesson_id,
+          external_student_id: a.external_student_id,
+          aluno: a.students,
+          status: a.status,
+          source_event_id: a.source_event_id,
+          received_at: a.received_at,
+        })), ["external_lesson_id","external_student_id","aluno","status","source_event_id","received_at"]);
+        $("receipts").innerHTML = table(receipts.receipts || [], ["event_id","result_status","http_status","external_lesson_id","external_student_id","received_at"]);
+        $("status").innerHTML = "<span class='ok'>OK</span>";
+      } catch (e) {
+        $("status").innerHTML = "<span class='err'>" + e.message + "</span>";
+      }
+    };
+  </script>
+</body>
+</html>

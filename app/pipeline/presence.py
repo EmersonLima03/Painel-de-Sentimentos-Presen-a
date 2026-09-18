@@ -154,6 +154,13 @@ class PresencePipeline:
             event_id=event["event_id"],
             session_id=self.session_id,
         )
+        # Integração LXP simulador: só se houver identidade + aula externa (não inventa presença)
+        try:
+            from app.integrations.attendance_lxp import maybe_enqueue_lxp_attendance_from_checkin
+
+            maybe_enqueue_lxp_attendance_from_checkin(event)
+        except Exception as lxp_err:
+            logger.warning("lxp_attendance_enqueue_hook_failed", error=str(lxp_err))
         return event
 
 

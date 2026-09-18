@@ -74,10 +74,11 @@ class EventRepository:
         return q.limit(limit).all()
 
     def get_outbox_lane_stats(self) -> dict:
-        """Contagens pending por lane (product / telemetry / ignored)."""
+        """Contagens pending por lane (product / lxp / telemetry / ignored)."""
         from sqlalchemy import func
         from app.sync.outbox_contract import (
             CLOUD_MVP_SYNCABLE_SET,
+            LXP_SYNCABLE_SET,
             TELEMETRY_LOCAL_TYPES,
             classify_outbox_lane,
         )
@@ -90,6 +91,7 @@ class EventRepository:
         )
         by_type = {t: int(n) for t, n in rows}
         product_pending = sum(n for t, n in by_type.items() if t in CLOUD_MVP_SYNCABLE_SET)
+        lxp_pending = sum(n for t, n in by_type.items() if t in LXP_SYNCABLE_SET)
         telemetry_pending = sum(n for t, n in by_type.items() if t in TELEMETRY_LOCAL_TYPES)
         ignored_pending = sum(
             n
@@ -98,6 +100,7 @@ class EventRepository:
         )
         return {
             "product_pending": product_pending,
+            "lxp_pending": lxp_pending,
             "telemetry_pending": telemetry_pending,
             "ignored_pending": ignored_pending,
             "pending_by_type": by_type,

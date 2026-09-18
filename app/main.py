@@ -389,6 +389,7 @@ async def sessions_start(body: SessionBody, _: None = Depends(require_api_token)
     from app.services.live_session import get_live_session
     from app.services.session_persistence import enqueue_class_session_upsert
     import time as _time
+    import json as _json
 
     settings = get_settings()
     session = get_session()
@@ -400,13 +401,17 @@ async def sessions_start(body: SessionBody, _: None = Depends(require_api_token)
         sid = generate_event_id()
         room = body.room_id or (settings.cameras[0].room_id if settings.cameras else "DEV")
         title = body.title or "Sessão manual"
-        repo.create_session(
+        external_lesson = (getattr(settings, "lxp_external_lesson_id", "") or "").strip() or None
+        row = repo.create_session(
             session_id=sid,
             school_id=settings.school_id,
             room_id=room,
             device_id=settings.device_id,
             title=title,
         )
+        if external_lesson and row:
+            row.metadata_json = _json.dumps({"external_lesson_id": external_lesson})
+            session.commit()
         if orchestrator:
             orchestrator.active_session_id = sid
             for p in orchestrator.presence_pipelines.values():
@@ -421,6 +426,7 @@ async def sessions_start(body: SessionBody, _: None = Depends(require_api_token)
             status="active",
             started_at=_time.time(),
             title=title,
+            external_lesson_id=external_lesson,
         )
         return {"session_id": sid, "status": "active"}
     finally:

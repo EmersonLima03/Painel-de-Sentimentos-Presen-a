@@ -82,6 +82,16 @@ export function SettingsView({ status, qaEnabled }: Props) {
           />
         </label>
         <label className="settings-field">
+          <span>Aula externa (LXP / simulador)</span>
+          <input
+            type="text"
+            value={aula.externalLessonId}
+            onChange={(e) => setAula({ ...aula, externalLessonId: e.target.value })}
+            placeholder="Ex.: lesson-8b-math-50 (vazio = não configurada)"
+            autoComplete="off"
+          />
+        </label>
+        <label className="settings-field">
           <span>Professor</span>
           <input
             type="text"

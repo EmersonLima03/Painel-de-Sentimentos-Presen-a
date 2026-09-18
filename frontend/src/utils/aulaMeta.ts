@@ -1,4 +1,4 @@
-/** Meta pedagógica local (Fase 1) — fallback até LXP. Não inventa presença/fora da sala. */
+/** Meta pedagógica local — fallback até LXP. Não inventa presença. */
 
 export type AulaMeta = {
   turma: string;
@@ -6,6 +6,8 @@ export type AulaMeta = {
   professor: string;
   /** minutos previstos: 50, 100 ou custom */
   durationMinutes: number | null;
+  /** ID da aula no LXP/simulador; vazio = não configurada */
+  externalLessonId: string;
 };
 
 export const AULA_META_KEY = "presenca_aula_meta";
@@ -15,6 +17,7 @@ const DEFAULTS: AulaMeta = {
   disciplina: "",
   professor: "",
   durationMinutes: 50,
+  externalLessonId: "",
 };
 
 export function loadAulaMeta(): AulaMeta {
@@ -33,6 +36,7 @@ export function loadAulaMeta(): AulaMeta {
           : Number.isFinite(Number(dur)) && Number(dur) > 0
             ? Math.round(Number(dur))
             : 50,
+      externalLessonId: String(parsed.externalLessonId || "").trim(),
     };
   } catch {
     return { ...DEFAULTS };
@@ -43,9 +47,14 @@ export function saveAulaMeta(meta: AulaMeta): void {
   localStorage.setItem(AULA_META_KEY, JSON.stringify(meta));
 }
 
-export function formatClockFromUnix(sec: number | null | undefined): string {
-  if (sec == null || !Number.isFinite(Number(sec))) return "—";
-  const d = new Date(Number(sec) * 1000);
-  if (Number.isNaN(d.getTime())) return "—";
+export function formatClockFromUnix(ts: number | null | undefined): string {
+  if (!ts) return "--:--";
+  const d = new Date(ts * 1000);
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+export function formatExternalLessonLabel(meta: AulaMeta): string {
+  const id = (meta.externalLessonId || "").trim();
+  if (!id) return "Aula externa não configurada";
+  return `Aula externa: ${id}`;
 }

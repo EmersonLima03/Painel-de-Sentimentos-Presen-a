@@ -1,0 +1,152 @@
+{
+  "url": "https://zasbmqwwkecmjbebejev.supabase.co/functions/v1/attendance-events",
+  "cases": [
+    {
+      "name": "invalid_token",
+      "http": 401,
+      "ok": true
+    },
+    {
+      "name": "invalid_payload",
+      "http": 400,
+      "body": {
+        "ok": false,
+        "status": "invalid",
+        "error": "missing_lesson_id",
+        "event_id": "only-id"
+      },
+      "ok": true
+    },
+    {
+      "name": "lesson_not_found",
+      "http": 404,
+      "body": {
+        "ok": false,
+        "status": "invalid",
+        "error": "lesson_not_found",
+        "event_id": "evt-missing-lesson-bb1cf8ef-a4f7-46f1-860d-d779c29e97b0"
+      },
+      "ok": true
+    },
+    {
+      "name": "student_not_found",
+      "http": 404,
+      "body": {
+        "ok": false,
+        "status": "invalid",
+        "error": "student_not_found",
+        "event_id": "evt-missing-stu-907f2422-70c2-4c2d-bd74-e1e1ee9c6e8b"
+      },
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_1",
+      "http": 200,
+      "result": "inserted",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_2",
+      "http": 200,
+      "result": "duplicate",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_3",
+      "http": 200,
+      "result": "duplicate",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_4",
+      "http": 200,
+      "result": "duplicate",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_5",
+      "http": 200,
+      "result": "duplicate",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_6",
+      "http": 200,
+      "result": "duplicate",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_7",
+      "http": 200,
+      "result": "duplicate",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_8",
+      "http": 200,
+      "result": "duplicate",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_9",
+      "http": 200,
+      "result": "duplicate",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "idempotent_send_10",
+      "http": 200,
+      "result": "duplicate",
+      "attendance_id": "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+      "ok": true
+    },
+    {
+      "name": "get_lessons",
+      "http": 200,
+      "ok": true,
+      "keys": [
+        "ok",
+        "contract_version",
+        "lessons"
+      ]
+    },
+    {
+      "name": "get_attendance",
+      "http": 200,
+      "ok": true,
+      "keys": [
+        "ok",
+        "contract_version",
+        "attendance"
+      ]
+    },
+    {
+      "name": "get_receipts",
+      "http": 200,
+      "ok": true,
+      "keys": [
+        "ok",
+        "receipts"
+      ]
+    }
+  ],
+  "idempotency": {
+    "event_id": "evt-idem-7a80f458-49f8-4a18-9624-22b152c458e9",
+    "sends": 10,
+    "all_http_200": true,
+    "unique_attendance_ids": [
+      "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36"
+    ],
+    "ok": true
+  },
+  "passed": true
+}
