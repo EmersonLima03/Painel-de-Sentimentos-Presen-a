@@ -57,7 +57,7 @@ export function App() {
   ];
 
   const adminItems: { id: Tab; label: string }[] = auth.email
-    ? [{ id: "admin", label: auth.isGestor ? "Administração" : "Minhas turmas" }]
+    ? [{ id: "admin", label: auth.isGestor ? "Administração" : "Minhas aulas" }]
     : [];
 
   const qaItems: { id: Tab; label: string }[] = QA_QUERY

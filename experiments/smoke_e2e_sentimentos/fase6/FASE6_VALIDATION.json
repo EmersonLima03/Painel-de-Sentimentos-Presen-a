@@ -1,0 +1,124 @@
+{
+  "started": "2026-09-18T15:06:10.938562+00:00",
+  "results": [
+    {
+      "area": "edge_health",
+      "result": "PASS",
+      "evidence": "cameras_online=0",
+      "note": ""
+    },
+    {
+      "area": "current_context_api",
+      "result": "PASS",
+      "evidence": "session=fb5cd196-bf74-4c8d-a597-027f188c6830 active=fb5cd196-bf74-4c8d-a597-027f188c6830",
+      "note": ""
+    },
+    {
+      "area": "clear_active_session",
+      "result": "PASS",
+      "evidence": "http=200 sid=fb5cd196-bf74-4c8d-a597-027f188c6830",
+      "note": ""
+    },
+    {
+      "area": "lessons_cache",
+      "result": "PASS",
+      "evidence": "http=200",
+      "note": ""
+    },
+    {
+      "area": "start_with_context",
+      "result": "PASS",
+      "evidence": "http=200 status=started sid=89f03063-40fb-473a-bd02-a2927fa5122f",
+      "note": "Aula iniciada."
+    },
+    {
+      "area": "resume_same_occurrence",
+      "result": "PASS",
+      "evidence": "status=resumed sid=89f03063-40fb-473a-bd02-a2927fa5122f",
+      "note": ""
+    },
+    {
+      "area": "conflict_other_occurrence",
+      "result": "PASS",
+      "evidence": "http=409 code=conflict_active_session label=8º Ano B · Matemática",
+      "note": ""
+    },
+    {
+      "area": "live_status_lesson_context",
+      "result": "PASS",
+      "evidence": "lesson=lesson-8b-math-50 turma=8º Ano B",
+      "note": ""
+    },
+    {
+      "area": "reopen_new_session",
+      "result": "PASS",
+      "evidence": "old=89f03063-40fb-473a-bd02-a2927fa5122f new=c915ff1c-1af1-4d0c-b41a-07fa4ca5f738 reopen=True",
+      "note": ""
+    },
+    {
+      "area": "start_from_cache",
+      "result": "PASS",
+      "evidence": "http=200 status=started lesson=lesson-8b-math-50",
+      "note": ""
+    },
+    {
+      "area": "gestor_login",
+      "result": "PASS",
+      "evidence": "JWT ok",
+      "note": ""
+    },
+    {
+      "area": "gestor_create_lesson",
+      "result": "PASS",
+      "evidence": "id=facf83b9-f72a-48fb-8164-d3fea923bf02",
+      "note": ""
+    },
+    {
+      "area": "professor_login",
+      "result": "PASS",
+      "evidence": "JWT ok",
+      "note": ""
+    },
+    {
+      "area": "professor_list_lessons",
+      "result": "PASS",
+      "evidence": "http=200 n=1",
+      "note": ""
+    },
+    {
+      "area": "rls_professor_cannot_create",
+      "result": "PASS",
+      "evidence": "http=403",
+      "note": ""
+    },
+    {
+      "area": "lxp_mode",
+      "result": "INFO",
+      "evidence": "disabled",
+      "note": ""
+    },
+    {
+      "area": "lxp_checkin_path",
+      "result": "NÃO OBSERVADO",
+      "evidence": "modules.lxp=disabled; default disabled — sem alteração TRI/config para forçar",
+      "note": ""
+    },
+    {
+      "area": "camera_usb",
+      "result": "NÃO OBSERVADO",
+      "evidence": "cameras_online=0",
+      "note": ""
+    },
+    {
+      "area": "lxp_production",
+      "result": "PASS",
+      "evidence": "nenhuma chamada a LXP produção nesta validação",
+      "note": ""
+    }
+  ],
+  "lxp_production_touched": false,
+  "tri_diff_empty": true,
+  "finished": "2026-09-18T15:06:18.634511+00:00",
+  "session_id": "e937b457-f1e2-4b9e-bb8f-c95aa925a4e9",
+  "cloud_occurrence_id": "facf83b9-f72a-48fb-8164-d3fea923bf02"
+}

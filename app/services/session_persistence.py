@@ -57,11 +57,23 @@ def enqueue_class_session_upsert(
     ended_at: float | None = None,
     title: str | None = None,
     external_lesson_id: str | None = None,
+    lesson_occurrence_id: str | None = None,
+    class_group_id: str | None = None,
+    subject_id: str | None = None,
+    teacher_profile_id: str | None = None,
+    room_id: str | None = None,
+    scheduled_start_at: str | None = None,
+    scheduled_duration_minutes: int | None = None,
+    organization_id: str | None = None,
+    cloud_school_id: str | None = None,
 ) -> None:
     settings = get_settings()
-    org = getattr(settings, "cloud_organization_id", "") or ""
-    school = getattr(settings, "cloud_school_id", "") or ""
-    lesson = external_lesson_id or (getattr(settings, "lxp_external_lesson_id", "") or None)
+    org = organization_id or (getattr(settings, "cloud_organization_id", "") or "")
+    school = cloud_school_id or (getattr(settings, "cloud_school_id", "") or "")
+    # Lesson da sessão/ocorrência primeiro; env só fallback de lab
+    lesson = external_lesson_id
+    if not lesson:
+        lesson = getattr(settings, "lxp_external_lesson_id", "") or None
     payload = {
         "event_type": "class_session_upsert",
         "event_id": f"session:{session_id}:{status}",
@@ -74,9 +86,14 @@ def enqueue_class_session_upsert(
             "started_at": _ts_iso(started_at),
             "ended_at": _ts_iso(ended_at),
             "source_device_id": settings.device_id,
-            "scheduled_start_at": None,
-            "scheduled_duration_minutes": None,
+            "scheduled_start_at": scheduled_start_at,
+            "scheduled_duration_minutes": scheduled_duration_minutes,
             "external_lesson_id": lesson or None,
+            "lesson_occurrence_id": lesson_occurrence_id,
+            "class_group_id": class_group_id,
+            "subject_id": subject_id,
+            "teacher_profile_id": teacher_profile_id,
+            "room_id": room_id,
         },
         "device_id": settings.device_id,
         "school_id": school or settings.school_id,

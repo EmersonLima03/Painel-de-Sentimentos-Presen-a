@@ -106,6 +106,11 @@ Deno.serve(async (req) => {
         scheduled_start_at: s.scheduled_start_at || null,
         scheduled_duration_minutes: s.scheduled_duration_minutes || null,
         external_lesson_id: s.external_lesson_id || null,
+        lesson_occurrence_id: s.lesson_occurrence_id || null,
+        class_group_id: s.class_group_id || null,
+        subject_id: s.subject_id || null,
+        teacher_profile_id: s.teacher_profile_id || null,
+        room_id: s.room_id || null,
         source_device_id: s.source_device_id || device.device_code,
         synced_at: new Date().toISOString(),
       };

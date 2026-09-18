@@ -28,11 +28,43 @@ def _iso(ts: float | int | None) -> str:
     return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
 
 
-def resolve_external_student_id(edge_student_key: str) -> Optional[str]:
-    """Mapa Edge → ID externo do simulador (homolog).
+def _session_meta(session_id: str | None) -> Dict[str, Any]:
+    if not session_id:
+        return {}
+    try:
+        from app.db.init_db import close_session, get_session
+        from app.db.models import ClassSession
+        import json
 
-    Produção futura: tabela/cloud. Aqui: env JSON ou convenção seed.
+        db = get_session()
+        try:
+            row = db.query(ClassSession).filter(ClassSession.session_id == session_id).first()
+            if not row or not row.metadata_json:
+                return {}
+            meta = json.loads(row.metadata_json)
+            return meta if isinstance(meta, dict) else {}
+        finally:
+            close_session(db)
+    except Exception as e:
+        logger.warning("session_meta_read_failed", error=str(e))
+        return {}
+
+
+def resolve_external_student_id(
+    edge_student_key: str, *, session_id: str | None = None
+) -> Optional[str]:
+    """Mapa Edge → ID externo LXP/Simulator.
+
+    Ordem: roster da sessão (Fase 6) → env JSON → seed lab.
     """
+    meta = _session_meta(session_id)
+    ctx = meta.get("lesson_context") if isinstance(meta.get("lesson_context"), dict) else {}
+    smap = ctx.get("student_map") if isinstance(ctx, dict) else None
+    if isinstance(smap, dict) and edge_student_key in smap:
+        val = str(smap.get(edge_student_key) or "").strip()
+        if val:
+            return val
+
     settings = get_settings()
     raw = (getattr(settings, "lxp_student_map_json", "") or "").strip()
     if raw:
@@ -44,7 +76,7 @@ def resolve_external_student_id(edge_student_key: str) -> Optional[str]:
                 return str(m[edge_student_key])
         except Exception:
             logger.warning("lxp_student_map_json_invalid")
-    # Seed do simulador: p01→ext-stu-001 …
+    # Seed do simulador (lab): p01→ext-stu-001 …
     defaults = {
         "p01": "ext-stu-001",
         "p02": "ext-stu-002",
@@ -54,32 +86,17 @@ def resolve_external_student_id(edge_student_key: str) -> Optional[str]:
 
 
 def resolve_external_lesson_id(session_id: str | None) -> Optional[str]:
-    """Aula externa associada à sessão (env override ou metadata da sessão)."""
+    """Aula externa: sessão/ocorrência primeiro; env só fallback de laboratório."""
+    meta = _session_meta(session_id)
+    lid = meta.get("external_lesson_id")
+    if not lid and isinstance(meta.get("lesson_context"), dict):
+        lid = meta["lesson_context"].get("external_lesson_id")
+    if lid:
+        return str(lid).strip() or None
+
     settings = get_settings()
     fixed = (getattr(settings, "lxp_external_lesson_id", "") or "").strip()
-    if fixed:
-        return fixed
-    if not session_id:
-        return None
-    try:
-        from app.db.init_db import close_session, get_session
-        from app.db.models import ClassSession
-
-        db = get_session()
-        try:
-            row = db.query(ClassSession).filter(ClassSession.session_id == session_id).first()
-            if not row or not row.metadata_json:
-                return None
-            import json
-
-            meta = json.loads(row.metadata_json)
-            lid = meta.get("external_lesson_id")
-            return str(lid) if lid else None
-        finally:
-            close_session(db)
-    except Exception as e:
-        logger.warning("resolve_external_lesson_failed", error=str(e))
-        return None
+    return fixed or None
 
 
 def maybe_enqueue_lxp_attendance_from_checkin(event: Dict[str, Any]) -> bool:
@@ -107,7 +124,9 @@ def maybe_enqueue_lxp_attendance_from_checkin(event: Dict[str, Any]) -> bool:
         logger.info("lxp_attendance_skipped_no_lesson", session_id=session_id)
         return False
 
-    ext_student = resolve_external_student_id(edge_key)
+    ext_student = resolve_external_student_id(
+        edge_key, session_id=str(session_id) if session_id else None
+    )
     if not ext_student:
         logger.info("lxp_attendance_skipped_unmapped_student", edge_student_key=edge_key)
         return False

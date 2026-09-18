@@ -439,6 +439,7 @@ async def sessions_end(session_id: str, _: None = Depends(require_api_token)):
     from app.services.session_persistence import enqueue_class_session_upsert, enqueue_report_snapshot
     from app.services.live_session import get_live_session
     import time as _time
+    import json as _json
 
     session = get_session()
     try:
@@ -449,6 +450,7 @@ async def sessions_end(session_id: str, _: None = Depends(require_api_token)):
             raise HTTPException(404, "session not found")
         started = _time.time()
         title = None
+        ctx = {}
         if row is not None:
             title = getattr(row, "title", None)
             if getattr(row, "started_at", None) is not None:
@@ -456,12 +458,29 @@ async def sessions_end(session_id: str, _: None = Depends(require_api_token)):
                     started = row.started_at.timestamp()
                 except Exception:
                     pass
+            try:
+                if row.metadata_json:
+                    meta = _json.loads(row.metadata_json)
+                    if isinstance(meta, dict):
+                        ctx = meta.get("lesson_context") if isinstance(meta.get("lesson_context"), dict) else meta
+            except Exception:
+                ctx = {}
         enqueue_class_session_upsert(
             session_id=session_id,
             status="ended",
             started_at=started,
             ended_at=_time.time(),
             title=title,
+            external_lesson_id=(ctx or {}).get("external_lesson_id"),
+            lesson_occurrence_id=(ctx or {}).get("lesson_occurrence_id"),
+            class_group_id=(ctx or {}).get("class_group_id"),
+            subject_id=(ctx or {}).get("subject_id"),
+            teacher_profile_id=(ctx or {}).get("teacher_profile_id"),
+            room_id=(ctx or {}).get("room_id") if len(str((ctx or {}).get("room_id") or "")) == 36 else None,
+            scheduled_start_at=(ctx or {}).get("scheduled_start_at"),
+            scheduled_duration_minutes=(ctx or {}).get("scheduled_duration_minutes"),
+            organization_id=(ctx or {}).get("organization_id"),
+            cloud_school_id=(ctx or {}).get("school_id"),
         )
         try:
             live = get_live_session()

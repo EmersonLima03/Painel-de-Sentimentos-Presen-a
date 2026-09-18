@@ -79,6 +79,40 @@ class DemoControlBody(BaseModel):
     reset: bool = False
 
 
+def _current_lesson_context() -> Optional[Dict[str, Any]]:
+    try:
+        from app.services.lesson_context import read_session_context
+
+        return read_session_context(get_live_session().session_id)
+    except Exception:
+        return None
+
+
+class LessonCacheBody(BaseModel):
+    occurrences: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class StartWithContextBody(BaseModel):
+    lesson_occurrence_id: str
+    organization_id: Optional[str] = None
+    school_id: Optional[str] = None
+    class_group_id: Optional[str] = None
+    subject_id: Optional[str] = None
+    teacher_profile_id: Optional[str] = None
+    room_id: Optional[str] = None
+    class_group_name: Optional[str] = None
+    subject_name: Optional[str] = None
+    teacher_name: Optional[str] = None
+    room_name: Optional[str] = None
+    title: Optional[str] = None
+    scheduled_start_at: Optional[str] = None
+    scheduled_duration_minutes: Optional[int] = None
+    external_lesson_id: Optional[str] = None
+    block_group_id: Optional[str] = None
+    roster: List[Dict[str, Any]] = Field(default_factory=list)
+    require_full_context: bool = False
+
+
 def _client_is_localhost(request: Request) -> bool:
     client = request.client.host if request.client else ""
     return client in ("127.0.0.1", "::1", "localhost", "testclient")
@@ -116,6 +150,7 @@ async def live_status(_: None = Depends(require_api_token)):
             },
             "camera_status": "rtsp_or_offline",
             "session": get_live_session().session_meta(),
+            "lesson_context": _current_lesson_context(),
             "kpis": {
                 "visible": _live_state.get("visible_people"),
                 "present": _live_state.get("recognized_people"),
@@ -244,6 +279,38 @@ async def list_sessions(_: None = Depends(require_api_token)):
         snap = _demo_snap()
         return _enrich({"sessions": [snap["session"]]})
     return _enrich({"sessions": [get_live_session().session_meta()]})
+
+
+@router.get("/sessions/current-context")
+async def sessions_current_context(_: None = Depends(require_api_token)):
+    from app.services.lesson_context import current_context_payload
+
+    return _enrich(current_context_payload())
+
+
+@router.post("/lessons/cache")
+async def lessons_cache_push(body: LessonCacheBody, _: None = Depends(require_api_token)):
+    """Browser push: cache das aulas do dia no Edge (offline-first)."""
+    from app.services.lesson_context import save_day_cache
+
+    saved = save_day_cache(list(body.occurrences or []))
+    return _enrich({"ok": True, "cached_at": saved.get("cached_at"), "count": len(saved.get("occurrences") or [])})
+
+
+@router.get("/lessons/cache")
+async def lessons_cache_get(_: None = Depends(require_api_token)):
+    from app.services.lesson_context import load_day_cache
+
+    return _enrich(load_day_cache())
+
+
+@router.post("/sessions/start-with-context")
+async def sessions_start_with_context(body: StartWithContextBody, _: None = Depends(require_api_token)):
+    from app.services.lesson_context import start_session_with_context
+
+    result = start_session_with_context(body.model_dump())
+    status = 200 if result.get("ok") else (409 if result.get("code") == "conflict_active_session" else 400)
+    return JSONResponse(_enrich(result), status_code=status)
 
 
 @router.get("/sessions/{session_id}")

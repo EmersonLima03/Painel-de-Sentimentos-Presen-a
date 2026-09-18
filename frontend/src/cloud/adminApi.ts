@@ -36,6 +36,7 @@ export type StudentRow = {
   organization_id: string;
   full_name: string;
   external_ref: string | null;
+  edge_student_key: string | null;
   is_active: boolean;
 };
 

@@ -67,14 +67,21 @@ export function LiveClassView({
   const [aulaMeta, setAulaMeta] = useState<AulaMeta>(() => loadAulaMeta());
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const liveFilters = useLiveFilters(tracks);
+  const lessonContext = status?.lesson_context || null;
 
   useEffect(() => {
     const onStorage = () => setAulaMeta(loadAulaMeta());
+    const onLesson = () => {
+      /* status poll traz lesson_context; força re-render leve */
+      setAulaMeta(loadAulaMeta());
+    };
     window.addEventListener("storage", onStorage);
     window.addEventListener("presenca-aula-meta", onStorage);
+    window.addEventListener("presenca-lesson-context", onLesson);
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("presenca-aula-meta", onStorage);
+      window.removeEventListener("presenca-lesson-context", onLesson);
     };
   }, []);
 
@@ -115,6 +122,7 @@ export function LiveClassView({
     <section className="live-class-view live-class-v2">
       <LessonHeader
         meta={aulaMeta}
+        context={lessonContext}
         startedAt={startedAt}
         elapsedSec={elapsed}
         wsState={wsState}

@@ -1,0 +1,49 @@
+{
+  "results": [
+    {
+      "area": "gestor_login_ui",
+      "result": "PASS",
+      "note": ""
+    },
+    {
+      "area": "gestor_nav_admin",
+      "result": "PASS",
+      "note": ""
+    },
+    {
+      "area": "gestor_aulas_tab",
+      "result": "PASS",
+      "note": ""
+    },
+    {
+      "area": "gestor_aulas_content",
+      "result": "PASS",
+      "note": ""
+    },
+    {
+      "area": "professor_login_ui",
+      "result": "PASS",
+      "note": ""
+    },
+    {
+      "area": "professor_nav",
+      "result": "PASS",
+      "note": ""
+    },
+    {
+      "area": "professor_minhas_aulas",
+      "result": "PASS",
+      "note": ""
+    },
+    {
+      "area": "professor_iniciar",
+      "result": "PASS",
+      "note": "Presença\npainel da aula\nAo vivo\nRelatórios\nEscola\nHistórico\nConfigurações\nADMINISTRAÇÃO\nMinhas aulas\nPainel legado\nMinha"
+    },
+    {
+      "area": "dashboard_contexto",
+      "result": "PASS",
+      "note": "header pedagógico"
+    }
+  ]
+}

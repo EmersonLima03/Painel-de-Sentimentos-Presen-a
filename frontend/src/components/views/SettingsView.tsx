@@ -58,9 +58,16 @@ export function SettingsView({ status, qaEnabled }: Props) {
 
       <div className="panel">
         <SectionHeader
-          title="Contexto da aula (local)"
-          subtitle="Temporário até integração LXP — não altera o pipeline de visão"
+          title="Contexto da aula"
+          subtitle="Fonte de verdade: Administração → Aulas / Minhas aulas de hoje (Edge). localStorage NÃO define a chamada."
         />
+        <p className="muted settings-note">
+          Para iniciar uma aula, o professor usa <strong>Administração → Minhas aulas de hoje</strong>.
+          O cabeçalho Ao vivo lê o contexto da sessão no Edge. Os campos abaixo são apenas
+          espelho legado opcional (não substituem lesson_occurrence).
+        </p>
+        <details>
+          <summary>Espelho legado (opcional, não é fonte de verdade)</summary>
         <label className="settings-field">
           <span>Turma</span>
           <input
@@ -82,12 +89,12 @@ export function SettingsView({ status, qaEnabled }: Props) {
           />
         </label>
         <label className="settings-field">
-          <span>Aula externa (LXP / simulador)</span>
+          <span>Aula externa (legado)</span>
           <input
             type="text"
             value={aula.externalLessonId}
             onChange={(e) => setAula({ ...aula, externalLessonId: e.target.value })}
-            placeholder="Ex.: lesson-8b-math-50 (vazio = não configurada)"
+            placeholder="Não use para chamada — use Aulas do gestor"
             autoComplete="off"
           />
         </label>
@@ -102,7 +109,7 @@ export function SettingsView({ status, qaEnabled }: Props) {
           />
         </label>
         <fieldset className="settings-fieldset">
-          <legend>Duração prevista</legend>
+          <legend>Duração prevista (legado)</legend>
           <label className="settings-radio">
             <input
               type="radio"
@@ -119,7 +126,7 @@ export function SettingsView({ status, qaEnabled }: Props) {
               checked={durationMode === "100"}
               onChange={() => setDurationMode("100")}
             />
-            100 min (duas aulas)
+            100 min
           </label>
           <label className="settings-radio">
             <input
@@ -146,13 +153,10 @@ export function SettingsView({ status, qaEnabled }: Props) {
           )}
         </fieldset>
         <button type="button" className="btn primary" onClick={saveAula}>
-          Salvar contexto da aula
+          Salvar espelho local
         </button>
         {aulaSaved && <span className="muted"> Salvo.</span>}
-        <p className="muted settings-note">
-          Horário agendado vs início efetivo e “atraso” automático ficam para a integração LXP (Fase
-          3). Aqui só há rótulos locais para o cabeçalho.
-        </p>
+        </details>
       </div>
 
       <div className="panel">

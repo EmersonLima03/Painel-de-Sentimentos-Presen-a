@@ -69,7 +69,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, [refresh]);
 
-  const active = memberships.find((m) => m.school_id === activeSchoolId) || memberships[0] || null;
+  const activeGestor =
+    memberships.find((m) => m.school_id === activeSchoolId && m.role === "gestor") || null;
+  const active =
+    activeGestor ||
+    memberships.find((m) => m.school_id === activeSchoolId) ||
+    memberships[0] ||
+    null;
   const activeRole = (active?.role as AuthRole) || null;
 
   const value = useMemo<AuthState>(

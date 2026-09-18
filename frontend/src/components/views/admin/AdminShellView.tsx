@@ -31,6 +31,19 @@ import {
   type StudentRow,
   type SubjectRow,
 } from "../../../cloud/adminApi";
+import {
+  buildEdgeContextPayload,
+  createLessonOccurrence,
+  endLessonOnEdge,
+  fetchLessonOccurrences,
+  fetchMyLessonsToday,
+  fetchRosterForClassGroup,
+  localDayIso,
+  pushLessonsCacheToEdge,
+  startLessonOnEdge,
+  updateLessonOccurrence,
+  type LessonOccurrenceRow,
+} from "../../../cloud/lessonApi";
 
 export type AdminSection =
   | "school"
@@ -38,6 +51,7 @@ export type AdminSection =
   | "subjects"
   | "classes"
   | "students"
+  | "lessons"
   | "rooms"
   | "devices"
   | "cameras";
@@ -48,6 +62,7 @@ const GESTOR_SECTIONS: { id: AdminSection; label: string }[] = [
   { id: "subjects", label: "Disciplinas" },
   { id: "classes", label: "Turmas" },
   { id: "students", label: "Alunos" },
+  { id: "lessons", label: "Aulas" },
   { id: "rooms", label: "Salas" },
   { id: "devices", label: "Dispositivos" },
   { id: "cameras", label: "Câmeras" },
@@ -148,6 +163,12 @@ export function AdminShellView({ initialSection = "school" }: Props) {
           )}
           {section === "students" && (
             <StudentsAdmin
+              schoolId={auth.activeSchoolId}
+              organizationId={auth.activeOrganizationId}
+            />
+          )}
+          {section === "lessons" && (
+            <LessonsAdmin
               schoolId={auth.activeSchoolId}
               organizationId={auth.activeOrganizationId}
             />
@@ -643,7 +664,7 @@ function StudentsAdmin({ schoolId, organizationId }: { schoolId: string; organiz
   const [enrolls, setEnrolls] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState("");
-  const [form, setForm] = useState({ full_name: "", external_ref: "" });
+  const [form, setForm] = useState({ full_name: "", external_ref: "", edge_student_key: "" });
   const [enroll, setEnroll] = useState({ student_id: "", class_group_id: "" });
 
   async function reload() {
@@ -670,13 +691,28 @@ function StudentsAdmin({ schoolId, organizationId }: { schoolId: string; organiz
       organization_id: organizationId,
       full_name: form.full_name.trim(),
       external_ref: form.external_ref.trim() || null,
+      edge_student_key: form.edge_student_key.trim() || null,
       is_active: true,
     });
     setMsg(error ? `Erro: ${error.message}` : "Aluno criado.");
     if (!error) {
-      setForm({ full_name: "", external_ref: "" });
+      setForm({ full_name: "", external_ref: "", edge_student_key: "" });
       await reload();
     }
+  }
+
+  async function saveIdentity(r: StudentRow, edgeKey: string, externalRef: string) {
+    const { error } = await upsertStudent({
+      id: r.id,
+      school_id: schoolId,
+      organization_id: organizationId,
+      full_name: r.full_name,
+      edge_student_key: edgeKey.trim() || null,
+      external_ref: externalRef.trim() || null,
+      is_active: r.is_active,
+    });
+    setMsg(error ? `Erro: ${error.message}` : `Identidade de ${r.full_name} atualizada.`);
+    if (!error) await reload();
   }
 
   async function doEnroll(e: React.FormEvent) {
@@ -694,6 +730,10 @@ function StudentsAdmin({ schoolId, organizationId }: { schoolId: string; organiz
   return (
     <div>
       <h2>Alunos</h2>
+      <p className="muted">
+        Mapeie <strong>chave Edge</strong> (ex.: p01) e <strong>ref. externa LXP/Simulator</strong>{" "}
+        (ex.: ext-stu-001) para a chamada automática.
+      </p>
       <div className="admin-toolbar">
         <input placeholder="Buscar aluno…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
@@ -701,17 +741,15 @@ function StudentsAdmin({ schoolId, organizationId }: { schoolId: string; organiz
         <thead>
           <tr>
             <th>Nome</th>
-            <th>Matrícula</th>
+            <th>Ref. externa (LXP)</th>
+            <th>Chave Edge</th>
             <th>Status</th>
+            <th />
           </tr>
         </thead>
         <tbody>
           {filtered.map((r) => (
-            <tr key={r.id}>
-              <td>{r.full_name}</td>
-              <td>{r.external_ref || "—"}</td>
-              <td>{r.is_active ? "Ativo" : "Inativo"}</td>
-            </tr>
+            <StudentIdentityRow key={r.id} row={r} onSave={saveIdentity} />
           ))}
         </tbody>
       </table>
@@ -726,10 +764,19 @@ function StudentsAdmin({ schoolId, organizationId }: { schoolId: string; organiz
           />
         </label>
         <label>
-          Matrícula / ref. externa (opcional)
+          Ref. externa LXP / Simulator (opcional)
           <input
             value={form.external_ref}
             onChange={(e) => setForm({ ...form, external_ref: e.target.value })}
+            placeholder="ext-stu-001"
+          />
+        </label>
+        <label>
+          Chave Edge (opcional)
+          <input
+            value={form.edge_student_key}
+            onChange={(e) => setForm({ ...form, edge_student_key: e.target.value })}
+            placeholder="p01"
           />
         </label>
         <button className="btn primary" type="submit">
@@ -1086,19 +1133,343 @@ function CamerasAdmin({ schoolId, organizationId }: { schoolId: string; organiza
   );
 }
 
-function ProfessorLimitedView() {
-  const [rows, setRows] = useState<any[]>([]);
-  const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(true);
+function StudentIdentityRow({
+  row,
+  onSave,
+}: {
+  row: StudentRow;
+  onSave: (r: StudentRow, edgeKey: string, externalRef: string) => Promise<void>;
+}) {
+  const [edgeKey, setEdgeKey] = useState(row.edge_student_key || "");
+  const [ext, setExt] = useState(row.external_ref || "");
+  useEffect(() => {
+    setEdgeKey(row.edge_student_key || "");
+    setExt(row.external_ref || "");
+  }, [row.id, row.edge_student_key, row.external_ref]);
+  return (
+    <tr>
+      <td>{row.full_name}</td>
+      <td>
+        <input value={ext} onChange={(e) => setExt(e.target.value)} placeholder="ext-stu-001" />
+      </td>
+      <td>
+        <input value={edgeKey} onChange={(e) => setEdgeKey(e.target.value)} placeholder="p01" />
+      </td>
+      <td>{row.is_active ? "Ativo" : "Inativo"}</td>
+      <td>
+        <button type="button" className="btn ghost" onClick={() => void onSave(row, edgeKey, ext)}>
+          Salvar mapa
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function LessonsAdmin({ schoolId, organizationId }: { schoolId: string; organizationId: string }) {
+  const [rows, setRows] = useState<LessonOccurrenceRow[]>([]);
+  const [classes, setClasses] = useState<ClassGroupRow[]>([]);
+  const [subjects, setSubjects] = useState<SubjectRow[]>([]);
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [team, setTeam] = useState<any[]>([]);
+  const [msg, setMsg] = useState("");
+  const [day, setDay] = useState(localDayIso());
+  const [form, setForm] = useState({
+    class_group_id: "",
+    subject_id: "",
+    teacher_profile_id: "",
+    room_id: "",
+    time: "08:00",
+    duration: 50,
+    external_lesson_id: "lesson-8b-math-50",
+  });
+
+  async function reload() {
+    const [l, c, s, r, t] = await Promise.all([
+      fetchLessonOccurrences(schoolId, day),
+      fetchClassGroups(schoolId),
+      fetchSubjects(schoolId),
+      fetchRooms(schoolId),
+      fetchTeam(schoolId),
+    ]);
+    if (l.error) setMsg(`Erro: ${l.error.message}`);
+    setRows(((l.data as unknown) as LessonOccurrenceRow[]) || []);
+    setClasses((c.data as ClassGroupRow[]) || []);
+    setSubjects((s.data as SubjectRow[]) || []);
+    setRooms(r.data || []);
+    setTeam((t.data || []).filter((m: any) => m.role === "professor" || m.role === "gestor"));
+  }
 
   useEffect(() => {
-    void (async () => {
-      const { data, error } = await fetchMyClassGroups();
-      setLoading(false);
-      if (error) setErr(error.message);
-      else setRows(data || []);
-    })();
+    void reload();
+  }, [schoolId, day]);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const scheduled = new Date(`${day}T${form.time}:00`);
+    const { error } = await createLessonOccurrence({
+      organization_id: organizationId,
+      school_id: schoolId,
+      class_group_id: form.class_group_id,
+      subject_id: form.subject_id,
+      teacher_profile_id: form.teacher_profile_id,
+      room_id: form.room_id || null,
+      scheduled_start_at: scheduled.toISOString(),
+      scheduled_duration_minutes: Number(form.duration),
+      external_lesson_id: form.external_lesson_id.trim() || null,
+    });
+    setMsg(error ? `Erro: ${error.message}` : "Aula planejada criada.");
+    if (!error) await reload();
+  }
+
+  async function pushCache() {
+    try {
+      const payloads = [];
+      for (const occ of rows) {
+        const roster = await fetchRosterForClassGroup(occ.class_group_id);
+        payloads.push(buildEdgeContextPayload(occ, (roster.data as any[]) || []));
+      }
+      const data = await pushLessonsCacheToEdge(payloads);
+      setMsg(`Cache Edge atualizado (${data.count ?? payloads.length} aulas).`);
+    } catch (err: any) {
+      setMsg(`Erro cache Edge: ${err.message || err}`);
+    }
+  }
+
+  return (
+    <div>
+      <h2>Aulas planejadas</h2>
+      <p className="muted">Somente gestor cria/edita. Professor apenas inicia no painel dele.</p>
+      <div className="admin-toolbar">
+        <label>
+          Dia{" "}
+          <input type="date" value={day} onChange={(e) => setDay(e.target.value)} />
+        </label>
+        <button type="button" className="btn" onClick={() => void pushCache()}>
+          Enviar aulas do dia ao Edge (cache)
+        </button>
+      </div>
+      <table className="admin-table">
+        <thead>
+          <tr>
+            <th>Horário</th>
+            <th>Turma</th>
+            <th>Disciplina</th>
+            <th>Professor</th>
+            <th>Sala</th>
+            <th>Duração</th>
+            <th>Lesson</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td>{new Date(r.scheduled_start_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</td>
+              <td>{r.class_groups?.name || "—"}</td>
+              <td>{r.subjects?.name || "—"}</td>
+              <td>{r.profiles?.full_name || "—"}</td>
+              <td>{r.rooms?.name || "—"}</td>
+              <td>{r.scheduled_duration_minutes} min</td>
+              <td>{r.external_lesson_id || "—"}</td>
+              <td>{r.status}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!rows.length && <EmptyState title="Nenhuma aula" message="Crie uma aula para este dia." />}
+      <form className="admin-form" onSubmit={add}>
+        <h3>Nova aula</h3>
+        <label>
+          Turma
+          <select
+            value={form.class_group_id}
+            onChange={(e) => setForm({ ...form, class_group_id: e.target.value })}
+            required
+          >
+            <option value="">Selecione</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Disciplina
+          <select
+            value={form.subject_id}
+            onChange={(e) => setForm({ ...form, subject_id: e.target.value })}
+            required
+          >
+            <option value="">Selecione</option>
+            {subjects.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Professor
+          <select
+            value={form.teacher_profile_id}
+            onChange={(e) => setForm({ ...form, teacher_profile_id: e.target.value })}
+            required
+          >
+            <option value="">Selecione</option>
+            {team.map((m) => (
+              <option key={m.profile_id} value={m.profile_id}>
+                {m.profiles?.full_name || m.profile_id}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Sala
+          <select
+            value={form.room_id}
+            onChange={(e) => setForm({ ...form, room_id: e.target.value })}
+          >
+            <option value="">—</option>
+            {rooms.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Horário previsto
+          <input
+            type="time"
+            value={form.time}
+            onChange={(e) => setForm({ ...form, time: e.target.value })}
+            required
+          />
+        </label>
+        <label>
+          Duração
+          <select
+            value={form.duration}
+            onChange={(e) => {
+              const d = Number(e.target.value);
+              setForm({
+                ...form,
+                duration: d,
+                external_lesson_id: d === 100 ? "lesson-8b-math-100" : "lesson-8b-math-50",
+              });
+            }}
+          >
+            <option value={50}>50 minutos</option>
+            <option value={100}>100 minutos</option>
+          </select>
+        </label>
+        <label>
+          Lesson ID (Simulator)
+          <input
+            value={form.external_lesson_id}
+            onChange={(e) => setForm({ ...form, external_lesson_id: e.target.value })}
+            placeholder="lesson-8b-math-50"
+          />
+        </label>
+        <Flash msg={msg} />
+        <button className="btn primary" type="submit">
+          Criar aula
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function ProfessorLimitedView() {
+  const auth = useAuth();
+  const [rows, setRows] = useState<LessonOccurrenceRow[]>([]);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const day = localDayIso();
+
+  async function reload() {
+    setLoading(true);
+    const { data, error } = await fetchMyLessonsToday(day);
+    setLoading(false);
+    if (error) setErr(error.message);
+    else {
+      setErr("");
+      setRows(((data as unknown) as LessonOccurrenceRow[]) || []);
+    }
+  }
+
+  useEffect(() => {
+    void reload();
   }, []);
+
+  useEffect(() => {
+    if (!rows.length) return;
+    void (async () => {
+      try {
+        const payloads = [];
+        for (const occ of rows) {
+          const roster = await fetchRosterForClassGroup(occ.class_group_id);
+          payloads.push(buildEdgeContextPayload(occ, (roster.data as any[]) || []));
+        }
+        await pushLessonsCacheToEdge(payloads);
+      } catch {
+        /* cache best-effort */
+      }
+    })();
+  }, [rows]);
+
+  async function startLesson(occ: LessonOccurrenceRow) {
+    setBusyId(occ.id);
+    setMsg("");
+    try {
+      const roster = await fetchRosterForClassGroup(occ.class_group_id);
+      const payload = buildEdgeContextPayload(occ, (roster.data as any[]) || []);
+      await pushLessonsCacheToEdge([payload]);
+      const { ok, data } = await startLessonOnEdge(payload);
+      if (!ok) {
+        setMsg(data?.message || data?.error || "Não foi possível iniciar a aula.");
+        setBusyId(null);
+        return;
+      }
+      if (data?.reopen && data?.warning) setMsg(data.warning);
+      else setMsg(data?.message || "Aula iniciada.");
+      await updateLessonOccurrence(occ.id, { status: "in_progress" });
+      window.dispatchEvent(new Event("presenca-lesson-context"));
+      await reload();
+    } catch (e: any) {
+      setMsg(`Erro: ${e.message || e}`);
+    }
+    setBusyId(null);
+  }
+
+  async function endActive() {
+    setMsg("");
+    try {
+      const ctx = await (await fetch("/api/v1/sessions/current-context", {
+        headers: { "X-API-Token": localStorage.getItem("api_token") || "" },
+      })).json();
+      const sid = ctx?.session_id || ctx?.active_session_id;
+      if (!sid) {
+        setMsg("Nenhuma sessão ativa no Edge.");
+        return;
+      }
+      const { ok, data } = await endLessonOnEdge(sid);
+      if (!ok) {
+        setMsg(data?.detail || "Falha ao encerrar.");
+        return;
+      }
+      const occId = ctx?.context?.lesson_occurrence_id;
+      if (occId) await updateLessonOccurrence(occId, { status: "completed" });
+      setMsg("Aula encerrada.");
+      window.dispatchEvent(new Event("presenca-lesson-context"));
+      await reload();
+    } catch (e: any) {
+      setMsg(`Erro: ${e.message || e}`);
+    }
+  }
 
   if (loading) return <LoadingState />;
   if (err) return <ErrorState message={err} />;
@@ -1106,32 +1477,100 @@ function ProfessorLimitedView() {
   return (
     <div>
       <PageHeader
-        title="Minhas turmas"
-        subtitle="Acesso do professor/monitor — sem administração de cadastro"
+        title="Minhas aulas de hoje"
+        subtitle={`${auth.email || ""} · ${day} — inicie a aula correta; o restante é automático`}
       />
+      <div className="admin-toolbar">
+        <button type="button" className="btn" onClick={() => void endActive()}>
+          Encerrar aula ativa
+        </button>
+        <button type="button" className="btn ghost" onClick={() => void reload()}>
+          Atualizar
+        </button>
+      </div>
+      <Flash msg={msg} />
       <div className="panel">
         <table className="admin-table">
           <thead>
             <tr>
-              <th>Turma</th>
-              <th>Série</th>
-              <th>Turno</th>
+              <th>Horário</th>
+              <th>Turma · Disciplina</th>
+              <th>Sala</th>
+              <th>Duração</th>
+              <th>Status</th>
+              <th />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td>{r.name}</td>
-                <td>{r.year_label || "—"}</td>
-                <td>{r.shift || "—"}</td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const time = new Date(r.scheduled_start_at).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              const label = [r.class_groups?.name, r.subjects?.name].filter(Boolean).join(" · ");
+              return (
+                <tr key={r.id}>
+                  <td>{time}</td>
+                  <td>{label || "—"}</td>
+                  <td>{r.rooms?.name || "—"}</td>
+                  <td>{r.scheduled_duration_minutes} min</td>
+                  <td>{r.status}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={busyId === r.id || r.status === "cancelled"}
+                      onClick={() => void startLesson(r)}
+                    >
+                      {busyId === r.id ? "Iniciando…" : "Iniciar aula"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {!rows.length && (
-          <EmptyState title="Nenhuma turma" message="Nenhuma turma atribuída ao seu usuário." />
+          <EmptyState
+            title="Nenhuma aula hoje"
+            message="Peça ao gestor para criar a aula planejada e atribuir você como professor."
+          />
         )}
       </div>
+      <details style={{ marginTop: 16 }}>
+        <summary>Minhas turmas (cadastro)</summary>
+        <ProfessorTurmasFallback />
+      </details>
     </div>
+  );
+}
+
+function ProfessorTurmasFallback() {
+  const [rows, setRows] = useState<any[]>([]);
+  useEffect(() => {
+    void (async () => {
+      const { data } = await fetchMyClassGroups();
+      setRows(data || []);
+    })();
+  }, []);
+  return (
+    <table className="admin-table">
+      <thead>
+        <tr>
+          <th>Turma</th>
+          <th>Série</th>
+          <th>Turno</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.id}>
+            <td>{r.name}</td>
+            <td>{r.year_label || "—"}</td>
+            <td>{r.shift || "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
