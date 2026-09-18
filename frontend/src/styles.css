@@ -1463,3 +1463,45 @@ code { font-size: 0.85em; }
 @media (max-width: 900px) {
   .admin-layout { grid-template-columns: 1fr; }
 }
+
+/* LXP Homologação */
+.lxp-homolog-view { display: grid; gap: 16px; }
+.homolog-header-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.homolog-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #1b4f72;
+  color: #d6eaf8;
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+}
+.homolog-disclaimer {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: rgba(241, 196, 15, 0.12);
+  border: 1px solid rgba(241, 196, 15, 0.35);
+  border-radius: 8px;
+}
+.homolog-dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+.homolog-dl dt { font-size: 0.75rem; color: var(--muted); margin: 0; }
+.homolog-dl dd { margin: 2px 0 0; word-break: break-all; }
+.homolog-pipeline { list-style: none; padding: 0; margin: 0; }
+.homolog-pipeline li { margin: 0 0 4px; }
+.homolog-step-head { display: flex; gap: 8px; align-items: center; }
+.homolog-step-info { margin-left: 28px; font-size: 0.9rem; }
+.homolog-arrow { margin: 4px 0 4px 10px; color: var(--muted); }
+.homolog-ok { color: #7dcea0; }
+.homolog-pending { color: #f5b041; }
+.homolog-fail { color: #e74c3c; }
+.homolog-disabled, .homolog-idle { color: var(--muted); }
+.homolog-timeline { padding-left: 1.2rem; }
+.homolog-timeline li { margin-bottom: 10px; }
+.data-table tr.is-selected { background: rgba(52, 152, 219, 0.12); }
+.warn-text { color: #f5b041; }

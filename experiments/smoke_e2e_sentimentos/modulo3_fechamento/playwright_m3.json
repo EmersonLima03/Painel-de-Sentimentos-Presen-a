@@ -1,0 +1,82 @@
+{
+  "started_at": "2026-09-18T19:40:20.639Z",
+  "fe": "http://127.0.0.1:5173",
+  "edge": "http://127.0.0.1:8000",
+  "cases": [
+    {
+      "name": "edge_health",
+      "ok": true,
+      "result": "PASS",
+      "cameras_online": 0
+    },
+    {
+      "name": "homolog_api",
+      "ok": true,
+      "result": "PASS",
+      "sim": "online",
+      "host": "zasbmqwwkecmjbebejev.supabase.co",
+      "history": 15
+    },
+    {
+      "name": "nav_lxp_homolog",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "view_loaded",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "header_simulator_badge",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "disclaimer_prod",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "simulator_project",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "context_section",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "pipeline_section",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "event_section",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "history_section",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "presence_section",
+      "ok": true,
+      "result": "PASS"
+    },
+    {
+      "name": "summary_section",
+      "ok": true,
+      "result": "PASS"
+    }
+  ],
+  "ended_at": "2026-09-18T19:40:33.851Z",
+  "summary": {
+    "pass": 13,
+    "fail": 0,
+    "total": 13
+  }
+}

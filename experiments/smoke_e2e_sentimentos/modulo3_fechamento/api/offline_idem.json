@@ -1,0 +1,7 @@
+{
+  "steps": [],
+  "offline_send": false,
+  "restore_send": true,
+  "idempotent_resend": true,
+  "event_id": "lxp-att:homolog-offline-495dd9b1-045d-4328-8eae-50758d8a7bf7"
+}

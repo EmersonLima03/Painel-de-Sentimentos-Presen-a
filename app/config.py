@@ -820,6 +820,7 @@ def _apply_expression_env_overrides(settings: "Settings") -> None:
       EXPRESSION_PROVIDER
       EXPRESSION_FALLBACK_CHAIN
       MODULE_EXPRESSION_MODE
+      MODULE_LXP_MODE  (piloto/Simulator; YAML modules.lxp não pode silenciar o env)
     """
     import os
 
@@ -845,6 +846,11 @@ def _apply_expression_env_overrides(settings: "Settings") -> None:
         object.__setattr__(
             settings, "expression_hsemotion_interval_seconds", float(hs_iv)
         )
+    # LXP: env ganha do YAML (config.yaml default disabled) — necessário para piloto Simulator
+    # sem editar config.tri.yaml. Valores: disabled | simulator | http | http_sim.
+    lxp_mode = os.environ.get("MODULE_LXP_MODE")
+    if lxp_mode is not None and str(lxp_mode).strip() != "":
+        object.__setattr__(settings, "module_lxp_mode", str(lxp_mode).strip().lower())
 
 
 def _log_settings_loaded(settings: "Settings", paths: list) -> None:

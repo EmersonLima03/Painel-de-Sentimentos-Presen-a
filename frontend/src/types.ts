@@ -9,6 +9,7 @@ export type Tab =
   | "school"
   | "history"
   | "settings"
-  | "admin";
+  | "admin"
+  | "lxpHomolog";
 
 export type WsState = "connecting" | "connected" | "disconnected";

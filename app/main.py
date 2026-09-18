@@ -43,6 +43,7 @@ from app.backup import export_backup, import_backup, BackupResult
 from app.auth import require_api_token
 from app import __version__
 from app.api.v1 import router as api_v1_router, live_hub
+from app.api.homolog_lxp import router as homolog_lxp_router
 from app.runtime_mode import get_runtime_mode, is_demo, RuntimeMode, DEMO_BANNER
 
 # Configurar logging
@@ -168,6 +169,7 @@ app = FastAPI(
 )
 
 app.include_router(api_v1_router)
+app.include_router(homolog_lxp_router, prefix="/api/v1")
 
 # Servir arquivos estáticos (se existirem)
 static_dir = Path(__file__).parent.parent / "app" / "static"
@@ -176,6 +178,18 @@ if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     except Exception as e:
         logger.warning("static_files_mount_failed", error=str(e))
+
+# Admin HTML do Simulator (homologação) — somente leitura
+_lxp_sim_admin = Path(__file__).parent.parent / "experiments" / "lxp_attendance_simulator"
+if _lxp_sim_admin.exists():
+    try:
+        app.mount(
+            "/homolog/simulator-admin",
+            StaticFiles(directory=str(_lxp_sim_admin), html=True),
+            name="lxp_sim_admin",
+        )
+    except Exception as e:
+        logger.warning("lxp_sim_admin_mount_failed", error=str(e))
 
 # Assets do dashboard React (Vite → frontend/dist/assets)
 _frontend_assets = Path(__file__).parent.parent / "frontend" / "dist" / "assets"

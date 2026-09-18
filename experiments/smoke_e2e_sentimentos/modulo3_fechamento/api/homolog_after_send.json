@@ -1,0 +1,609 @@
+﻿{
+    "ok":  true,
+    "environment":  {
+                        "title":  "LXP Attendance",
+                        "subtitle":  "Painel de HomologaÃ§Ã£o",
+                        "badge":  "SIMULATOR",
+                        "disclaimer":  "Ambiente de homologaÃ§Ã£o â nÃ£o conectado ao LXP de produÃ§Ã£o.",
+                        "simulator_label":  "LXP ATTENDANCE SIMULATOR",
+                        "simulator_host":  "zasbmqwwkecmjbebejev.supabase.co",
+                        "project_ref":  "zasbmqwwkecmjbebejev"
+                    },
+    "simulator":  {
+                      "status":  "online",
+                      "host":  "zasbmqwwkecmjbebejev.supabase.co",
+                      "mode":  "simulator",
+                      "reason":  null
+                  },
+    "context":  {
+                    "escola":  "44444444-4444-4444-4444-444444444444",
+                    "turma":  "8o Ano Piloto",
+                    "disciplina":  "Matematica",
+                    "aula":  "Modulo3 Homologacao Visual",
+                    "lesson_id":  "lesson-8b-math-50",
+                    "duracao_minutos":  30,
+                    "sala":  "Sala Piloto 01",
+                    "session_id":  "5b4d8a8b-2643-4eb9-be56-afacf61bc926",
+                    "school_id":  "44444444-4444-4444-4444-444444444444",
+                    "student_map":  {
+                                        "p01":  "ext-stu-001"
+                                    }
+                },
+    "recognition":  {
+                        "tracks":  [
+                                       {
+                                           "student_id":  "p01",
+                                           "full_name":  "Emerson Lima",
+                                           "identity_state":  "face_confirmed"
+                                       }
+                                   ],
+                        "present":  1
+                    },
+    "outbox_summary":  {
+                           "pending":  2,
+                           "sent":  12,
+                           "failed":  0,
+                           "retries_total":  2,
+                           "total":  14
+                       },
+    "history":  [
+                    {
+                        "horario":  "2026-09-18T19:34:58.367937",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:372a40b7-ad2b-49af-9c70-e9e75e1a45ff",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T19:38:22.948470",
+                        "source_checkin_event_id":  "372a40b7-ad2b-49af-9c70-e9e75e1a45ff",
+                        "session_id":  "5b4d8a8b-2643-4eb9-be56-afacf61bc926",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T19:34:58+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T18:18:06.575191",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-m1-isolation",
+                        "event_id":  "lxp-att:0119a2f8-a2fa-4686-8f6b-5664360aa490",
+                        "status":  "pending",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  null,
+                        "source_checkin_event_id":  "0119a2f8-a2fa-4686-8f6b-5664360aa490",
+                        "session_id":  "dc4db1a7-84ea-489f-be80-6b78f38fbd35",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T18:18:06+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T18:09:05.940373",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-m1-emotions-close",
+                        "event_id":  "lxp-att:566f687a-3656-40e5-bf54-8abfaba36beb",
+                        "status":  "pending",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  2,
+                        "sent_at":  null,
+                        "source_checkin_event_id":  "566f687a-3656-40e5-bf54-8abfaba36beb",
+                        "session_id":  "869d9b47-7f37-4f3c-9e64-a4bcaa3b463e",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T18:09:05+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T17:32:09.293806",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:703c47bd-59f0-4c15-8e01-2880c5eb2079",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T17:32:29.367756",
+                        "source_checkin_event_id":  "703c47bd-59f0-4c15-8e01-2880c5eb2079",
+                        "session_id":  "68b96c69-1b12-4670-af26-09f43b217687",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T17:32:09+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T17:26:58.486158",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:24dcb0fe-bc38-492f-a529-fe0cbd08c221",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T17:27:11.532023",
+                        "source_checkin_event_id":  "24dcb0fe-bc38-492f-a529-fe0cbd08c221",
+                        "session_id":  "843abe42-94f5-4b16-b999-a53b08924e0a",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T17:26:58+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T17:07:53.922055",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:8b728c11-81d5-4c5b-8e43-6ee2fdaccfcc",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T17:08:13.129784",
+                        "source_checkin_event_id":  "8b728c11-81d5-4c5b-8e43-6ee2fdaccfcc",
+                        "session_id":  "94cd940e-8515-4251-8a3c-d33ac688053b",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T17:07:53+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T16:58:54.100080",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:846f5e78-ed14-45d1-969e-a3539d412b6b",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T16:59:04.036524",
+                        "source_checkin_event_id":  "846f5e78-ed14-45d1-969e-a3539d412b6b",
+                        "session_id":  "ce4031ce-6b1f-441d-a919-6693233b7d84",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T16:58:54+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T15:49:44.145780",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:b394eb86-b2dd-4a15-9ec9-cd4f7272bb03",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  null,
+                        "source_checkin_event_id":  "b394eb86-b2dd-4a15-9ec9-cd4f7272bb03",
+                        "session_id":  "ce4031ce-6b1f-441d-a919-6693233b7d84",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T15:49:44.131591+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T15:47:50.815781",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:331743af-b171-4592-a531-38fe73908b43",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T15:47:53",
+                        "source_checkin_event_id":  "331743af-b171-4592-a531-38fe73908b43",
+                        "session_id":  "03cb6b9c-bd2a-4cb3-b135-4d1e5eb9c009",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T15:47:50.789516+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T15:47:08.557725",
+                        "aluno":  "ext-stu-001",
+                        "edge_id":  null,
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:fase5b-offline-402773d8-34a2-4a60-a819-0cbd46815c3f",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T15:50:24.673562",
+                        "source_checkin_event_id":  null,
+                        "session_id":  null,
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T15:47:08.547637+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  null
+                    },
+                    {
+                        "horario":  "2026-09-18T13:13:50.696960",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:64739219-6ec5-45cb-89ca-ec481f96e6a4",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T13:14:30.375880",
+                        "source_checkin_event_id":  "64739219-6ec5-45cb-89ca-ec481f96e6a4",
+                        "session_id":  "fb5cd196-bf74-4c8d-a597-027f188c6830",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T13:13:50+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T13:13:32.054118",
+                        "aluno":  "p01",
+                        "edge_id":  "p01",
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:ac224adb-c378-475a-912e-e5a1f8b646bb",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T13:13:46.866321",
+                        "source_checkin_event_id":  "ac224adb-c378-475a-912e-e5a1f8b646bb",
+                        "session_id":  "23c5590d-b1b4-41c5-a79b-9956182f63da",
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T13:13:32+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  "attendance.events.v1"
+                    },
+                    {
+                        "horario":  "2026-09-18T12:33:15.049671",
+                        "aluno":  "ext-stu-001",
+                        "edge_id":  null,
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:fase5b-offline-004ab109-85f2-4188-a0ce-91cfd584cac6",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T12:33:18.083124",
+                        "source_checkin_event_id":  null,
+                        "session_id":  null,
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T12:33:15.038638+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  null
+                    },
+                    {
+                        "horario":  "2026-09-18T12:31:21.715296",
+                        "aluno":  "ext-stu-001",
+                        "edge_id":  null,
+                        "external_id":  "ext-stu-001",
+                        "lesson_id":  "lesson-8b-math-50",
+                        "event_id":  "lxp-att:fase5b-offline-cf8c2d2b-ffa3-4e7d-a06c-ecaddc12082c",
+                        "status":  "sent",
+                        "destino":  "LXP Attendance Simulator",
+                        "retries":  0,
+                        "sent_at":  "2026-09-18T12:31:23.806231",
+                        "source_checkin_event_id":  null,
+                        "session_id":  null,
+                        "attendance":  "present",
+                        "occurred_at":  "2026-09-18T12:31:21.703236+00:00",
+                        "source":  "sentimentos",
+                        "contract_version":  null
+                    }
+                ],
+    "checkins":  [
+                     {
+                         "event_id":  "372a40b7-ad2b-49af-9c70-e9e75e1a45ff",
+                         "created_at":  "2026-09-18T19:34:58.358367",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "5b4d8a8b-2643-4eb9-be56-afacf61bc926"
+                     },
+                     {
+                         "event_id":  "0119a2f8-a2fa-4686-8f6b-5664360aa490",
+                         "created_at":  "2026-09-18T18:18:06.558644",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "dc4db1a7-84ea-489f-be80-6b78f38fbd35"
+                     },
+                     {
+                         "event_id":  "566f687a-3656-40e5-bf54-8abfaba36beb",
+                         "created_at":  "2026-09-18T18:09:05.933347",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "869d9b47-7f37-4f3c-9e64-a4bcaa3b463e"
+                     },
+                     {
+                         "event_id":  "703c47bd-59f0-4c15-8e01-2880c5eb2079",
+                         "created_at":  "2026-09-18T17:32:09.290294",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "68b96c69-1b12-4670-af26-09f43b217687"
+                     },
+                     {
+                         "event_id":  "24dcb0fe-bc38-492f-a529-fe0cbd08c221",
+                         "created_at":  "2026-09-18T17:26:58.480637",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "843abe42-94f5-4b16-b999-a53b08924e0a"
+                     },
+                     {
+                         "event_id":  "8b728c11-81d5-4c5b-8e43-6ee2fdaccfcc",
+                         "created_at":  "2026-09-18T17:07:53.915025",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "94cd940e-8515-4251-8a3c-d33ac688053b"
+                     },
+                     {
+                         "event_id":  "846f5e78-ed14-45d1-969e-a3539d412b6b",
+                         "created_at":  "2026-09-18T16:58:54.092298",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "ce4031ce-6b1f-441d-a919-6693233b7d84"
+                     },
+                     {
+                         "event_id":  "f0458eea-c50e-4679-bed2-1d61a7567998",
+                         "created_at":  "2026-09-18T15:19:57.436106",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "e937b457-f1e2-4b9e-bb8f-c95aa925a4e9"
+                     },
+                     {
+                         "event_id":  "64739219-6ec5-45cb-89ca-ec481f96e6a4",
+                         "created_at":  "2026-09-18T13:13:50.693942",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "fb5cd196-bf74-4c8d-a597-027f188c6830"
+                     },
+                     {
+                         "event_id":  "ac224adb-c378-475a-912e-e5a1f8b646bb",
+                         "created_at":  "2026-09-18T13:13:32.051116",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "23c5590d-b1b4-41c5-a79b-9956182f63da"
+                     },
+                     {
+                         "event_id":  "a3441646-2e9e-4319-90c2-e9536ae3ee27",
+                         "created_at":  "2026-09-18T13:09:56.015194",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "38b8f49c-9102-4e48-9b08-2058758eeb82"
+                     },
+                     {
+                         "event_id":  "4f4a03b9-948c-49bd-82d9-eae2593b3a94",
+                         "created_at":  "2026-09-18T12:58:52.327664",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "a636c54e-1933-4096-b518-609f2e8f7bb1"
+                     },
+                     {
+                         "event_id":  "bf65e5d8-5f8a-451e-ad0d-9e96b6659290",
+                         "created_at":  "2026-09-17T18:01:13.976661",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "699f2395-8dcb-48df-aa7b-594fd8d6c43e"
+                     },
+                     {
+                         "event_id":  "8f561252-083b-4cd9-829f-c5d444af5b9a",
+                         "created_at":  "2026-09-14T13:11:28.961739",
+                         "status":  "pending",
+                         "student_id":  "p17",
+                         "session_id":  "937d6198-e271-4c89-84d7-223c381dc4fe"
+                     },
+                     {
+                         "event_id":  "2b80dbf1-5897-4358-b2e6-8bfd41049277",
+                         "created_at":  "2026-07-23T13:50:08.408583",
+                         "status":  "pending",
+                         "student_id":  "p01",
+                         "session_id":  "937d6198-e271-4c89-84d7-223c381dc4fe"
+                     },
+                     {
+                         "event_id":  "8f644149-355e-402d-b00f-9f6fca4e799b",
+                         "created_at":  "2026-07-23T12:55:10.200418",
+                         "status":  "sent",
+                         "student_id":  "12345",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "160420aa-215c-4acd-95a9-4bfad138c6a8",
+                         "created_at":  "2026-07-23T12:44:40.805982",
+                         "status":  "sent",
+                         "student_id":  "12345",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "2fce7f47-a1e9-44f5-b60f-f6d087c431ca",
+                         "created_at":  "2026-06-08T19:58:30.603987",
+                         "status":  "sent",
+                         "student_id":  "p18",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "b0ab8752-d3bc-4de0-8910-13462471bfc3",
+                         "created_at":  "2026-06-08T19:57:17.703970",
+                         "status":  "sent",
+                         "student_id":  "p17",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "e1c5ffcb-4691-47b3-98fa-ac31f7af43e3",
+                         "created_at":  "2026-06-08T19:51:08.713460",
+                         "status":  "sent",
+                         "student_id":  "p16",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "713b793f-3535-4747-b30d-16b049bd2ee3",
+                         "created_at":  "2026-06-08T19:47:56.863327",
+                         "status":  "sent",
+                         "student_id":  "p15",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "63576fcd-61e4-403b-b2d7-23a202d75493",
+                         "created_at":  "2026-06-08T16:05:51.521620",
+                         "status":  "sent",
+                         "student_id":  "p13",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "3c471fb2-6657-48ae-b1b4-bab8c6e73be6",
+                         "created_at":  "2026-06-08T16:03:29.658299",
+                         "status":  "sent",
+                         "student_id":  "p12",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "5dc16282-31fd-4e2a-b350-26b896f1accb",
+                         "created_at":  "2026-06-08T15:38:00.593094",
+                         "status":  "sent",
+                         "student_id":  "p11",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "2cd27965-d82b-45c6-9582-015fe58a7264",
+                         "created_at":  "2026-06-08T15:33:36.694236",
+                         "status":  "sent",
+                         "student_id":  "p10",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "6abc6e66-c64d-454b-b1df-4de738f15223",
+                         "created_at":  "2026-06-08T15:12:28.072546",
+                         "status":  "sent",
+                         "student_id":  "p01",
+                         "session_id":  null
+                     },
+                     {
+                         "event_id":  "3e836684-a6f0-4226-bbd3-f21673f799be",
+                         "created_at":  "2026-06-05T12:19:00.746014",
+                         "status":  "sent",
+                         "student_id":  "p01",
+                         "session_id":  null
+                     }
+                 ],
+    "pipeline":  {
+                     "steps":  [
+                                   {
+                                       "id":  "recognition",
+                                       "label":  "Reconhecimento",
+                                       "status":  "ok",
+                                       "horario":  null,
+                                       "info":  "p01"
+                                   },
+                                   {
+                                       "id":  "checkin",
+                                       "label":  "Check-in",
+                                       "status":  "ok",
+                                       "horario":  "2026-09-18T19:34:58.358367",
+                                       "info":  "372a40b7-ad2b-49af-9c70-e9e75e1a45ff"
+                                   },
+                                   {
+                                       "id":  "outbox",
+                                       "label":  "Outbox",
+                                       "status":  "ok",
+                                       "horario":  "2026-09-18T19:34:58.367937",
+                                       "info":  "lxp-att:372a40b7-ad2b-49af-9c70-e9e75e1a45ff"
+                                   },
+                                   {
+                                       "id":  "syncworker",
+                                       "label":  "SyncWorker",
+                                       "status":  "ok",
+                                       "horario":  "2026-09-18T19:38:22.948470",
+                                       "info":  "sent Â· retries=0"
+                                   },
+                                   {
+                                       "id":  "simulator",
+                                       "label":  "LXP Simulator",
+                                       "status":  "ok",
+                                       "horario":  "2026-09-18T19:38:21.406978+00:00",
+                                       "info":  "HTTP 200 Â· duplicate"
+                                   },
+                                   {
+                                       "id":  "presence",
+                                       "label":  "PresenÃ§a",
+                                       "status":  "ok",
+                                       "horario":  "2026-09-18T12:14:17.038246+00:00",
+                                       "info":  "ext-stu-001 â present"
+                                   }
+                               ],
+                     "detail":  {
+                                    "event_id":  "lxp-att:372a40b7-ad2b-49af-9c70-e9e75e1a45ff",
+                                    "checkin_event_id":  "372a40b7-ad2b-49af-9c70-e9e75e1a45ff",
+                                    "student_id_edge":  "p01",
+                                    "external_student_id":  "ext-stu-001",
+                                    "map_label":  "p01 â ext-stu-001",
+                                    "lesson_id":  "lesson-8b-math-50",
+                                    "session_id":  "5b4d8a8b-2643-4eb9-be56-afacf61bc926",
+                                    "attendance":  "present",
+                                    "occurred_at":  "2026-09-18T19:34:58+00:00",
+                                    "source":  "sentimentos",
+                                    "contract_version":  "attendance.events.v1",
+                                    "outbox_status":  "sent",
+                                    "retry_count":  0,
+                                    "http_status":  200,
+                                    "resultado":  "duplicate",
+                                    "attendance_id":  "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36",
+                                    "last_error":  null
+                                },
+                     "selected_event_id":  "lxp-att:372a40b7-ad2b-49af-9c70-e9e75e1a45ff"
+                 },
+    "presence":  [
+                     {
+                         "aluno":  "ext-stu-003",
+                         "lesson_id":  "lesson-8b-math-50",
+                         "attendance":  "present",
+                         "horario":  "2026-09-18T12:27:08.748933+00:00",
+                         "source_event_id":  "fase5b-idem-fd087167-5776-4df6-9c47-80b58f887098",
+                         "attendance_id":  "00823648-9175-4a4e-adad-d6e636bbe225"
+                     },
+                     {
+                         "aluno":  "ext-stu-002",
+                         "lesson_id":  "lesson-8b-math-50",
+                         "attendance":  "present",
+                         "horario":  "2026-09-18T12:27:04.507135+00:00",
+                         "source_event_id":  "fase5b-map-p02-01b3933e-ae13-498e-8f71-ccac4cdb75a8",
+                         "attendance_id":  "84acdb9a-453d-4a93-8dc4-3767639a6c92"
+                     },
+                     {
+                         "aluno":  "ext-stu-002",
+                         "lesson_id":  "lesson-8b-math-100",
+                         "attendance":  "present",
+                         "horario":  "2026-09-18T12:26:58.083855+00:00",
+                         "source_event_id":  "fase5b-100-e6038897-0d00-4f4a-9de3-46f2a5891f53",
+                         "attendance_id":  "5594f200-5807-47cd-a401-b6c23ba17e23"
+                     },
+                     {
+                         "aluno":  "ext-stu-001",
+                         "lesson_id":  "lesson-8b-math-50",
+                         "attendance":  "present",
+                         "horario":  "2026-09-18T12:14:17.038246+00:00",
+                         "source_event_id":  "lxp-att:372a40b7-ad2b-49af-9c70-e9e75e1a45ff",
+                         "attendance_id":  "9ba25bae-ccb7-4e75-80b7-693b3eb4ad36"
+                     }
+                 ],
+    "idempotency":  {
+                        "observed":  true,
+                        "event_id":  "lxp-att:372a40b7-ad2b-49af-9c70-e9e75e1a45ff",
+                        "receipts":  [
+                                         {
+                                             "result_status":  "duplicate",
+                                             "http_status":  200,
+                                             "received_at":  "2026-09-18T19:38:21.406978+00:00"
+                                         }
+                                     ],
+                        "attendance_record_count":  1,
+                        "message":  null
+                    },
+    "admin_simulator_hint":  "experiments/lxp_attendance_simulator/admin.html",
+    "disclaimer":  "Indicadores estimados a partir de sinais visuais. NÃ£o constituem diagnÃ³stico, avaliaÃ§Ã£o psicolÃ³gica ou comprovaÃ§Ã£o de aprendizagem."
+}

@@ -6,6 +6,7 @@ import { SchoolView } from "./components/views/SchoolView";
 import { HistoryView } from "./components/views/HistoryView";
 import { SettingsView } from "./components/views/SettingsView";
 import { AdminShellView } from "./components/views/admin/AdminShellView";
+import { LxpHomologView } from "./components/views/LxpHomologView";
 import { LoadingState, ErrorState, DegradedState } from "./components/ui/EmptyState";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useAuth } from "./cloud/AuthContext";
@@ -53,6 +54,7 @@ export function App() {
     { id: "report", label: "Relatórios" },
     { id: "school", label: "Escola" },
     { id: "history", label: "Histórico" },
+    { id: "lxpHomolog", label: "LXP Homologação" },
     { id: "settings", label: "Configurações" },
   ];
 
@@ -122,6 +124,8 @@ export function App() {
       {!loading && effectiveTab === "history" && (
         <HistoryView events={events} tracks={tracks} report={report} />
       )}
+
+      {!loading && effectiveTab === "lxpHomolog" && <LxpHomologView />}
 
       {!loading && effectiveTab === "settings" && (
         <SettingsView status={status} qaEnabled={QA_QUERY} />
