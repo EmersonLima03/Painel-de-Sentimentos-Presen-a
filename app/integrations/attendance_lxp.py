@@ -174,13 +174,23 @@ class LxpAttendanceClient:
         timeout: float = 10.0,
     ):
         settings = get_settings()
-        self.url = (
-            base_url
-            or getattr(settings, "lxp_sim_attendance_url", "")
-            or ""
-        ).rstrip("/")
-        self.token = token or getattr(settings, "lxp_sim_integration_token", "") or ""
-        self.anon_key = anon_key or getattr(settings, "lxp_sim_anon_key", "") or ""
+        # None → settings; string explícita (incl. "") prevalece — testes e override local
+        raw_url = (
+            getattr(settings, "lxp_sim_attendance_url", "")
+            if base_url is None
+            else base_url
+        )
+        self.url = (raw_url or "").rstrip("/")
+        self.token = (
+            (getattr(settings, "lxp_sim_integration_token", "") or "")
+            if token is None
+            else (token or "")
+        )
+        self.anon_key = (
+            (getattr(settings, "lxp_sim_anon_key", "") or "")
+            if anon_key is None
+            else (anon_key or "")
+        )
         self.timeout = timeout
 
     def configured(self) -> bool:
