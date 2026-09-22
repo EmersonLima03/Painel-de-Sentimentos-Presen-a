@@ -47,7 +47,21 @@ npm run build
 cd ..
 ```
 
+## Iniciar o sistema
+
+A partir da raiz do worktree (`feat/facial-enrollment-production`):
+
+```powershell
+.\scripts\boot_edge_m2.ps1
+```
+
+O script garante o build do Dashboard React antes de iniciar o Edge.
+Não depende de `cd frontend; npm run build` manual.
+
+Ver runbook completo: [OPERACAO_BOOT_PRODUCAO.md](OPERACAO_BOOT_PRODUCAO.md)
+
 O FastAPI serve `frontend/dist` em `/dashboard` e assets em `/assets`.
+Se `frontend/dist` estiver ausente, `/dashboard` responde **503** (legado só em `/dashboard-legacy`).
 
 ## Configuração
 

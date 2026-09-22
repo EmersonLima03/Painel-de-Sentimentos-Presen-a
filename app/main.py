@@ -229,17 +229,36 @@ _LEGACY_DASHBOARD = Path(__file__).parent / "static" / "dashboard.html"
 @app.get("/dashboard", response_class=HTMLResponse)
 @app.get("/dashboard/", response_class=HTMLResponse)
 async def dashboard_page():
-    """Dashboard educacional React (build em frontend/dist). Fallback: legado."""
+    """Dashboard educacional React (build em frontend/dist).
+
+    Produção NÃO cai silenciosamente no HTML legado.
+    Legado permanece apenas em /dashboard-legacy.
+    """
     index = _FRONTEND_DIST / "index.html"
     if index.exists():
         html = index.read_text(encoding="utf-8")
+        # Guarda mínima: se o artefato estiver errado, não fingir que é o produto.
+        has_root = ('id="root"' in html) or ("id='root'" in html)
+        if ("Painel unificado" in html) or (not has_root):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "frontend/dist inválido (não é o Dashboard React). "
+                    "Execute: .\\scripts\\boot_edge_m2.ps1"
+                ),
+            )
         if is_demo():
-            # Injeta banner se o HTML estático ainda não tiver (React também exibe)
             pass
         return HTMLResponse(html)
-    if _LEGACY_DASHBOARD.exists():
-        return HTMLResponse(_LEGACY_DASHBOARD.read_text(encoding="utf-8"))
-    raise HTTPException(404, "dashboard build missing — run: cd frontend && npm run build")
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "Dashboard React ausente (frontend/dist/index.html). "
+            "Execute: .\\scripts\\boot_edge_m2.ps1 "
+            "(ou cd frontend && npm run build). "
+            "Painel legado (não produção): /dashboard-legacy"
+        ),
+    )
 
 
 @app.get("/dashboard-legacy", response_class=HTMLResponse)

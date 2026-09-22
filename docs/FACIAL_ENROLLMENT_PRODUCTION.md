@@ -1,5 +1,14 @@
 # Cadastro facial em produção (student-centric)
 
+## Operação (boot)
+
+```powershell
+.\scripts\boot_edge_m2.ps1
+```
+
+O script garante o build do Dashboard React antes de iniciar o Edge.
+Runbook: [OPERACAO_BOOT_PRODUCAO.md](OPERACAO_BOOT_PRODUCAO.md)
+
 ## Arquitetura
 
 ```
