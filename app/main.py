@@ -988,6 +988,24 @@ async def enroll_webcam_preview(request: EnrollWebcamRequest) -> Dict:
     return await enroll_webcam(request)
 
 
+@app.post("/internal/matcher/reload")
+async def internal_matcher_reload(request: Request) -> Dict:
+    """Loopback-only: rebuild FAISS from face_embeddings after M2 promote.
+
+    Called by M2 enrollment_promote on 127.0.0.1 — never exposed via Cloudflare
+    as a public product API (still requires Edge reachability on :8000).
+    """
+    client = request.client.host if request.client else ""
+    if client not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(403, "matcher reload restricted to loopback")
+    reloaded = 0
+    if orchestrator:
+        for pipeline in orchestrator.presence_pipelines.values():
+            pipeline.reload_matcher()
+            reloaded += 1
+    return {"ok": True, "pipelines_reloaded": reloaded}
+
+
 @app.post("/config/reload")
 async def reload_config() -> Dict:
     """Recarrega configuração."""
@@ -997,6 +1015,7 @@ async def reload_config() -> Dict:
         # Reinicializar orchestrator se necessário
         if orchestrator:
             orchestrator.stop()
+
             orchestrator.initialize()
             asyncio.create_task(orchestrator.start())
         

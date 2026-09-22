@@ -204,6 +204,16 @@ class EnrollmentStore:
                       ON roster(campaign_id, status);
                     CREATE INDEX IF NOT EXISTS idx_sessions_roster
                       ON enrollment_sessions(roster_student_id);
+
+                    CREATE TABLE IF NOT EXISTS student_facial_status (
+                      student_id TEXT PRIMARY KEY,
+                      edge_student_key TEXT,
+                      status TEXT NOT NULL,
+                      version INTEGER NOT NULL DEFAULT 1,
+                      completed_at REAL,
+                      revoked_at REAL,
+                      updated_at REAL NOT NULL
+                    );
                     """
                 )
                 cols = {
@@ -275,6 +285,27 @@ class EnrollmentStore:
                 }
                 if roster_cols and "student_id" not in roster_cols:
                     conn.execute("ALTER TABLE roster ADD COLUMN student_id TEXT")
+                sess_cols = {
+                    r[1]
+                    for r in conn.execute("PRAGMA table_info(enrollment_sessions)").fetchall()
+                }
+                if sess_cols and "invite_token_hash" not in sess_cols:
+                    conn.execute(
+                        "ALTER TABLE enrollment_sessions ADD COLUMN invite_token_hash TEXT"
+                    )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS student_facial_status (
+                      student_id TEXT PRIMARY KEY,
+                      edge_student_key TEXT,
+                      status TEXT NOT NULL,
+                      version INTEGER NOT NULL DEFAULT 1,
+                      completed_at REAL,
+                      revoked_at REAL,
+                      updated_at REAL NOT NULL
+                    )
+                    """
+                )
             finally:
                 conn.close()
 
@@ -315,13 +346,26 @@ class EnrollmentStore:
         class_group_id: str,
         now: Optional[float] = None,
         campaign_ttl_sec: Optional[float] = None,
+        student_ids: Optional[list[str]] = None,
     ) -> dict[str, Any]:
-        """Create campaign + roster claim codes. Returns campaign_token once (for QR)."""
+        """Create campaign + roster claim codes. Returns campaign_token once (for QR).
+
+        Optional student_ids restricts roster to those official students (product
+        individual enrollment uses a 1-student campaign under the hood).
+        """
         ts = time.time() if now is None else now
         ttl = self.campaign_ttl_sec if campaign_ttl_sec is None else float(campaign_ttl_sec)
 
         school, class_group = self._resolve_fixture(school_id, class_group_id)
-        students = class_group.get("students") or []
+        students = list(class_group.get("students") or [])
+        if student_ids is not None:
+            wanted = {str(x) for x in student_ids if x}
+            students = [
+                s
+                for s in students
+                if str(s.get("student_id") or "") in wanted
+                or str(s.get("fixture_key") or "") in wanted
+            ]
         if not students:
             raise ValueError("turma sem alunos ativos — não é possível iniciar campanha vazia")
 
@@ -435,6 +479,390 @@ class EnrollmentStore:
             "claim_sheet": claim_sheet,
             "roster_count": len(roster_rows),
             "roster_source": self.roster_source_mode(),
+        }
+
+    def start_student_enrollment(
+        self,
+        *,
+        school_id: str,
+        class_group_id: str,
+        student_id: str,
+        now: Optional[float] = None,
+        replace: bool = False,
+    ) -> dict[str, Any]:
+        """Product path: individual enrollment for one official student.
+
+        Internally uses a 1-student campaign + auto-claim + opaque invite token.
+        The invite token is the only thing in the QR (/e/<token>).
+        """
+        import secrets as _secrets
+
+        ts = time.time() if now is None else now
+        sid = str(student_id).strip()
+        if not sid:
+            raise ValueError("student_id obrigatorio")
+
+        school, class_group = self._resolve_fixture(school_id, class_group_id)
+        match = None
+        for stu in class_group.get("students") or []:
+            if str(stu.get("student_id") or "") == sid:
+                match = stu
+                break
+            if str(stu.get("fixture_key") or "") == sid:
+                match = stu
+                break
+        if match is None:
+            raise KeyError(f"aluno nao encontrado na turma: {sid}")
+
+        if replace:
+            self._mark_student_facial_local(
+                str(match.get("student_id") or sid),
+                edge_student_key=str(
+                    match.get("fixture_key")
+                    or match.get("edge_student_key")
+                    or match.get("student_id")
+                    or sid
+                ),
+                status="revoked",
+                now=ts,
+            )
+
+        created = self.create_campaign(
+            school_id=school_id,
+            class_group_id=class_group_id,
+            now=ts,
+            student_ids=[str(match.get("student_id") or match.get("fixture_key") or sid)],
+        )
+        claim_code = (created.get("claim_sheet") or [{}])[0].get("claim_code")
+        if not claim_code:
+            raise RuntimeError("falha ao gerar claim_code individual")
+
+        claimed = self.claim(
+            campaign_token=created["campaign_token"],
+            claim_code=claim_code,
+            client_ip="127.0.0.1",
+            now=ts,
+        )
+        if isinstance(claimed, ClaimFailure):
+            raise RuntimeError(f"auto-claim falhou: {claimed.error}")
+
+        invite_token = _secrets.token_urlsafe(32)
+        invite_hash = hash_token(invite_token)
+        info = self.validate_session_token(claimed.session_token, now=ts)
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    """
+                    UPDATE enrollment_sessions
+                    SET invite_token_hash = ?
+                    WHERE id = ?
+                    """,
+                    (invite_hash, info["session_id"]),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        edge_key = str(
+            match.get("fixture_key")
+            or match.get("edge_student_key")
+            or match.get("student_id")
+            or sid
+        )
+        self._mark_student_facial_local(
+            str(match.get("student_id") or sid),
+            edge_student_key=edge_key,
+            status="in_progress",
+            now=ts,
+        )
+        if _ops_sync is not None:
+            _ops_sync.sync_in_background(
+                _ops_sync.upsert_student_facial_status,
+                student_id=str(match.get("student_id") or sid),
+                edge_student_key=edge_key,
+                status="in_progress",
+                completed_at=None,
+            )
+
+        return {
+            "ok": True,
+            "mode": "student",
+            "student_id": match.get("student_id") or sid,
+            "display_name": match["display_name"],
+            "school_id": school["id"],
+            "school_name": school["name"],
+            "class_group_id": class_group["id"],
+            "class_label": class_group["label"],
+            "edge_student_key": edge_key,
+            "campaign_id": created["campaign_id"],
+            "session_id": info["session_id"],
+            "invite_token": invite_token,
+            "qr_path": f"/e/{invite_token}",
+            "expires_at": claimed.session_expires_at,
+            "facial_status": "in_progress",
+            "replace": bool(replace),
+            "roster_source": self.roster_source_mode(),
+        }
+
+    def resolve_invite_token(
+        self, invite_token: str, *, now: Optional[float] = None
+    ) -> dict[str, Any]:
+        """Resolve opaque /e/<token> invite into a live session (no PII in token)."""
+        ts = time.time() if now is None else now
+        th = hash_token(invite_token)
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    """
+                    SELECT s.id, s.campaign_id, s.roster_student_id, s.token_hash,
+                           s.status, s.expires_at, s.invite_token_hash,
+                           r.display_name, r.fixture_key, r.student_id AS official_student_id,
+                           r.status AS roster_status,
+                           c.school_name, c.class_label,
+                           c.status AS camp_status, c.expires_at AS camp_expires_at,
+                           c.revoked_at AS camp_revoked_at
+                    FROM enrollment_sessions s
+                    JOIN roster r ON r.id = s.roster_student_id
+                    JOIN campaigns c ON c.id = s.campaign_id
+                    WHERE s.invite_token_hash = ?
+                    """,
+                    (th,),
+                ).fetchone()
+            finally:
+                conn.close()
+        if row is None:
+            raise PermissionError("convite invalido ou expirado")
+        if row["status"] in (SESSION_COMPLETED, "REVOKED", "DECLINED"):
+            raise PermissionError("convite invalido ou expirado")
+        if float(row["expires_at"]) < ts:
+            raise PermissionError("convite invalido ou expirado")
+        camp_row = {
+            "status": row["camp_status"],
+            "expires_at": row["camp_expires_at"],
+            "revoked_at": row["camp_revoked_at"],
+        }
+        camp_status = self._effective_campaign_status(camp_row, ts)
+        if camp_status != CAMPAIGN_ACTIVE:
+            raise PermissionError("convite invalido ou expirado")
+
+        # Remint session_token for client use (HMAC binding still enforced).
+        session_token = mint_session_token(
+            session_id=row["id"],
+            campaign_id=row["campaign_id"],
+            roster_student_id=row["roster_student_id"],
+            exp=float(row["expires_at"]),
+            secret=self._secret,
+        )
+        if hash_token(session_token) != row["token_hash"]:
+            # Token material changed (secret rotation) — refuse rather than invent.
+            raise PermissionError("convite invalido ou expirado")
+        return {
+            "session_token": session_token,
+            "display_name": row["display_name"],
+            "school_name": row["school_name"],
+            "class_label": row["class_label"],
+            "expires_at": row["expires_at"],
+            "roster_status": row["roster_status"],
+            "student_id": row["official_student_id"],
+            "fixture_key": row["fixture_key"],
+        }
+
+    def revoke_student_invite(
+        self, *, student_id: str, campaign_id: Optional[str] = None, now: Optional[float] = None
+    ) -> dict[str, Any]:
+        ts = time.time() if now is None else now
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                if campaign_id:
+                    conn.execute(
+                        """
+                        UPDATE campaigns SET status = ?, revoked_at = ?
+                        WHERE id = ? AND status = ?
+                        """,
+                        (CAMPAIGN_REVOKED, ts, campaign_id, CAMPAIGN_ACTIVE),
+                    )
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT DISTINCT c.id FROM campaigns c
+                        JOIN roster r ON r.campaign_id = c.id
+                        WHERE r.student_id = ? AND c.status = ?
+                        """,
+                        (str(student_id), CAMPAIGN_ACTIVE),
+                    ).fetchall()
+                    for r in rows:
+                        conn.execute(
+                            """
+                            UPDATE campaigns SET status = ?, revoked_at = ?
+                            WHERE id = ?
+                            """,
+                            (CAMPAIGN_REVOKED, ts, r["id"]),
+                        )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            finally:
+                conn.close()
+        self._mark_student_facial_local(
+            str(student_id), edge_student_key="", status="revoked", now=ts
+        )
+        if _ops_sync is not None:
+            _ops_sync.sync_in_background(
+                _ops_sync.upsert_student_facial_status,
+                student_id=str(student_id),
+                edge_student_key="",
+                status="revoked",
+                completed_at=None,
+            )
+        return {"ok": True, "student_id": student_id, "status": "revoked"}
+
+    def _mark_student_facial_local(
+        self,
+        student_id: str,
+        *,
+        edge_student_key: str,
+        status: str,
+        now: float,
+        completed_at: Optional[float] = None,
+    ) -> None:
+        if not student_id:
+            return
+        with self._lock:
+            conn = self._connect()
+            try:
+                prev = conn.execute(
+                    "SELECT version FROM student_facial_status WHERE student_id = ?",
+                    (student_id,),
+                ).fetchone()
+                version = int(prev["version"]) + 1 if prev else 1
+                revoked_at = now if status == "revoked" else None
+                done_at = completed_at if status == "enrolled" else None
+                conn.execute(
+                    """
+                    INSERT INTO student_facial_status (
+                      student_id, edge_student_key, status, version,
+                      completed_at, revoked_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(student_id) DO UPDATE SET
+                      edge_student_key = excluded.edge_student_key,
+                      status = excluded.status,
+                      version = excluded.version,
+                      completed_at = COALESCE(excluded.completed_at, student_facial_status.completed_at),
+                      revoked_at = excluded.revoked_at,
+                      updated_at = excluded.updated_at
+                    """,
+                    (
+                        student_id,
+                        edge_student_key or None,
+                        status,
+                        version,
+                        done_at,
+                        revoked_at,
+                        now,
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def list_class_facial_status(
+        self, school_id: str, class_group_id: str
+    ) -> dict[str, Any]:
+        """Official class roster + facial enrollment product status."""
+        school, class_group = self._resolve_fixture(school_id, class_group_id)
+        students = list(class_group.get("students") or [])
+
+        # Latest operational roster status per student_id / fixture_key
+        ops: dict[str, str] = {}
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT r.student_id, r.fixture_key, r.status, r.completed_at, c.created_at
+                    FROM roster r
+                    JOIN campaigns c ON c.id = r.campaign_id
+                    WHERE c.school_id = ? AND c.class_group_id = ?
+                    ORDER BY c.created_at DESC
+                    """,
+                    (school_id, class_group_id),
+                ).fetchall()
+                local_status = {
+                    r["student_id"]: r["status"]
+                    for r in conn.execute(
+                        "SELECT student_id, status FROM student_facial_status"
+                    ).fetchall()
+                }
+            finally:
+                conn.close()
+        for r in rows:
+            key = str(r["student_id"] or r["fixture_key"] or "")
+            if key and key not in ops:
+                ops[key] = r["status"]
+
+        items: list[dict[str, Any]] = []
+        for stu in students:
+            sid = str(stu.get("student_id") or "")
+            edge_key = str(
+                stu.get("fixture_key")
+                or stu.get("edge_student_key")
+                or sid
+                or ""
+            )
+            enrolled = False
+            try:
+                from enrollment_promote import edge_student_has_embeddings
+
+                enrolled = edge_student_has_embeddings(edge_key)
+            except Exception:
+                enrolled = False
+
+            local = local_status.get(sid) if sid else None
+            roster_st = ops.get(sid) or ops.get(edge_key)
+
+            if enrolled or local == "enrolled":
+                facial = "enrolled"
+            elif local == "revoked" and not enrolled:
+                facial = "not_enrolled"
+            elif roster_st in (ROSTER_CLAIMED, ROSTER_IN_PROGRESS) or local == "in_progress":
+                facial = "in_progress"
+            elif roster_st == ROSTER_COMPLETED and not enrolled:
+                # Completed POC but not promoted — treat as not permanently enrolled
+                facial = "not_enrolled"
+            else:
+                facial = "not_enrolled"
+
+            items.append(
+                {
+                    "student_id": sid or None,
+                    "display_name": stu.get("display_name"),
+                    "edge_student_key": edge_key or None,
+                    "facial_status": facial,
+                    "action": (
+                        "recadastrar"
+                        if facial == "enrolled"
+                        else ("aguardar" if facial == "in_progress" else "cadastrar")
+                    ),
+                }
+            )
+
+        return {
+            "ok": True,
+            "school_id": school["id"],
+            "school_name": school["name"],
+            "class_group_id": class_group["id"],
+            "class_label": class_group["label"],
+            "roster_source": self.roster_source_mode(),
+            "students": items,
+            "total": len(items),
+            "enrolled": sum(1 for i in items if i["facial_status"] == "enrolled"),
+            "in_progress": sum(1 for i in items if i["facial_status"] == "in_progress"),
+            "not_enrolled": sum(1 for i in items if i["facial_status"] == "not_enrolled"),
         }
 
     def _resolve_fixture(
@@ -807,6 +1235,8 @@ class EnrollmentStore:
             "roster_status": roster["status"],
             "session_status": sess["status"],
             "expires_at": sess["expires_at"],
+            "fixture_key": roster["fixture_key"] if "fixture_key" in roster.keys() else None,
+            "student_id": roster["student_id"] if "student_id" in roster.keys() else None,
         }
 
     def decline_identity(
@@ -955,10 +1385,50 @@ class EnrollmentStore:
                 )
 
             _ops_sync.sync_in_background(_sync_complete)
+
+        # Promote TEMP gallery → Edge face_embeddings (official matcher path).
+        promote_result: dict[str, Any] = {"ok": False, "skipped": True}
+        try:
+            from enrollment_promote import promote_completed_enrollment
+
+            edge_key = info.get("fixture_key") or ""
+            promote_result = promote_completed_enrollment(
+                campaign_id=str(info["campaign_id"]),
+                roster_student_id=str(info["roster_student_id"]),
+                edge_student_key=str(edge_key),
+                display_name=str(info.get("display_name") or edge_key),
+                replace=True,
+                call_reload=True,
+            )
+            official_sid = info.get("student_id")
+            if promote_result.get("ok"):
+                self._mark_student_facial_local(
+                    str(official_sid or edge_key),
+                    edge_student_key=str(edge_key),
+                    status="enrolled",
+                    now=ts,
+                    completed_at=ts,
+                )
+            if (
+                _ops_sync is not None
+                and promote_result.get("ok")
+                and official_sid
+            ):
+                _ops_sync.sync_in_background(
+                    _ops_sync.upsert_student_facial_status,
+                    student_id=str(official_sid),
+                    edge_student_key=str(edge_key),
+                    status="enrolled",
+                    completed_at=ts,
+                )
+        except Exception as exc:  # noqa: BLE001 — enrollment complete must not fail on promote
+            promote_result = {"ok": False, "error": str(exc)}
+
         return {
             "roster_student_id": info["roster_student_id"],
             "roster_status": ROSTER_COMPLETED,
             "session_status": SESSION_COMPLETED,
+            "promote": promote_result,
         }
 
     def get_roster_progress(self, campaign_id: str) -> dict[str, Any]:

@@ -155,12 +155,12 @@ def _request(
         return False, code, detail
 
 
-def _row_exists(path: str, row_id: str) -> bool:
+def _row_exists(path: str, row_id: str, *, id_column: str = "id") -> bool:
     rid = quote(row_id, safe="")
     ok, code, body = _request(
         "GET",
         path,
-        params=f"?id=eq.{rid}&select=id",
+        params=f"?{id_column}=eq.{rid}&select={id_column}",
     )
     if not ok or code != 200:
         return False
@@ -168,7 +168,13 @@ def _row_exists(path: str, row_id: str) -> bool:
     return body not in ("", "[]", "null")
 
 
-def _upsert_by_id(path: str, row: dict[str, Any], *, row_id: str) -> bool:
+def _upsert_by_id(
+    path: str,
+    row: dict[str, Any],
+    *,
+    row_id: str,
+    id_column: str = "id",
+) -> bool:
     """POST upsert on PK; on 409, PATCH by id if row exists (idempotent retry).
 
     If 409 and row id is absent, another row owns a secondary unique — refuse
@@ -178,14 +184,14 @@ def _upsert_by_id(path: str, row: dict[str, Any], *, row_id: str) -> bool:
         "POST",
         path,
         json_body=row,
-        params="?on_conflict=id",
+        params=f"?on_conflict={id_column}",
         upsert=True,
     )
     if ok:
         return True
     if code != 409:
         return False
-    if not _row_exists(path, row_id):
+    if not _row_exists(path, row_id, id_column=id_column):
         logger.error(
             "m2_ops_sync_CONFLICT_OTHER path=%s id=%s "
             "(409 sem linha no PK — unique secundária de outro registro; sem overwrite)",
@@ -198,7 +204,7 @@ def _upsert_by_id(path: str, row: dict[str, Any], *, row_id: str) -> bool:
         "PATCH",
         path,
         json_body=row,
-        params=f"?id=eq.{rid}",
+        params=f"?{id_column}=eq.{rid}",
         upsert=False,
     )
     return ok2
@@ -402,3 +408,33 @@ def sync_in_background(fn, *args, **kwargs) -> None:
             logger.warning("m2_ops_sync_bg_failed err=%s", exc)
 
     threading.Thread(target=_run, name="m2-ops-sync", daemon=True).start()
+
+
+def upsert_student_facial_status(
+    *,
+    student_id: str,
+    edge_student_key: str = "",
+    status: str,
+    completed_at: Optional[float] = None,
+) -> None:
+    """Mirror product facial status per official student (no biometrics)."""
+    if not student_id:
+        return
+    row: dict[str, Any] = {
+        "student_id": str(student_id),
+        "edge_student_key": edge_student_key or None,
+        "status": status,
+        "updated_at": _now_iso(),
+    }
+    if completed_at is not None:
+        row["completed_at"] = _ts(completed_at)
+    if status == "revoked":
+        row["revoked_at"] = _now_iso()
+    if status == "enrolled":
+        row["completed_at"] = row.get("completed_at") or _now_iso()
+    _upsert_by_id(
+        "facial_student_enrollments",
+        row,
+        row_id=str(student_id),
+        id_column="student_id",
+    )
