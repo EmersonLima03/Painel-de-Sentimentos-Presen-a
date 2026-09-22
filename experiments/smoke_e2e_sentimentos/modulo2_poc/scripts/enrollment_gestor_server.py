@@ -140,6 +140,13 @@ def build_app(store: EnrollmentStore) -> FastAPI:
         ops_ok = False
         if _ops_sync_mod is not None:
             ops_ok = bool(_ops_sync_mod.configured())
+        yunet_ok = False
+        try:
+            from poc_common import YUNET
+
+            yunet_ok = bool(YUNET.exists())
+        except Exception:
+            yunet_ok = False
         return {
             "ok": True,
             "service": "m2-enrollment",
@@ -148,6 +155,7 @@ def build_app(store: EnrollmentStore) -> FastAPI:
             "public_base_configured": bool(PUBLIC_BASE_URL),
             "roster_source": roster_mode,
             "ops_sync_configured": ops_ok,
+            "yunet_model_present": yunet_ok,
         }
 
     # ------------------------------------------------------------------ gestor
