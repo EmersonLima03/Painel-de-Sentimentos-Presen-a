@@ -30,6 +30,7 @@ _PROXY_PREFIXES = (
     "/gestor",
     "/gestor-static",
     "/a/",
+    "/e/",
     "/aluno-static",
     "/api/gestor",
     "/api/aluno",
@@ -197,6 +198,12 @@ async def proxy_gestor_static(request: Request, path: str):
 @router.api_route("/a/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_aluno_page(request: Request, path: str):
     return await _proxy(request, f"/a/{path}")
+
+
+@router.api_route("/e/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_aluno_invite(request: Request, path: str):
+    """Individual enrollment invite QR path (opaque token only)."""
+    return await _proxy(request, f"/e/{path}")
 
 
 @router.api_route(

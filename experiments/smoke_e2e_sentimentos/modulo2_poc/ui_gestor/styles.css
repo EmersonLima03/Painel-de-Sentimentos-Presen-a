@@ -309,12 +309,48 @@ h3 {
 .badge-status.pending { color: var(--muted); }
 .badge-status.claimed { color: var(--accent2); border-color: rgba(126,184,255,0.35); }
 .badge-status.in_progress { color: var(--warn); border-color: rgba(240,180,41,0.4); }
-.badge-status.completed { color: var(--good); border-color: rgba(74,222,128,0.4); }
+.badge-status.completed,
+.badge-status.enrolled { color: var(--good); border-color: rgba(74,222,128,0.4); }
+.badge-status.not_enrolled { color: var(--muted); }
 .badge-status.expired,
-.badge-status.failed { color: var(--bad); border-color: rgba(255,107,107,0.4); }
+.badge-status.failed,
+.badge-status.revoked { color: var(--bad); border-color: rgba(255,107,107,0.4); }
+
+.student-row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.student-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 160px;
+}
+.student-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.invite-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 24px;
+  align-items: start;
+}
+.invite-meta {
+  margin: 8px 0 12px;
+  color: var(--muted);
+}
+.invite-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
 
 @media (max-width: 860px) {
-  .setup-grid, .hero-campaign {
+  .setup-grid, .hero-campaign, .invite-grid {
     grid-template-columns: 1fr;
   }
   .top { flex-direction: column; }
@@ -322,7 +358,4 @@ h3 {
   .link-row { flex-direction: column; }
   .link-row input { width: 100%; max-width: 100%; }
   .btn { width: 100%; }
-}
-  .top { flex-direction: column; }
-  .link-row { flex-direction: column; }
 }

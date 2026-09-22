@@ -1,41 +1,37 @@
 (() => {
   const STATUS_PT = {
-    pending: "Pendente",
-    claimed: "Código usado",
+    not_enrolled: "Não cadastrado",
     in_progress: "Em andamento",
-    completed: "Concluído",
-    failed: "Falhou",
+    enrolled: "Cadastrado",
     expired: "Expirado",
-    active: "Ativa",
-    revoked: "Revogada",
+    revoked: "Revogado",
+    failed: "Falhou",
   };
 
   const els = {
     schoolSelect: document.getElementById("schoolSelect"),
     classSelect: document.getElementById("classSelect"),
     studentCount: document.getElementById("studentCount"),
-    btnStart: document.getElementById("btnStartCampaign"),
     setupHint: document.getElementById("setupHint"),
-    previewList: document.getElementById("previewList"),
     sourceBadge: document.getElementById("sourceBadge"),
-    campaignPanel: document.getElementById("campaignPanel"),
-    campaignTitle: document.getElementById("campaignTitle"),
-    progressNumbers: document.getElementById("progressNumbers"),
-    progressFill: document.getElementById("progressFill"),
-    campaignStatus: document.getElementById("campaignStatus"),
+    studentsPanel: document.getElementById("studentsPanel"),
+    studentList: document.getElementById("studentList"),
+    classHeading: document.getElementById("classHeading"),
+    statusSummary: document.getElementById("statusSummary"),
+    invitePanel: document.getElementById("invitePanel"),
+    inviteName: document.getElementById("inviteName"),
+    inviteMeta: document.getElementById("inviteMeta"),
     qrImage: document.getElementById("qrImage"),
     shareLink: document.getElementById("shareLink"),
     btnCopy: document.getElementById("btnCopyLink"),
     copyFeedback: document.getElementById("copyFeedback"),
-    btnRevoke: document.getElementById("btnRevoke"),
-    rosterList: document.getElementById("rosterList"),
-    codeList: document.getElementById("codeList"),
+    btnCloseInvite: document.getElementById("btnCloseInvite"),
+    btnRevokeInvite: document.getElementById("btnRevokeInvite"),
   };
 
   let schools = [];
-  let campaignId = null;
+  let currentInvite = null;
   let pollTimer = null;
-  let claimSheet = [];
 
   async function api(path, opts = {}) {
     const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
@@ -81,125 +77,158 @@
     els.classSelect.innerHTML =
       `<option value="">Selecione a turma</option>` +
       groups.map((c) => `<option value="${c.id}">${c.label}</option>`).join("");
-    updatePreview();
-  }
-
-  function updatePreview() {
-    const cg = currentClass();
-    const students = cg ? cg.students || [] : [];
-    const n = students.length;
-    els.studentCount.textContent = n ? `${n} aluno${n === 1 ? "" : "s"}` : "—";
-    els.btnStart.disabled = !cg || n === 0 || !!campaignId;
-    if (!cg) {
-      els.previewList.innerHTML =
-        `<li class="roster-item muted-row"><span class="roster-name">Selecione uma turma</span></li>`;
-      return;
-    }
-    if (n === 0) {
-      els.previewList.innerHTML =
-        `<li class="roster-item muted-row"><span class="roster-name">Turma sem alunos ativos</span></li>`;
-      els.setupHint.textContent = "Não é possível iniciar campanha vazia.";
-      return;
-    }
-    els.setupHint.textContent = "Confira os alunos e inicie a campanha.";
-    els.previewList.innerHTML = students
-      .map(
-        (st) => `
-      <li class="roster-item" data-status="pending">
-        <span class="roster-name">${st.display_name}</span>
-        <span class="badge-status pending">Pendente</span>
-      </li>`
-      )
-      .join("");
+    refreshStatus();
   }
 
   function statusLabel(raw) {
     return STATUS_PT[raw] || raw;
   }
 
-  function renderRoster(items) {
-    els.rosterList.innerHTML = (items || [])
-      .map(
-        (it) => `
-      <li class="roster-item" data-name="${it.display_name}" data-status="${it.status}">
-        <span class="roster-name">${it.display_name}</span>
-        <span class="badge-status ${it.status}">${statusLabel(it.status)}</span>
-      </li>`
-      )
-      .join("");
-  }
-
-  function renderCodes(sheet) {
-    claimSheet = sheet || claimSheet;
-    els.codeList.innerHTML = claimSheet
-      .map(
-        (row) => `
-      <li class="code-item">
-        <span class="code-name">${row.display_name}</span>
-        <span class="code-value">${row.claim_code}</span>
-      </li>`
-      )
-      .join("");
-  }
-
-  function applyProgress(prog) {
-    const total = prog.total || 0;
-    const done = prog.completed || 0;
-    const pct = total ? (100 * done) / total : 0;
-    els.progressNumbers.textContent = `${done} / ${total}`;
-    els.progressFill.style.width = `${pct}%`;
-    els.campaignTitle.textContent = prog.class_label
-      ? `Cadastro facial — ${prog.class_label}`
-      : "Cadastro facial";
-    els.campaignStatus.textContent = statusLabel(prog.status);
-    els.campaignStatus.className = `pill ${prog.status}`;
-    const eyebrow = document.querySelector(".hero-copy .eyebrow");
-    if (eyebrow) {
-      if (prog.status === "active") eyebrow.textContent = "Campanha ativa";
-      else if (prog.status === "revoked") eyebrow.textContent = "Campanha revogada";
-      else if (prog.status === "expired") eyebrow.textContent = "Campanha expirada";
-      else eyebrow.textContent = "Campanha";
+  function actionButton(st) {
+    if (st.facial_status === "enrolled") {
+      return `<button type="button" class="btn ghost btn-enroll" data-action="recadastrar" data-student-id="${st.student_id}">Recadastrar</button>`;
     }
-    renderRoster(prog.items);
-    const active = prog.status === "active";
-    els.btnRevoke.disabled = !active;
-    const cg = currentClass();
-    els.btnStart.disabled = active || !cg || !(cg.students || []).length;
+    if (st.facial_status === "in_progress") {
+      return `<button type="button" class="btn primary btn-enroll" data-action="reabrir" data-student-id="${st.student_id}">Ver convite</button>`;
+    }
+    return `<button type="button" class="btn primary btn-enroll" data-action="cadastrar" data-student-id="${st.student_id}">Cadastrar rosto</button>`;
   }
 
-  function showCampaign(payload) {
-    campaignId = payload.campaign_id;
-    els.campaignPanel.classList.remove("hidden");
+  function renderStudents(payload) {
+    const items = payload.students || [];
+    els.studentsPanel.classList.remove("hidden");
+    els.classHeading.textContent = `${payload.school_name} · ${payload.class_label}`;
+    els.statusSummary.textContent =
+      `${payload.enrolled} cadastrado(s) · ${payload.in_progress} em andamento · ${payload.not_enrolled} sem cadastro`;
+    els.studentCount.textContent = `${payload.total} aluno${payload.total === 1 ? "" : "s"}`;
+    if (!items.length) {
+      els.studentList.innerHTML =
+        `<li class="roster-item muted-row"><span class="roster-name">Turma sem alunos ativos</span></li>`;
+      return;
+    }
+    els.studentList.innerHTML = items
+      .map(
+        (st) => `
+      <li class="roster-item student-row" data-status="${st.facial_status}" data-student-id="${st.student_id || ""}">
+        <div class="student-main">
+          <span class="roster-name">${st.display_name}</span>
+          <span class="badge-status ${st.facial_status}">${statusLabel(st.facial_status)}</span>
+        </div>
+        <div class="student-actions">${actionButton(st)}</div>
+      </li>`
+      )
+      .join("");
+  }
+
+  async function refreshStatus() {
+    const schoolId = els.schoolSelect.value;
+    const classId = els.classSelect.value;
+    if (!schoolId || !classId) {
+      els.studentsPanel.classList.add("hidden");
+      els.studentCount.textContent = "—";
+      els.setupHint.textContent = "Selecione a escola e a turma para ver o status facial de cada aluno.";
+      return;
+    }
+    els.setupHint.textContent = "Status facial atualizado a partir do cadastro permanente.";
+    try {
+      const data = await api(
+        `/api/gestor/class-facial-status?school_id=${encodeURIComponent(schoolId)}&class_group_id=${encodeURIComponent(classId)}`
+      );
+      renderStudents(data);
+    } catch (err) {
+      els.setupHint.textContent = err.message || "Falha ao carregar status";
+    }
+  }
+
+  function showInvite(payload) {
+    currentInvite = payload;
+    els.invitePanel.classList.remove("hidden");
+    els.inviteName.textContent = payload.display_name;
+    els.inviteMeta.textContent = `${payload.school_name} · ${payload.class_label}`;
     els.shareLink.value = payload.share_link;
-    els.qrImage.src = `/api/gestor/campaigns/${campaignId}/qr.png?t=${Date.now()}`;
-    if (payload.claim_sheet) renderCodes(payload.claim_sheet);
-    applyProgress({
-      total: payload.total ?? payload.roster_count,
-      completed: payload.completed ?? 0,
-      class_label: payload.class_label,
-      status: payload.status,
-      items:
-        payload.items ||
-        (payload.claim_sheet || []).map((r) => ({
-          display_name: r.display_name,
-          claim_code: r.claim_code,
-          status: "pending",
-        })),
-    });
-    startPolling();
+    els.qrImage.src =
+      payload.qr_image_url ||
+      `/api/gestor/students/enroll/qr.png?token=${encodeURIComponent(payload.invite_token)}&t=${Date.now()}`;
+    els.studentsPanel.classList.add("hidden");
   }
 
-  async function refreshProgress() {
-    if (!campaignId) return;
-    const prog = await api(`/api/gestor/campaigns/${campaignId}/progress`);
-    applyProgress(prog);
+  function hideInvite() {
+    currentInvite = null;
+    els.invitePanel.classList.add("hidden");
+    refreshStatus();
   }
+
+  async function startEnroll(studentId, replace) {
+    const schoolId = els.schoolSelect.value;
+    const classId = els.classSelect.value;
+    if (!schoolId || !classId || !studentId) return;
+    const created = await api("/api/gestor/students/enroll", {
+      method: "POST",
+      body: JSON.stringify({
+        school_id: schoolId,
+        class_group_id: classId,
+        student_id: studentId,
+        replace: !!replace,
+      }),
+    });
+    showInvite(created);
+  }
+
+  els.schoolSelect.addEventListener("change", fillClasses);
+  els.classSelect.addEventListener("change", () => {
+    hideInvite();
+    refreshStatus();
+  });
+
+  els.studentList.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest(".btn-enroll");
+    if (!btn) return;
+    const studentId = btn.getAttribute("data-student-id");
+    const action = btn.getAttribute("data-action");
+    try {
+      btn.disabled = true;
+      await startEnroll(studentId, action === "recadastrar");
+    } catch (err) {
+      alert(err.message || "Falha ao iniciar cadastro");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  els.btnCopy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(els.shareLink.value);
+      els.copyFeedback.classList.remove("hidden");
+      setTimeout(() => els.copyFeedback.classList.add("hidden"), 1800);
+    } catch {
+      els.shareLink.select();
+    }
+  });
+
+  els.btnCloseInvite.addEventListener("click", hideInvite);
+
+  els.btnRevokeInvite.addEventListener("click", async () => {
+    if (!currentInvite) return;
+    try {
+      await api("/api/gestor/students/revoke", {
+        method: "POST",
+        body: JSON.stringify({
+          student_id: currentInvite.student_id,
+          campaign_id: currentInvite.campaign_id,
+        }),
+      });
+      hideInvite();
+    } catch (err) {
+      alert(err.message || "Falha ao revogar");
+    }
+  });
 
   function startPolling() {
     stopPolling();
     pollTimer = setInterval(() => {
-      refreshProgress().catch(() => {});
-    }, 2000);
+      if (!els.invitePanel.classList.contains("hidden")) return;
+      if (els.schoolSelect.value && els.classSelect.value) refreshStatus();
+    }, 8000);
   }
 
   function stopPolling() {
@@ -207,60 +236,12 @@
     pollTimer = null;
   }
 
-  async function startCampaign() {
-    const cg = currentClass();
-    if (!cg || !(cg.students || []).length) {
-      els.setupHint.textContent = "Selecione uma turma com alunos.";
-      return;
-    }
-    els.btnStart.disabled = true;
-    els.setupHint.textContent = "Criando campanha…";
-    try {
-      const created = await api("/api/gestor/campaigns", {
-        method: "POST",
-        body: JSON.stringify({
-          school_id: els.schoolSelect.value,
-          class_group_id: els.classSelect.value,
-        }),
-      });
-      const full = await api(`/api/gestor/campaigns/${created.campaign_id}`);
-      showCampaign({ ...created, ...full, claim_sheet: created.claim_sheet });
-      els.setupHint.textContent = "Campanha ativa. Compartilhe o QR com a turma.";
-    } catch (err) {
-      els.setupHint.textContent = `Erro: ${err.message}`;
-      els.btnStart.disabled = false;
-    }
-  }
-
-  async function revokeCampaign() {
-    if (!campaignId) return;
-    if (!window.confirm("Revogar esta campanha? Novos acessos serão bloqueados.")) return;
-    await api(`/api/gestor/campaigns/${campaignId}/revoke`, { method: "POST" });
-    await refreshProgress();
-    els.setupHint.textContent = "Campanha revogada.";
-  }
-
-  async function copyLink() {
-    const link = els.shareLink.value;
-    try {
-      await navigator.clipboard.writeText(link);
-    } catch {
-      els.shareLink.select();
-      document.execCommand("copy");
-    }
-    els.copyFeedback.classList.remove("hidden");
-    setTimeout(() => els.copyFeedback.classList.add("hidden"), 2000);
-  }
-
-  els.schoolSelect.addEventListener("change", fillClasses);
-  els.classSelect.addEventListener("change", updatePreview);
-  els.btnStart.addEventListener("click", startCampaign);
-  els.btnRevoke.addEventListener("click", revokeCampaign);
-  els.btnCopy.addEventListener("click", copyLink);
-
   api("/api/gestor/schools")
-    .then(fillSchools)
+    .then((data) => {
+      fillSchools(data);
+      startPolling();
+    })
     .catch((err) => {
-      els.setupHint.textContent = `Falha ao carregar escolas: ${err.message}`;
+      els.setupHint.textContent = err.message || "Falha ao carregar escolas";
     });
 })();

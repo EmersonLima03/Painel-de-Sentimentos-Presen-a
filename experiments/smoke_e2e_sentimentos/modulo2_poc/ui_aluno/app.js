@@ -1,11 +1,15 @@
 (() => {
   const TOKEN_RE = /^\/a\/([^/]+)\/?$/;
+  const INVITE_RE = /^\/e\/([^/]+)\/?$/;
   const match = window.location.pathname.match(TOKEN_RE);
+  const inviteMatch = window.location.pathname.match(INVITE_RE);
   const campaignToken = match ? decodeURIComponent(match[1]) : null;
+  const inviteToken = inviteMatch ? decodeURIComponent(inviteMatch[1]) : null;
   const TEST_HOOKS = new URLSearchParams(window.location.search).get("test_hooks") === "1";
 
   const state = {
     campaignToken,
+    inviteToken,
     campaign: null,
     sessionToken: null,
     displayName: null,
@@ -71,26 +75,59 @@
     el.classList.remove("hidden");
   }
 
+  async function applyClaimedSession(data) {
+    state.sessionToken = data.session_token;
+    state.displayName = data.display_name;
+    state.classLabel = data.class_label;
+    sessionStorage.setItem("m2_enroll_session", data.session_token);
+    if ($("helloTitle")) $("helloTitle").textContent = `Olá, ${data.display_name}!`;
+    if ($("confirmName")) $("confirmName").textContent = data.display_name || "—";
+    if ($("confirmClass")) $("confirmClass").textContent = data.class_label || "—";
+    if ($("confirmSchool")) $("confirmSchool").textContent = data.school_name || "—";
+    show("confirm");
+  }
+
+  async function loadInvite() {
+    if (!inviteToken) {
+      $("blockedTitle").textContent = "Link inválido";
+      $("blockedMsg").textContent = "Este endereço de cadastro não é válido.";
+      show("blocked");
+      return;
+    }
+    const { res, data } = await api(`/api/aluno/invite/${encodeURIComponent(inviteToken)}`);
+    if (!res.ok || !data.ok) {
+      $("blockedTitle").textContent = "Convite indisponível";
+      $("blockedMsg").textContent =
+        data.error || "Este convite expirou ou foi revogado. Peça um novo link ao gestor.";
+      show("blocked");
+      return;
+    }
+    await applyClaimedSession(data);
+  }
+
   async function loadCampaign() {
+    if (inviteToken) {
+      return loadInvite();
+    }
     if (!campaignToken) {
       $("blockedTitle").textContent = "Link inválido";
-      $("blockedMsg").textContent = "Este endereço de campanha não é válido.";
+      $("blockedMsg").textContent = "Este endereço de cadastro não é válido.";
       show("blocked");
       return;
     }
     const { res, data } = await api(`/api/aluno/campaign/${encodeURIComponent(campaignToken)}`);
     if (!res.ok || !data.ok) {
-      $("blockedTitle").textContent = "Campanha não encontrada";
+      $("blockedTitle").textContent = "Cadastro não encontrado";
       $("blockedMsg").textContent = "Verifique o QR Code com o gestor.";
       show("blocked");
       return;
     }
     if (data.status !== "active") {
       const map = {
-        expired: ["Campanha expirada", "O prazo desta campanha terminou. Peça um novo QR ao gestor."],
-        revoked: ["Campanha encerrada", "Esta campanha foi revogada e não aceita novos cadastros."],
+        expired: ["Cadastro expirado", "O prazo deste convite terminou. Peça um novo QR ao gestor."],
+        revoked: ["Cadastro encerrado", "Este convite foi revogado e não aceita novos cadastros."],
       };
-      const pair = map[data.status] || ["Campanha indisponível", "Esta campanha não está disponível no momento."];
+      const pair = map[data.status] || ["Indisponível", "Este cadastro não está disponível no momento."];
       $("blockedTitle").textContent = pair[0];
       $("blockedMsg").textContent = pair[1];
       show("blocked");
@@ -119,13 +156,7 @@
       $("btnClaimContinue").disabled = false;
       return;
     }
-    state.sessionToken = data.session_token;
-    state.displayName = data.display_name;
-    state.classLabel = data.class_label;
-    sessionStorage.setItem("m2_enroll_session", data.session_token);
-    $("helloTitle").textContent = `Olá, ${data.display_name}!`;
-    $("confirmClass").textContent = data.class_label;
-    show("confirm");
+    await applyClaimedSession(data);
   }
 
   async function declineIdentity() {

@@ -15,7 +15,7 @@
       <div>
         <p class="eyebrow">Presença</p>
         <h1>Cadastro facial</h1>
-        <p class="sub">Crie uma campanha de cadastro facial para uma turma.</p>
+        <p class="sub">Cadastro facial permanente dos alunos oficiais da escola e da turma.</p>
       </div>
       <div class="badge-source" id="sourceBadge" data-testid="source-badge">—</div>
     </header>
@@ -31,48 +31,31 @@
           <select id="classSelect" data-testid="class-select"></select>
         </label>
         <div class="setup-meta">
-          <p class="meta-label">Quantidade</p>
+          <p class="meta-label">Alunos</p>
           <p class="meta-value" id="studentCount" data-testid="student-count">—</p>
         </div>
-        <div class="setup-actions">
-          <button type="button" class="btn primary" id="btnStartCampaign" data-testid="btn-start-campaign" disabled>
-            Iniciar campanha
-          </button>
-        </div>
       </div>
-      <p class="hint" id="setupHint">Selecione a escola e a turma com alunos ativos.</p>
-
-      <div class="preview-block" id="previewBlock">
-        <div class="roster-head">
-          <h3>Alunos da turma</h3>
-          <p class="hint tight">Status inicial: Pendente — confira a lista antes de iniciar.</p>
-        </div>
-        <ul class="roster-list" id="previewList" data-testid="preview-list"></ul>
-      </div>
+      <p class="hint" id="setupHint">Selecione a escola e a turma para ver o status facial de cada aluno.</p>
     </section>
 
-    <section class="campaign-panel hidden" id="campaignPanel" data-testid="campaign-panel">
-      <div class="card hero-campaign">
-        <div class="hero-copy">
-          <p class="eyebrow">Campanha ativa</p>
-          <h2 id="campaignTitle" data-testid="campaign-title">Cadastro facial</h2>
-          <p class="progress-summary" data-testid="progress-summary">
-            <span id="progressNumbers">0 / 0</span> concluídos
+    <section class="card hidden" id="studentsPanel" data-testid="students-panel">
+      <div class="roster-head">
+        <h3 id="classHeading">Alunos</h3>
+        <p class="hint tight" id="statusSummary" data-testid="status-summary">—</p>
+      </div>
+      <ul class="roster-list" id="studentList" data-testid="student-list"></ul>
+    </section>
+
+    <section class="card invite-panel hidden" id="invitePanel" data-testid="invite-panel">
+      <div class="invite-grid">
+        <div>
+          <p class="eyebrow">Convite individual</p>
+          <h2 id="inviteName" data-testid="invite-name">—</h2>
+          <p class="invite-meta" id="inviteMeta" data-testid="invite-meta">—</p>
+          <p class="hint">
+            Envie este link ou QR code para o aluno realizar o cadastro pelo celular.
+            O QR contém apenas um token temporário — sem nome, sem dados biométricos.
           </p>
-          <div class="progress-track" aria-hidden="true">
-            <div class="progress-fill" id="progressFill" data-testid="progress-fill"></div>
-          </div>
-          <p class="status-line">
-            Status:
-            <span class="pill" id="campaignStatus" data-testid="campaign-status">—</span>
-          </p>
-        </div>
-        <div class="hero-qr">
-          <p class="qr-caption">QR compartilhado da turma</p>
-          <div class="qr-frame">
-            <img id="qrImage" data-testid="qr-image" alt="QR Code da campanha" />
-          </div>
-          <p class="qr-help">O QR contém só o token da campanha — sem nomes nem códigos.</p>
           <div class="link-row">
             <input id="shareLink" data-testid="share-link" type="text" readonly />
             <button type="button" class="btn primary" id="btnCopyLink" data-testid="btn-copy-link">
@@ -80,26 +63,21 @@
             </button>
           </div>
           <p class="copy-feedback hidden" id="copyFeedback" data-testid="copy-feedback">Link copiado</p>
-          <button type="button" class="btn danger ghost" id="btnRevoke" data-testid="btn-revoke">
-            Revogar campanha
-          </button>
+          <div class="invite-actions">
+            <button type="button" class="btn ghost" id="btnCloseInvite" data-testid="btn-close-invite">
+              Voltar à lista
+            </button>
+            <button type="button" class="btn danger ghost" id="btnRevokeInvite" data-testid="btn-revoke-invite">
+              Revogar convite
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div class="card">
-        <div class="roster-head">
-          <h3>Progresso dos alunos</h3>
-          <p class="hint tight">Pendente · Em andamento · Concluído</p>
+        <div class="hero-qr">
+          <p class="qr-caption">QR do aluno</p>
+          <div class="qr-frame">
+            <img id="qrImage" data-testid="qr-image" alt="QR Code do cadastro facial" />
+          </div>
         </div>
-        <ul class="roster-list" id="rosterList" data-testid="roster-list"></ul>
-      </div>
-
-      <div class="card codes-card" id="codesCard">
-        <div class="roster-head">
-          <h3>Códigos individuais (só gestor)</h3>
-          <p class="hint tight">Entregue um código a cada aluno. Não vão no QR.</p>
-        </div>
-        <ul class="code-list" id="codeList" data-testid="code-list"></ul>
       </div>
     </section>
   </div>

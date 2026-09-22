@@ -186,7 +186,8 @@ def build_app(store: EnrollmentStore) -> FastAPI:
                                 {
                                     "display_name": st["display_name"],
                                     "student_id": st.get("student_id"),
-                                    "status": "pending",
+                                    "edge_student_key": st.get("edge_student_key")
+                                    or st.get("fixture_key"),
                                 }
                                 for st in cg.get("students", [])
                             ],
@@ -200,8 +201,76 @@ def build_app(store: EnrollmentStore) -> FastAPI:
             "roster_source": store.roster_source_mode(),
         }
 
+    @app.get("/api/gestor/class-facial-status")
+    def api_class_facial_status(school_id: str, class_group_id: str) -> dict[str, Any]:
+        if not school_id or not class_group_id:
+            raise HTTPException(400, "school_id e class_group_id obrigatorios")
+        try:
+            return store.list_class_facial_status(school_id, class_group_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/api/gestor/students/enroll")
+    def api_start_student_enroll(body: dict[str, Any], request: Request) -> dict[str, Any]:
+        school_id = body.get("school_id")
+        class_group_id = body.get("class_group_id")
+        student_id = body.get("student_id")
+        replace = bool(body.get("replace") or body.get("recadastrar"))
+        if not school_id or not class_group_id or not student_id:
+            raise HTTPException(400, "school_id, class_group_id e student_id obrigatorios")
+        try:
+            created = store.start_student_enrollment(
+                school_id=str(school_id),
+                class_group_id=str(class_group_id),
+                student_id=str(student_id),
+                replace=replace,
+            )
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+        base = _public_base(request)
+        link = urljoin(base, created["qr_path"].lstrip("/"))
+        return {
+            "ok": True,
+            **created,
+            "share_link": link,
+            "qr_image_url": f"/api/gestor/students/enroll/qr.png?token={created['invite_token']}",
+            # Never echo secrets beyond the invite token needed for QR
+        }
+
+    @app.get("/api/gestor/students/enroll/qr.png")
+    def api_student_enroll_qr(token: str, request: Request) -> Response:
+        if not token or len(token) < 16:
+            raise HTTPException(400, "token invalido")
+        base = _public_base(request)
+        link = urljoin(base, f"/e/{token}")
+        lowered = link.lower()
+        for forbidden in ("embedding", "claim_code", "hmac", "student_id="):
+            if forbidden in lowered:
+                raise HTTPException(500, "qr payload inseguro")
+        img = qrcode.make(link, border=2)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return Response(content=buf.getvalue(), media_type="image/png")
+
+    @app.post("/api/gestor/students/revoke")
+    def api_revoke_student(body: dict[str, Any]) -> dict[str, Any]:
+        student_id = body.get("student_id")
+        campaign_id = body.get("campaign_id")
+        if not student_id:
+            raise HTTPException(400, "student_id obrigatorio")
+        return store.revoke_student_invite(
+            student_id=str(student_id),
+            campaign_id=str(campaign_id) if campaign_id else None,
+        )
+
     @app.post("/api/gestor/campaigns")
     def api_create_campaign(body: dict[str, Any], request: Request) -> dict[str, Any]:
+        """Compat: campanha em lote (lab/testes). UX de produto usa /students/enroll."""
         school_id = body.get("school_id")
         class_group_id = body.get("class_group_id")
         if not school_id or not class_group_id:
@@ -300,6 +369,38 @@ def build_app(store: EnrollmentStore) -> FastAPI:
             raise HTTPException(500, "ui_aluno/index.html ausente")
         _ = campaign_token
         return FileResponse(index, media_type="text/html; charset=utf-8")
+
+    @app.get("/e/{invite_token}", response_model=None)
+    def aluno_invite_page(invite_token: str) -> FileResponse:
+        """Individual enrollment invite — opaque token only in path."""
+        index = UI_ALUNO / "index.html"
+        if not index.is_file():
+            raise HTTPException(500, "ui_aluno/index.html ausente")
+        _ = invite_token
+        return FileResponse(index, media_type="text/html; charset=utf-8")
+
+    @app.get("/api/aluno/invite/{invite_token}")
+    def api_aluno_invite(invite_token: str):
+        from fastapi.responses import JSONResponse
+
+        try:
+            info = store.resolve_invite_token(str(invite_token))
+        except PermissionError:
+            return JSONResponse(
+                {"ok": False, "error": "convite invalido ou expirado"},
+                status_code=400,
+            )
+        return {
+            "ok": True,
+            "display_name": info["display_name"],
+            "class_label": info["class_label"],
+            "school_name": info["school_name"],
+            "session_token": info["session_token"],
+            "session_expires_at": info["expires_at"],
+            "roster_status": info["roster_status"],
+            "message": f"Confirme se você é {info['display_name']}",
+            "mode": "invite",
+        }
 
     @app.get("/api/aluno/campaign/{campaign_token}")
     def api_aluno_campaign(campaign_token: str) -> dict[str, Any]:

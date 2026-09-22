@@ -92,8 +92,8 @@ export function FacialEnrollmentView() {
       <header className="facial-enrollment-head">
         <h1>Cadastro facial</h1>
         <p className="muted">
-          Campanhas com escolas e turmas oficiais (Supabase A). QR e progresso no mesmo host do
-          Dashboard. Templates biométricos permanecem TEMP/local nesta etapa.
+          Cadastro facial permanente dos alunos oficiais (escola → turma → aluno). O QR é individual e
+          temporário; o template fica associado ao student_id e disponível para o reconhecimento.
         </p>
       </header>
       <iframe
