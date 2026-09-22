@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Enrollment de teste — Módulo 2 POC</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="page">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Módulo 2 · POC isolado</p>
+        <h1>Enrollment de teste</h1>
+        <p class="sub">Cadastro facial guiado — galeria temporária apenas</p>
+      </div>
+      <div class="badge-temp" title="Não grava no banco de produção">Galeria temporária — somente POC</div>
+    </header>
+
+    <section class="setup card">
+      <label>
+        Pessoa
+        <input id="studentName" type="text" value="Pessoa de teste" maxlength="80" />
+      </label>
+      <label>
+        ID (interno POC)
+        <input id="studentId" type="text" value="lab01" maxlength="40" />
+      </label>
+      <label>
+        Câmera (índice USB)
+        <select id="webcam">
+          <option value="2" selected>#2 USB XWF (cam-web)</option>
+          <option value="0">#0 notebook</option>
+          <option value="1">#1 Iriun/virtual</option>
+        </select>
+      </label>
+      <div class="setup-actions">
+        <button id="btnDetectCams" class="btn ghost" type="button">Detectar câmeras</button>
+        <button id="btnStart" class="btn primary" type="button">Iniciar captura</button>
+        <button id="btnStop" class="btn ghost" type="button">Encerrar</button>
+      </div>
+      <p id="camHint" class="hint" style="grid-column:1/-1;margin:0">Padrão = cam-web do Debug Vision (USB XWF index 2 @ 1920×1080). Não use a webcam do notebook.</p>
+    </section>
+
+    <section class="main-grid">
+      <div class="camera-wrap card">
+        <div class="camera-frame">
+          <img id="mjpeg" src="/api/mjpeg" alt="Pré-visualização da câmera" />
+          <div id="guideOverlay" class="guide-overlay guide-none" aria-hidden="true">
+            <div class="guide-arrow guide-arrow-left" title="Vire à esquerda">
+              <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
+                <path d="M40 12 L16 32 L40 52" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>Esquerda</span>
+            </div>
+            <div class="guide-center-ring">
+              <span>De frente</span>
+            </div>
+            <div class="guide-arrow guide-arrow-right" title="Vire à direita">
+              <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
+                <path d="M24 12 L48 32 L24 52" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>Direita</span>
+            </div>
+          </div>
+          <div id="captureFlash" class="flash" hidden></div>
+        </div>
+        <p id="instruction" class="instruction">Informe a pessoa e inicie a captura.</p>
+        <p id="statusHuman" class="status-line">Aguardando</p>
+        <p id="poseHint" class="pose-hint">A captura só avança com a pose correta (como app de banco).</p>
+        <div class="hold-row">
+          <div class="hold-track"><div id="stableBar" class="hold-bar"></div></div>
+          <span id="holdLabel" class="hold-label">Segure: 0/18</span>
+        </div>
+        <div id="qualityPill" class="pill q-none">○ Rosto não detectado</div>
+      </div>
+
+      <aside class="side">
+        <div class="card progress-card">
+          <h2>Progresso</h2>
+          <ol id="progressList" class="progress">
+            <li data-id="front"><span class="dot">○</span> Frente</li>
+            <li data-id="lateral_right"><span class="dot">○</span> Direita (~45°)</li>
+            <li data-id="lateral_left"><span class="dot">○</span> Esquerda (~45°)</li>
+            <li data-id="validate"><span class="dot">○</span> Validação</li>
+          </ol>
+          <p class="hint">Frente → direita → esquerda → frente de novo. Siga a seta animada.</p>
+        </div>
+
+        <div class="card actions-card">
+          <h2>Testes</h2>
+          <button id="btnRecognize" class="btn" type="button">Testar reconhecimento</button>
+          <button id="btnUnknown" class="btn warn" type="button">Testar pessoa não cadastrada</button>
+          <div class="distance-row">
+            <label>Distância
+              <select id="distanceSelect">
+                <option value="1">1 m</option>
+                <option value="2" selected>2 m</option>
+                <option value="3">3 m</option>
+                <option value="4">4 m</option>
+                <option value="5">5 m</option>
+              </select>
+            </label>
+            <button id="btnDistance" class="btn" type="button">Teste de distância</button>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section id="resultPanel" class="card result-card" hidden>
+      <h2 id="resultTitle">Resultado</h2>
+      <p id="resultHuman" class="result-human"></p>
+      <div id="resultFail" class="fail-banner" hidden>⚠ FALHA NO TESTE</div>
+      <dl class="result-grid">
+        <div><dt>Identidade</dt><dd id="rId">—</dd></div>
+        <div><dt>Score</dt><dd id="rScore">—</dd></div>
+        <div><dt>Margin</dt><dd id="rMargin">—</dd></div>
+        <div><dt>Resultado</dt><dd id="rDecision">—</dd></div>
+      </dl>
+      <ul id="doneChecklist" class="checklist" hidden></ul>
+    </section>
+
+    <section class="card table-card">
+      <h2>Teste de distância</h2>
+      <p class="hint">Só linhas medidas nesta sessão — nada inventado.</p>
+      <table>
+        <thead>
+          <tr><th>Distância</th><th>Qualidade</th><th>Score</th><th>Margin</th><th>Resultado</th></tr>
+        </thead>
+        <tbody id="distanceBody">
+          <tr class="empty"><td colspan="5">Nenhum teste de distância executado ainda.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <details class="card tech">
+      <summary>Detalhes técnicos da execução</summary>
+      <dl class="tech-grid">
+        <div><dt>Câmera</dt><dd id="tCam">—</dd></div>
+        <div><dt>Resolução</dt><dd id="tRes">—</dd></div>
+        <div><dt>Face px</dt><dd id="tFace">—</dd></div>
+        <div><dt>Quality score</dt><dd id="tQ">—</dd></div>
+        <div><dt>Modelo</dt><dd id="tModel">—</dd></div>
+        <div><dt>Score / Margin</dt><dd id="tSM">—</dd></div>
+        <div><dt>Distância</dt><dd id="tDist">—</dd></div>
+        <div><dt>Timestamp</dt><dd id="tTs">—</dd></div>
+        <div><dt>Galeria TEMP</dt><dd id="tGal">—</dd></div>
+        <div><dt>ID / UNKNOWN</dt><dd id="tDec">—</dd></div>
+        <div><dt>DB produção</dt><dd>nunca escrito</dd></div>
+        <div><dt>Thresholds</dt><dd id="tThr">experimentais POC</dd></div>
+      </dl>
+    </details>
+
+    <footer class="foot">
+      POC isolado · não altera M1, M3, TRI nem produção · XWF lab ≠ VIP-5440
+    </footer>
+  </div>
+  <script src="/static/app.js?v=pose2"></script>
+</body>
+</html>

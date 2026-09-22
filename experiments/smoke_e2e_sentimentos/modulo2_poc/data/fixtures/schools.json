@@ -1,0 +1,25 @@
+{
+  "schools": [
+    {
+      "id": "escola_demo_presenca",
+      "name": "Escola Demo Presenca",
+      "class_groups": [
+        {
+          "id": "turma_familia_lab",
+          "label": "8º Ano A",
+          "shift": "manha",
+          "students": [
+            {
+              "fixture_key": "aluno_dulin",
+              "display_name": "Dulin"
+            },
+            {
+              "fixture_key": "aluno_mae",
+              "display_name": "Mae"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

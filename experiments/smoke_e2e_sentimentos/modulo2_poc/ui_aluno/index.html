@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c1219" />
+  <title>Cadastro facial</title>
+  <link rel="stylesheet" href="/aluno-static/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="shell" id="app">
+    <!-- Boot / errors -->
+    <section class="screen" id="screenBoot" data-testid="screen-boot">
+      <p class="eyebrow">Cadastro facial</p>
+      <h1>Carregando…</h1>
+      <p class="lead" id="bootMsg">Preparando sua turma.</p>
+    </section>
+
+    <section class="screen hidden" id="screenBlocked" data-testid="screen-blocked">
+      <p class="eyebrow">Campanha</p>
+      <h1 id="blockedTitle">Indisponível</h1>
+      <p class="lead" id="blockedMsg">Esta campanha não está disponível no momento.</p>
+    </section>
+
+    <!-- Claim code -->
+    <section class="screen hidden" id="screenClaim" data-testid="screen-claim">
+      <p class="eyebrow" id="claimClassLabel">Turma</p>
+      <h1>Vamos preparar seu cadastro 👋</h1>
+      <p class="lead">
+        Em poucos minutos você registra o rosto para a turma.
+        Use apenas o código que o professor ou gestor te entregou.
+      </p>
+
+      <label class="field-label" for="claimCode">Digite o código entregue pelo professor/gestor</label>
+      <div class="code-boxes" aria-hidden="true" id="codeBoxes">
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <input
+        id="claimCode"
+        data-testid="claim-code"
+        class="code-input"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        maxlength="6"
+        autocomplete="one-time-code"
+        aria-label="Código de 6 dígitos"
+      />
+      <p class="error hidden" id="claimError" data-testid="claim-error" role="alert"></p>
+
+      <button type="button" class="btn primary block" id="btnClaimContinue" data-testid="btn-claim-continue" disabled>
+        Continuar
+      </button>
+    </section>
+
+    <!-- Confirm identity -->
+    <section class="screen hidden" id="screenConfirm" data-testid="screen-confirm">
+      <p class="eyebrow">Confirmação</p>
+      <h1 id="helloTitle" data-testid="hello-title">Olá!</h1>
+      <p class="lead">Você está realizando seu cadastro para:</p>
+      <p class="class-chip" id="confirmClass" data-testid="confirm-class">—</p>
+      <p class="lead soft">Confira seus dados antes de continuar.</p>
+      <div class="btn-row">
+        <button type="button" class="btn ghost" id="btnNotMe" data-testid="btn-not-me">Não sou eu</button>
+        <button type="button" class="btn primary" id="btnConfirm" data-testid="btn-confirm">Continuar</button>
+      </div>
+    </section>
+
+    <!-- Intro before facial -->
+    <section class="screen hidden" id="screenIntro" data-testid="screen-intro">
+      <p class="eyebrow">Quase lá</p>
+      <h1>Tudo pronto!</h1>
+      <p class="lead">
+        Agora vamos capturar algumas imagens para preparar seu cadastro.
+        Você será orientado durante todo o processo.
+      </p>
+      <button type="button" class="btn primary block" id="btnStartEnroll" data-testid="btn-start-enroll">
+        Começar cadastro
+      </button>
+    </section>
+
+    <section class="screen hidden" id="screenCamDenied" data-testid="screen-cam-denied">
+      <p class="eyebrow">Câmera</p>
+      <h1>Precisamos da câmera</h1>
+      <p class="lead" id="camDeniedMsg">
+        Sem acesso à câmera não é possível continuar o cadastro facial.
+        Permita o uso da câmera nas configurações do navegador e tente de novo.
+      </p>
+      <button type="button" class="btn primary block" id="btnRetryCam" data-testid="btn-retry-cam">
+        Tentar novamente
+      </button>
+    </section>
+
+    <!-- Capture -->
+    <section class="screen hidden screen-capture" id="screenCapture" data-testid="screen-capture">
+      <div class="capture-top">
+        <p class="step-pill" id="stepPill" data-testid="step-pill">1 de 4</p>
+        <h1 class="capture-title" id="captureTitle" data-testid="capture-title">Olhe para a câmera</h1>
+        <p class="capture-sub" id="captureSub" data-testid="capture-sub">Posicione seu rosto</p>
+      </div>
+      <div class="camera-stage">
+        <video id="camVideo" data-testid="cam-video" playsinline autoplay muted></video>
+        <canvas id="camCanvas" class="hidden" width="480" height="640"></canvas>
+        <div class="face-guide" id="faceGuide" data-testid="face-guide">
+          <div class="guide-ring"></div>
+          <div class="guide-arrow guide-left" id="guideLeft" aria-hidden="true">←</div>
+          <div class="guide-arrow guide-right" id="guideRight" aria-hidden="true">→</div>
+        </div>
+        <div class="flash hidden" id="captureFlash"></div>
+      </div>
+      <div class="hold-bar" aria-hidden="true">
+        <div class="hold-fill" id="holdFill" data-testid="hold-fill"></div>
+      </div>
+      <p class="status-line" id="captureStatus" data-testid="capture-status">Preparando…</p>
+      <button type="button" class="btn ghost block hidden" id="btnRetryStep" data-testid="btn-retry-step">
+        Tentar novamente
+      </button>
+    </section>
+
+    <!-- Glasses ask -->
+    <section class="screen hidden" id="screenGlasses" data-testid="screen-glasses">
+      <p class="eyebrow">Quase concluído</p>
+      <h1>Você costuma usar óculos durante as aulas?</h1>
+      <p class="lead">Se usa, vamos fazer uma captura extra com os óculos como você normalmente usa.</p>
+      <div class="btn-col">
+        <button type="button" class="btn primary block" id="btnGlassesNo" data-testid="btn-glasses-no">
+          Não uso óculos
+        </button>
+        <button type="button" class="btn ghost block" id="btnGlassesYes" data-testid="btn-glasses-yes">
+          Sim, uso óculos
+        </button>
+      </div>
+    </section>
+
+    <!-- Done -->
+    <section class="screen hidden" id="screenDone" data-testid="screen-done">
+      <div class="ready-badge" aria-hidden="true">✓</div>
+      <h1 data-testid="done-title">Cadastro concluído! 🎉</h1>
+      <p class="lead">
+        Seu cadastro facial foi realizado com sucesso.
+        Você já pode fechar esta página.
+      </p>
+      <p class="meta" id="doneMeta" data-testid="done-meta"></p>
+    </section>
+  </div>
+  <script src="/aluno-static/app.js"></script>
+</body>
+</html>

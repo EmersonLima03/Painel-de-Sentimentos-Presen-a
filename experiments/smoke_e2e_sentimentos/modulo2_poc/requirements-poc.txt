@@ -1,0 +1,11 @@
+# Dependências do serviço M2 Enrollment Escalável (isolado).
+# Instalar em venv dedicado — NÃO no venv global do produto TRI.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+qrcode[pil]>=7.4
+numpy>=1.24
+opencv-python-headless>=4.8
+Pillow>=10.0
+# FaceNet / YuNet usam o stack já presente no ambiente POC (facenet-pytorch / onnxruntime).
+# onnxruntime>=1.16
+# torch (via ambiente lab) — não pinado aqui para não forçar redownload.

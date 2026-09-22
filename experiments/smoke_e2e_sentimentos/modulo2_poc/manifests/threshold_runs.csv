@@ -1,0 +1,1 @@
+run_id,embedder,condition_id,probe_id,gallery_size,top1_id,top1_score,margin,decision,ground_truth,tp,fp,fn,unknown_ok,notes

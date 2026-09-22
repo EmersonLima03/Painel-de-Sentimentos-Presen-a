@@ -1,0 +1,19 @@
+﻿{
+  "checkpoint_id": "pre_m2_prod_mission",
+  "ts_utc": "2026-09-22T01:31:00Z",
+  "branch_before": "feat/sentimentos-v1",
+  "branch_after": "feat/m2-enrollment-production",
+  "head": "3b46d5a91a39cae3b1a2bbbcd8b7060584ed7441",
+  "head_message": "feat: add LXP homologation dashboard",
+  "ahead_of_origin_main": 39,
+  "upstream": null,
+  "m2_tracked_files_before": 0,
+  "m2_untracked_files_before": 612,
+  "protected_not_m2": [
+    "app/vision/phone_yolo.py",
+    "config.tri.yaml",
+    "frontend LXP/M3 dirty files",
+    "M1/M3/TRI"
+  ],
+  "note": "Checkpoint somente-leitura. Nenhuma operacao destrutiva."
+}

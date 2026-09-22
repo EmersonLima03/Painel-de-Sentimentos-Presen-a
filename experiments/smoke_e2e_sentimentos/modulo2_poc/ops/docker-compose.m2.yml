@@ -1,0 +1,42 @@
+# M2 Enrollment — compose ISOLADO.
+# Não sobe TRI, Edge Vision :8000, M1, M3 nem LXP.
+#
+# Uso:
+#   cd experiments/smoke_e2e_sentimentos/modulo2_poc
+#   copy ops\.env.example .env   # preencher M2_PUBLIC_BASE_URL e M2_ENROLL_HMAC_SECRET
+#   docker compose -f ops/docker-compose.m2.yml up -d --build
+#
+# Rollback: docker compose -f ops/docker-compose.m2.yml down
+
+services:
+  m2-enrollment:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile
+    container_name: m2-enrollment
+    restart: unless-stopped
+    ports:
+      - "8766:8766"
+    env_file:
+      - ../.env
+    environment:
+      M2_POC_TEST_HOOKS: "0"
+    volumes:
+      # Galeria TEMP + SQLite isolados (nunca face_embeddings de produção)
+      - m2_data:/m2/results
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/healthz', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+volumes:
+  m2_data:
+    name: m2_enrollment_data

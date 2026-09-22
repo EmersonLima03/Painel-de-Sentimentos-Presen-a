@@ -85,3 +85,23 @@ scripts/_smoke_provision_auth.sql
 experiments/smoke_e2e_sentimentos/*.db
 
 experiments/smoke_e2e_sentimentos/smoke_edge.db
+
+# ---------------------------------------------------------------------------
+# Módulo 2 — Enrollment Escalável (biometria / artefatos TEMP — NUNCA versionar)
+# Adicionado na missão de produção isolada. Não afeta M1/M3/TRI.
+# ---------------------------------------------------------------------------
+experiments/smoke_e2e_sentimentos/modulo2_poc/results/
+experiments/smoke_e2e_sentimentos/modulo2_poc/**/*.npy
+experiments/smoke_e2e_sentimentos/modulo2_poc/**/*.jpg
+experiments/smoke_e2e_sentimentos/modulo2_poc/**/*.jpeg
+experiments/smoke_e2e_sentimentos/modulo2_poc/**/*.png
+!experiments/smoke_e2e_sentimentos/modulo2_poc/**/.gitkeep
+experiments/smoke_e2e_sentimentos/modulo2_poc/**/*.db
+experiments/smoke_e2e_sentimentos/modulo2_poc/**/*.db-journal
+experiments/smoke_e2e_sentimentos/modulo2_poc/**/*.db-wal
+experiments/smoke_e2e_sentimentos/modulo2_poc/**/*.db-shm
+experiments/smoke_e2e_sentimentos/modulo2_poc/.env
+experiments/smoke_e2e_sentimentos/modulo2_poc/.env.*
+!experiments/smoke_e2e_sentimentos/modulo2_poc/.env.example
+experiments/smoke_e2e_sentimentos/modulo2_poc/models/**
+!experiments/smoke_e2e_sentimentos/modulo2_poc/models/.gitkeep

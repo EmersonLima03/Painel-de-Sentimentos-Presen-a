@@ -1,0 +1,12 @@
+condition_id,description,distance,pose,glasses,lighting,multi_person,gallery_member,expected
+A,mesma pessoa condicoes diferentes,var,var,var,var,no,yes,ID_correta
+B,pessoas diferentes,mid,front,no,normal,no,yes,nao_confundir
+C,distancia curta,0.5-1m,front,no,normal,no,yes,ID_ou_medir
+D,distancia media,2m,front,no,normal,no,yes,ID_ou_medir
+E,distancia longa,3-4m,front,no,normal,no,yes,ID_ou_UNKNOWN
+F,frontal,mid,front,no,normal,no,yes,ID_correta
+G,rosto lateral,mid,lateral,no,normal,no,yes,ID_ou_UNKNOWN
+H,oculos,mid,front,yes,normal,no,yes,ID_ou_UNKNOWN
+I,iluminacao diferente,mid,front,no,var,no,yes,ID_ou_UNKNOWN
+J,multiplas pessoas,mid,front,no,normal,yes,yes,ID_por_rosto
+K,nao cadastrado,mid,front,no,normal,no,no,UNKNOWN
