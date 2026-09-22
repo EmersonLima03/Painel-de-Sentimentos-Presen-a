@@ -26,7 +26,8 @@ COPY ui_aluno/ ./ui_aluno/
 COPY ui/ ./ui/
 COPY data/ ./data/
 COPY manifests/ ./manifests/
-COPY models/.gitkeep ./models/.gitkeep
+# models/ is gitignored globally; create empty runtime dir (no weights in image).
+RUN mkdir -p /m2/models
 
 RUN mkdir -p /m2/results/enrollment_escalavel /m2/results/gallery_temp /m2/results/crops_enrollment \
     && useradd --create-home --uid 10001 m2user \

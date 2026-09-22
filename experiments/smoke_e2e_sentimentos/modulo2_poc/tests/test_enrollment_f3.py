@@ -136,11 +136,17 @@ def test_complete_blocked_if_incomplete(client: TestClient):
         egs.TEST_HOOKS = True
 
 
-def test_frame_no_face_ui_code(client: TestClient):
+def test_frame_no_face_ui_code(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """Frame válido sem detecção de rosto → ui_code no_face.
+
+    YuNet em JPEG sintético preto pode falhar (adjust) ou falso-positivo;
+    o contrato sob teste é o ramo no_face do pipeline, não o detector.
+    """
     camp = _camp(client)
     token = _session(client, camp)
-    # Black JPEG-ish via numpy encode
     import cv2
+
+    monkeypatch.setattr("enrollment_pipeline.detect_faces_yunet", lambda *a, **k: [])
 
     frame = np.zeros((480, 360, 3), dtype=np.uint8)
     ok, buf = cv2.imencode(".jpg", frame)
