@@ -146,6 +146,11 @@ class Settings(BaseSettings):
     presence_periodic_enabled: bool = Field(default=True, env="PRESENCE_PERIODIC_ENABLED")
     require_consent: bool = Field(default=False, env="REQUIRE_CONSENT")
     api_auth_token: str = Field(default="", env="API_AUTH_TOKEN")
+
+    # M2 facial enrollment (sibling process on :8766; Edge proxies selected paths)
+    m2_upstream_url: str = Field(default="http://127.0.0.1:8766", env="M2_UPSTREAM_URL")
+    m2_gestor_gate_secret: str = Field(default="", env="M2_GESTOR_GATE_SECRET")
+    m2_gestor_open: bool = Field(default=False, env="M2_GESTOR_OPEN")
     data_retention_days: int = Field(default=90, env="DATA_RETENTION_DAYS")
     phone_yolo_enabled: bool = Field(default=False, env="PHONE_YOLO_ENABLED")
     phone_yolo_model_path: str = Field(default="", env="PHONE_YOLO_MODEL_PATH")

@@ -10,6 +10,7 @@ export type Tab =
   | "history"
   | "settings"
   | "admin"
-  | "lxpHomolog";
+  | "lxpHomolog"
+  | "facialEnrollment";
 
 export type WsState = "connecting" | "connected" | "disconnected";

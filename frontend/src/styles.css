@@ -1505,3 +1505,22 @@ code { font-size: 0.85em; }
 .homolog-timeline li { margin-bottom: 10px; }
 .data-table tr.is-selected { background: rgba(52, 152, 219, 0.12); }
 .warn-text { color: #f5b041; }
+
+/* Cadastro facial (M2 iframe same-origin) */
+.facial-enrollment {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: calc(100vh - 120px);
+}
+.facial-enrollment-head h1 {
+  margin: 0 0 4px;
+}
+.facial-enrollment-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}

@@ -44,6 +44,7 @@ from app.auth import require_api_token
 from app import __version__
 from app.api.v1 import router as api_v1_router, live_hub
 from app.api.homolog_lxp import router as homolog_lxp_router
+from app.m2_proxy import router as m2_proxy_router
 from app.runtime_mode import get_runtime_mode, is_demo, RuntimeMode, DEMO_BANNER
 
 # Configurar logging
@@ -170,6 +171,8 @@ app = FastAPI(
 
 app.include_router(api_v1_router)
 app.include_router(homolog_lxp_router, prefix="/api/v1")
+# M2 enrollment proxy (paths only — never catch-all). M2 down ≠ Edge down.
+app.include_router(m2_proxy_router)
 
 # Servir arquivos estáticos (se existirem)
 static_dir = Path(__file__).parent.parent / "app" / "static"

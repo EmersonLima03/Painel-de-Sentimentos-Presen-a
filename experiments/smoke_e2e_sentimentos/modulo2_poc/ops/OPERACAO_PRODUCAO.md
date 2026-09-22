@@ -1,28 +1,29 @@
 # Operação — Módulo 2 Enrollment Escalável (serviço isolado)
 
-## 1. Arquitetura
+## 1. Arquitetura (produção escola)
 
 ```
-Internet → HTTPS (proxy/Cloudflare) → m2-enrollment:8766
-  ├── /gestor/          UI gestor
-  ├── /a/<token>        UI aluno (QR)
-  ├── /api/gestor/*     campanhas / QR / progresso / revogação
-  ├── /api/aluno/*      claim / sessão / frames
-  └── /healthz          healthcheck
+Internet → Cloudflare Named Tunnel → Edge :8000
+  ├── Dashboard / M1 / M3 / TRI / Debug Vision
+  └── proxy seletivo → M2 :8766 (loopback)
+        ├── /gestor/ /gestor-static/*
+        ├── /a/<token> /aluno-static/*
+        ├── /api/gestor/* /api/aluno/*
+        └── /healthz (também via Edge /m2/healthz)
 
-Galeria TEMP: /m2/results/gallery_temp/enrollment_campaigns/
-SQLite POC:   /m2/results/enrollment_escalavel/*.db
+Galeria TEMP: modulo2_poc/results/... (sem face_embeddings / reload_matcher)
+Ops (campanha/roster/status): dual-write → Supabase A (presença)
+Supabase B = somente LXP homologação — não usar no M2
 
-NÃO conecta: TRI | M1 | M3 | face_embeddings produção | reload_matcher
+Ver também: docs/INTEGRACAO_M2_DASHBOARD.md
 ```
 
 ## 2. URL
 
-- Lab local: `http://127.0.0.1:8766/gestor/`
-- Produção: definir `M2_PUBLIC_BASE_URL` (HTTPS) e apontar DNS/proxy para a porta 8766.
-
-**Bloqueio atual:** não há Cloudflare/DNS/credenciais configurados neste repositório.
-Domínio LXP `sde.sistemadulino.com.br` é **produção LXP — não usar** para M2.
+- Lab local via Edge: `http://127.0.0.1:8000/gestor/` (Dashboard → Cadastro facial)
+- Aluno QR: `https://<HOST_DO_DASHBOARD>/a/<campaign_token>`
+- **Nunca** expor `:8766` na internet; Tunnel só para `:8000`
+- Definir `M2_PUBLIC_BASE_URL=https://<HOST_DO_DASHBOARD>`
 
 ## 3. Subir local / container
 
