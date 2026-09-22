@@ -14,6 +14,8 @@ type Props = {
   qaItems?: NavItem[];
   open?: boolean;
   onClose?: () => void;
+  sessionEmail?: string | null;
+  onSignOut?: () => void;
 };
 
 export function AppSidebar({
@@ -24,6 +26,8 @@ export function AppSidebar({
   qaItems = [],
   open,
   onClose,
+  sessionEmail,
+  onSignOut,
 }: Props) {
   const go = (id: Tab) => {
     onNavigate(id);
@@ -87,6 +91,18 @@ export function AppSidebar({
           </div>
         )}
         <div className="sidebar-foot muted">
+          {sessionEmail && (
+            <div className="sidebar-session">
+              <span className="sidebar-session-email" title={sessionEmail}>
+                {sessionEmail}
+              </span>
+              {onSignOut && (
+                <button type="button" className="sidebar-link" onClick={onSignOut}>
+                  Sair
+                </button>
+              )}
+            </div>
+          )}
           <a href="/dashboard-legacy" className="sidebar-link">
             Painel legado
           </a>

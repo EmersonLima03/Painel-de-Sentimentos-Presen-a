@@ -210,6 +210,55 @@ def test_product_priority_order_in_batch(db_session):
     ]
 
 
+def test_lxp_lane_not_blocked_by_product_failures(db_session):
+    """Fila product 401/fail não pode impedir envio LXP."""
+    from app.integrations.attendance_lxp import LXP_ATTENDANCE_EVENT_TYPE
+
+    class FakeLxp:
+        def __init__(self):
+            self.sent = []
+
+        async def send_attendance_event(self, payload):
+            self.sent.append(payload)
+            return True
+
+    base = datetime(2026, 9, 4, 8, 0, 0)
+    for i in range(15):
+        _insert(
+            db_session,
+            event_id=f"snap-block-{i}",
+            event_type="session_report_snapshot",
+            created_at=base + timedelta(seconds=i),
+            payload={"event_id": f"snap-block-{i}", "event_type": "session_report_snapshot"},
+        )
+    lxp_id = "lxp-att:not-blocked"
+    _insert(
+        db_session,
+        event_id=lxp_id,
+        event_type=LXP_ATTENDANCE_EVENT_TYPE,
+        created_at=base + timedelta(hours=1),
+        payload={
+            "event_id": lxp_id,
+            "event_type": LXP_ATTENDANCE_EVENT_TYPE,
+            "lesson_id": "lesson-8b-math-50",
+            "student_id": "ext-stu-001",
+            "attendance": "present",
+        },
+    )
+
+    product = FakeClient(fail_ids={f"snap-block-{i}" for i in range(15)})
+    lxp = FakeLxp()
+    worker = SyncWorker(client=product, lxp_client=lxp)  # type: ignore[arg-type]
+    worker.batch_size = 10
+    worker.retry_attempts = 2
+    worker.retry_backoff = 0
+    asyncio.run(worker.sync_batch())
+
+    assert len(lxp.sent) == 1
+    db_session.expire_all()
+    assert db_session.query(Event).filter(Event.event_id == lxp_id).one().status == "sent"
+
+
 def test_batch_limit_only_product(db_session):
     base = datetime(2026, 9, 2, 9, 0, 0)
     for i in range(20):

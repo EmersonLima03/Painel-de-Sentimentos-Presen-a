@@ -438,3 +438,53 @@ def upsert_student_facial_status(
         row_id=str(student_id),
         id_column="student_id",
     )
+
+
+def persist_edge_student_key(student_id: str, edge_student_key: str) -> bool:
+    """Write edge_student_key on public.students only when currently empty.
+
+    Never overwrites an existing key (keeps manual/lab keys like p01 stable).
+    """
+    sid = (student_id or "").strip()
+    key = (edge_student_key or "").strip()
+    if not sid or not key:
+        return False
+    rid = quote(sid, safe="")
+    ok, code, body = _request(
+        "GET",
+        "students",
+        params=f"?id=eq.{rid}&select=id,edge_student_key",
+    )
+    if not ok or code != 200:
+        logger.warning(
+            "m2_ops_persist_edge_key_read_fail student_id=%s status=%s", sid, code
+        )
+        return False
+    try:
+        import json as _json
+
+        rows = _json.loads(body or "[]")
+    except Exception:
+        rows = []
+    if not isinstance(rows, list) or not rows:
+        logger.warning("m2_ops_persist_edge_key_missing_row student_id=%s", sid)
+        return False
+    current = (rows[0].get("edge_student_key") or "").strip()
+    if current:
+        return True  # already set — do not overwrite
+    ok2, code2, body2 = _request(
+        "PATCH",
+        "students",
+        params=f"?id=eq.{rid}",
+        json_body={"edge_student_key": key},
+    )
+    if ok2 and code2 in (200, 204):
+        logger.info("m2_ops_persist_edge_key_ok student_id=%s key=%s", sid, key)
+        return True
+    logger.warning(
+        "m2_ops_persist_edge_key_fail student_id=%s status=%s body=%s",
+        sid,
+        code2,
+        (body2 or "")[:200],
+    )
+    return False

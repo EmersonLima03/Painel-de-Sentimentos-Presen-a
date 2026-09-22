@@ -1,0 +1,7 @@
+﻿archive_root=c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_archive\presenca-20260922
+note=D: indisponivel; archive no mesmo volume OneDrive
+started=2026-09-22T19:49:39.6148977-03:00
+MOVED 8423.8 MB | c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\scenario_i_ai -> c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_archive\presenca-20260922\experiments\scenario_i_ai | 2026-09-22T19:49:43.7296485-03:00
+MOVED 2469 MB | c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\ex_emotion_model_benchmark -> c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_archive\presenca-20260922\experiments\ex_emotion_model_benchmark | 2026-09-22T19:49:47.6186771-03:00
+MOVED 1438.1 MB | c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\input -> c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_archive\presenca-20260922\experiments\tri_manual_videos\input | 2026-09-22T19:49:47.6266549-03:00
+MOVED 69.7 MB | c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_live_monitor\output -> c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_archive\presenca-20260922\experiments\tri_live_monitor\output | 2026-09-22T19:49:47.6591670-03:00

@@ -1,0 +1,64 @@
+﻿REMOVED venv/ (1937.2 MB)
+REMOVED C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\.pytest_cache
+REMOVED C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\.pytest_cache
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\hsemotion_pipeline_spike\output\vgaf_perf_run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\hsemotion_pipeline_spike\output\vgaf_val_run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\remote_multiuser_validation\output\run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\remote_multiuser_validation_separate_crops\output\run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\api_run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\npm_build.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\pytest_key.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\pytest_related.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\restart_run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\sync_retest_run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\ui_postfix_run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\ui_run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\uvicorn_restart.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\piloto\final_offline_online\edge_boot.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\new6_official_run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_diag_c.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_diag_ex.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_EXnegativa_afterEX.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_EXseria_afterEX.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_E_mesa_uso_afterC.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_E_mesa_uso_afterC2.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_E_mesa_uso_afterF.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_FoneGrande_afterC.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_FoneGrande_afterC2.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_FoneGrande_afterEX.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_F_digitando_afterC.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_F_digitando_afterEX.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_F_digitando_afterF.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_Iperfil_afterC.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_Iperfil_afterF.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_P1-P5_afterC.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_P1-P5_afterC2.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_rerun_P1-P5_afterF.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_run_EXnegativa.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_run_EXseria.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_run_E_mesa_uso.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_run_FoneGrande.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_run_F_digitando.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_run_Iperfil.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\_run_P1-P5.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\c_rep2_diag\final_matrix.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\c_rep2_diag\live_run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\c_rep2_diag\live_v2.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\c_rep2_diag\postfix_regression.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\c_rep2_diag\run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\c_rep2_diag\stability.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\tri_manual_videos\output\headdown_real_tracker\run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\results\boot_edge_uvicorn.err.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\results\boot_edge_uvicorn.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\results\boot_m2.err.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\results\boot_m2.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\results\audit_aula_e2e\run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\results\diag_facial_schools\run.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\results\diag_facial_schools\run2.log
+REMOVED_LOG C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\results\e2e_facial_promote\run.log
+REMOVED_DB_COPY 33.45 MB C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\dulino_edge_outbox_fix_copy.db
+REMOVED_DB_COPY 33.45 MB C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\edge_sync_retest.db
+REMOVED_DB_COPY 33.45 MB C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\e2e_validation\edge_copy_for_sync.db
+REMOVED_DB_COPY 0.2 MB C:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\Presenca\experiments\smoke_e2e_sentimentos\smoke_edge.db
+MOVED_RESULTS 6.3 MB c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_facial_enroll_prod\results -> c:\Users\dulin\OneDrive\Documentos\Teste de monitoramento\_archive\presenca-20260922\facial_enroll_prod_results
+REMOVED .wrangler/

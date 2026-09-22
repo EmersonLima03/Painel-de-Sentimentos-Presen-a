@@ -574,9 +574,17 @@ def build_app(store: EnrollmentStore) -> FastAPI:
         ui = process_frame_bgr(cs, frame)
         if ui.get("completed"):
             try:
-                store.complete_enrollment(str(session_token))
+                done = store.complete_enrollment(str(session_token))
+                ui["product_enrolled"] = bool(done.get("product_enrolled"))
+                if not done.get("product_enrolled"):
+                    promote = done.get("promote") or {}
+                    ui["promote_error"] = promote.get("error") or "promote_failed"
+                    ui["status_human"] = (
+                        "Captura ok, mas a identidade nao foi gravada no reconhecimento. "
+                        "Feche e peca um novo convite ao gestor."
+                    )
             except PermissionError:
-                pass
+                ui["product_enrolled"] = False
         return {"ok": True, "capture": ui}
 
     @app.post("/api/aluno/session/glasses")
@@ -599,9 +607,17 @@ def build_app(store: EnrollmentStore) -> FastAPI:
         ui = ack_glasses(cs, bool(body["uses_glasses"]))
         if ui.get("completed"):
             try:
-                store.complete_enrollment(str(token))
+                done = store.complete_enrollment(str(token))
+                ui["product_enrolled"] = bool(done.get("product_enrolled"))
+                if not done.get("product_enrolled"):
+                    promote = done.get("promote") or {}
+                    ui["promote_error"] = promote.get("error") or "promote_failed"
+                    ui["status_human"] = (
+                        "Captura ok, mas a identidade nao foi gravada no reconhecimento. "
+                        "Feche e peca um novo convite ao gestor."
+                    )
             except PermissionError:
-                pass
+                ui["product_enrolled"] = False
         return {"ok": True, "capture": ui}
 
     @app.post("/api/aluno/session/complete")
@@ -629,6 +645,20 @@ def build_app(store: EnrollmentStore) -> FastAPI:
             done = store.complete_enrollment(str(token))
         except PermissionError as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=403)
+        # Capture session closed, but product enrollment requires atomic promote.
+        if not done.get("product_enrolled"):
+            promote = done.get("promote") or {}
+            err = promote.get("error") or "promote_failed"
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": f"identidade facial nao promovida: {err}",
+                    "facial_status": done.get("facial_status") or "failed",
+                    "product_enrolled": False,
+                    **done,
+                },
+                status_code=409,
+            )
         return {"ok": True, **done}
 
     @app.post("/api/aluno/session/test/force-step")

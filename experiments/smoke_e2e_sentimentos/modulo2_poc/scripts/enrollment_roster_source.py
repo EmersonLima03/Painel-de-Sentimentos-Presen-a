@@ -120,8 +120,23 @@ def list_schools_from_supabase() -> list[dict[str, Any]]:
             {
                 "student_id": stu["id"],
                 "display_name": stu.get("full_name") or "Aluno",
-                "fixture_key": stu.get("edge_student_key") or stu["id"],
-                "edge_student_key": stu.get("edge_student_key"),
+                # Never use raw UUID as matcher id. Derive stable e_<hex> if missing.
+                "fixture_key": (
+                    stu.get("edge_student_key")
+                    or (
+                        ("e_" + str(stu["id"]).lower().replace("-", ""))
+                        if stu.get("id")
+                        else None
+                    )
+                ),
+                "edge_student_key": (
+                    stu.get("edge_student_key")
+                    or (
+                        ("e_" + str(stu["id"]).lower().replace("-", ""))
+                        if stu.get("id")
+                        else None
+                    )
+                ),
             }
         )
 

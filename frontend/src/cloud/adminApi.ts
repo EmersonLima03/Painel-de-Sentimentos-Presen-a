@@ -118,7 +118,7 @@ export async function fetchTeam(schoolId: string) {
 export async function inviteTeamMember(payload: {
   email: string;
   full_name: string;
-  role: "professor" | "monitor" | "gestor";
+  role: "professor" | "monitor" | "gestor" | "coordenador";
   school_id: string;
   temporary_password: string;
 }) {
@@ -169,8 +169,14 @@ export async function fetchStudents(schoolId: string) {
 export async function upsertStudent(
   row: Partial<StudentRow> & { school_id: string; organization_id: string; full_name: string },
 ) {
-  if (row.id) return sb().from("students").update(row).eq("id", row.id).select().single();
-  return sb().from("students").insert(row).select().single();
+  // edge_student_key: DB trigger fills from students.id when null/blank.
+  // Do not invent client-side keys for existing ids; leave undefined/null so trigger runs.
+  const payload = { ...row };
+  if (payload.edge_student_key != null && String(payload.edge_student_key).trim() === "") {
+    payload.edge_student_key = null;
+  }
+  if (row.id) return sb().from("students").update(payload).eq("id", row.id).select().single();
+  return sb().from("students").insert(payload).select().single();
 }
 
 export async function fetchEnrollments(schoolId: string, classGroupId?: string) {

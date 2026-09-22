@@ -3,24 +3,42 @@ import { useAuth } from "../../cloud/AuthContext";
 import { supabase } from "../../cloud/supabaseClient";
 
 /**
- * Cadastro facial — same-origin iframe to /gestor/ (Edge → M2 :8766).
- * Issues gestor gate cookie so unauthenticated browsers cannot open /gestor directly.
+ * Cadastro facial — same-origin M2 gestor UI (Edge → M2 :8766).
+ *
+ * Cloudflare often blocks iframe *navigation* to /gestor/ (frame stays about:blank
+ * or never runs app.js). Fetching HTML after the gate cookie and injecting via
+ * srcDoc keeps same-origin APIs/cookies and still runs the gestor boot script.
  */
 export function FacialEnrollmentView() {
   const auth = useAuth();
-  const [ready, setReady] = useState(false);
+  const [frameHtml, setFrameHtml] = useState<string | null>(null);
   const [gateError, setGateError] = useState<string | null>(null);
   const [m2Down, setM2Down] = useState(false);
+  const [loadingFrame, setLoadingFrame] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setGateError(null);
+      setFrameHtml(null);
+      setLoadingFrame(false);
+
+      if (!auth.canManageFacial) {
+        if (!cancelled) {
+          setGateError(
+            "Seu perfil não tem permissão para cadastro facial. Use uma conta de gestor, coordenador ou administrador.",
+          );
+        }
+        return;
+      }
+
       try {
         const health = await fetch("/m2/healthz");
         if (!cancelled) setM2Down(!health.ok);
+        if (!health.ok) return;
       } catch {
         if (!cancelled) setM2Down(true);
+        return;
       }
 
       let access_token: string | undefined;
@@ -28,38 +46,66 @@ export function FacialEnrollmentView() {
         const { data } = await supabase.auth.getSession();
         access_token = data.session?.access_token;
       }
+      if (!access_token) {
+        if (!cancelled) setGateError("Sessão expirada. Faça login novamente.");
+        return;
+      }
+
       try {
         const r = await fetch("/dashboard/api/m2-gestor-gate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ access_token }),
+          body: JSON.stringify({
+            access_token,
+            school_id: auth.activeSchoolId,
+          }),
         });
         if (!r.ok) {
-          if (!cancelled) setGateError("Não foi possível autorizar o cadastro facial. Faça login como gestor.");
+          const detail = await r.text();
+          if (!cancelled) {
+            setGateError(
+              detail.includes("forbidden") || r.status === 403
+                ? "Permissão insuficiente para cadastro facial nesta escola."
+                : "Não foi possível autorizar o cadastro facial. Faça login como gestor.",
+            );
+          }
           return;
         }
-        if (!cancelled) setReady(true);
+
+        if (cancelled) return;
+        setLoadingFrame(true);
+        const htmlRes = await fetch(`/gestor/?embed=1&v=${Date.now()}`, {
+          credentials: "same-origin",
+          headers: { Accept: "text/html" },
+        });
+        const html = await htmlRes.text();
+        if (!htmlRes.ok || !html.includes("schoolSelect")) {
+          if (!cancelled) {
+            setGateError(
+              "Não foi possível carregar a interface de cadastro facial. Recarregue a página.",
+            );
+          }
+          return;
+        }
+        if (!cancelled) {
+          setFrameHtml(html);
+          setLoadingFrame(false);
+        }
       } catch {
-        if (!cancelled) setGateError("Falha ao preparar sessão do cadastro facial.");
+        if (!cancelled) {
+          setLoadingFrame(false);
+          setGateError("Falha ao preparar sessão do cadastro facial.");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [auth.email, auth.userId]);
+  }, [auth.email, auth.userId, auth.canManageFacial, auth.activeSchoolId]);
 
   if (auth.loading) {
     return <p className="muted">Carregando…</p>;
-  }
-
-  if (auth.configured && !auth.email) {
-    return (
-      <section>
-        <h1>Cadastro facial</h1>
-        <p className="muted">Entre com a conta de gestor para abrir o cadastro facial.</p>
-      </section>
-    );
   }
 
   if (gateError) {
@@ -83,22 +129,21 @@ export function FacialEnrollmentView() {
     );
   }
 
-  if (!ready) {
-    return <p className="muted">Preparando cadastro facial…</p>;
+  if (!frameHtml || loadingFrame) {
+    return (
+      <section>
+        <h1>Cadastro facial</h1>
+        <p className="muted">Preparando sessão…</p>
+      </section>
+    );
   }
 
   return (
-    <section className="facial-enrollment">
-      <header className="facial-enrollment-head">
-        <h1>Cadastro facial</h1>
-        <p className="muted">
-          Cadastro facial permanente dos alunos oficiais (escola → turma → aluno). O QR é individual e
-          temporário; o template fica associado ao student_id e disponível para o reconhecimento.
-        </p>
-      </header>
+    <section className="facial-enrollment-view">
+      <h1>Cadastro facial</h1>
       <iframe
         title="Cadastro facial — gestor"
-        src="/gestor/"
+        srcDoc={frameHtml}
         className="facial-enrollment-frame"
         allow="camera; microphone"
       />

@@ -199,27 +199,55 @@ def start_session_with_context(body: Dict[str, Any]) -> Dict[str, Any]:
                     "reopen": False,
                     "message": "Sessão ativa retomada para esta aula.",
                 }
-            # Conflito: outra aula ativa
-            title = getattr(active, "title", None) or "outra aula"
-            label = None
-            if isinstance(active_ctx, dict):
-                parts = [
-                    active_ctx.get("class_group_name"),
-                    active_ctx.get("subject_name"),
-                ]
-                label = " · ".join([p for p in parts if p]) or title
-            return {
-                "ok": False,
-                "error": "another_session_active",
-                "code": "conflict_active_session",
-                "active_session_id": active.session_id,
-                "active_lesson_occurrence_id": active_occ or None,
-                "active_label": label or title,
-                "message": (
-                    f"Já existe uma aula em andamento ({label or title}). "
-                    "Encerre essa aula antes de iniciar outra."
-                ),
-            }
+            if active_occ:
+                # Conflito: outra aula formal ativa
+                title = getattr(active, "title", None) or "outra aula"
+                label = None
+                if isinstance(active_ctx, dict):
+                    parts = [
+                        active_ctx.get("class_group_name"),
+                        active_ctx.get("subject_name"),
+                    ]
+                    label = " · ".join([p for p in parts if p]) or title
+                return {
+                    "ok": False,
+                    "error": "another_session_active",
+                    "code": "conflict_active_session",
+                    "active_session_id": active.session_id,
+                    "active_lesson_occurrence_id": active_occ or None,
+                    "active_label": label or title,
+                    "message": (
+                        f"Já existe uma aula em andamento ({label or title}). "
+                        "Encerre essa aula antes de iniciar outra."
+                    ),
+                }
+            # Sessão automática / sem lesson_context: encerra e segue com aula formal
+            logger.info(
+                "superseding_contextless_session",
+                session_id=active.session_id,
+                title=getattr(active, "title", None),
+                new_occurrence_id=occurrence_id,
+            )
+            ended_sid = active.session_id
+            try:
+                started_ts = (
+                    active.started_at.timestamp()
+                    if getattr(active, "started_at", None) is not None
+                    else time.time()
+                )
+            except Exception:
+                started_ts = time.time()
+            repo.end_session(ended_sid)
+            try:
+                enqueue_class_session_upsert(
+                    session_id=ended_sid,
+                    status="ended",
+                    started_at=started_ts,
+                    ended_at=time.time(),
+                    title=getattr(active, "title", None) or "Sessão automática",
+                )
+            except Exception as e:
+                logger.warning("supersede_enqueue_end_failed", error=str(e))
 
         # Reabertura: houve sessão ended para esta ocorrência?
         reopen = False

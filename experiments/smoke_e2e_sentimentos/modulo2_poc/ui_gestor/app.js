@@ -226,9 +226,19 @@
   function startPolling() {
     stopPolling();
     pollTimer = setInterval(() => {
-      if (!els.invitePanel.classList.contains("hidden")) return;
-      if (els.schoolSelect.value && els.classSelect.value) refreshStatus();
-    }, 8000);
+      if (!els.schoolSelect.value || !els.classSelect.value) return;
+      refreshStatus().then(() => {
+        // Fecha convite quando o aluno conclui de verdade (enrolled).
+        if (!els.invitePanel.classList.contains("hidden") && currentInvite) {
+          const row = els.studentList.querySelector(
+            `[data-student-id="${currentInvite.student_id}"]`
+          );
+          if (row && row.getAttribute("data-status") === "enrolled") {
+            hideInvite();
+          }
+        }
+      });
+    }, 4000);
   }
 
   function stopPolling() {
@@ -236,12 +246,38 @@
     pollTimer = null;
   }
 
-  api("/api/gestor/schools")
-    .then((data) => {
+  async function boot() {
+    if (!els.schoolSelect || !els.classSelect) {
+      console.error("ui_gestor: selects ausentes no DOM");
+      return;
+    }
+    els.schoolSelect.innerHTML = `<option value="">Carregando escolas…</option>`;
+    els.setupHint.textContent = "Carregando escolas oficiais…";
+    try {
+      const data = await api("/api/gestor/schools");
+      const list = data.schools || [];
+      if (!list.length) {
+        els.schoolSelect.innerHTML = `<option value="">Nenhuma escola encontrada</option>`;
+        els.setupHint.textContent =
+          "Nenhuma escola no roster. Crie escola/turma/alunos em Administração ou Plataforma.";
+        return;
+      }
       fillSchools(data);
+      els.setupHint.textContent =
+        "Selecione a escola e a turma para ver o status facial de cada aluno.";
       startPolling();
-    })
-    .catch((err) => {
-      els.setupHint.textContent = err.message || "Falha ao carregar escolas";
-    });
+    } catch (err) {
+      console.error("ui_gestor schools fail", err);
+      els.schoolSelect.innerHTML = `<option value="">Erro ao carregar</option>`;
+      els.setupHint.textContent =
+        (err && err.message) ||
+        "Falha ao carregar escolas. Recarregue a página ou verifique o M2.";
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => void boot());
+  } else {
+    void boot();
+  }
 })();

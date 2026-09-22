@@ -83,7 +83,7 @@ export function LessonHeader({
             <span className="muted">
               {hasContext
                 ? "Professor: —"
-                : "Nenhuma aula iniciada — use Administração → Minhas aulas de hoje"}
+                : "Nenhuma aula iniciada — use Administração → Aulas (gestor) ou Minhas aulas (professor)"}
             </span>
           )}
         </p>

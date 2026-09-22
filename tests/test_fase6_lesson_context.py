@@ -125,6 +125,48 @@ def test_start_with_context_conflict_and_resume(db_session, monkeypatch, tmp_pat
     reload_settings()
 
 
+def test_start_with_context_supersedes_automatic_session(db_session, monkeypatch, tmp_path, clean_lxp_env):
+    """Sessão automática (sem lesson_context) não deve bloquear aula formal."""
+    from app.config import get_settings
+    from app.db.models import ClassSession
+    from app.db.repo import ClassSessionRepository
+    from app.services import lesson_context as lc
+
+    monkeypatch.setattr(lc, "_cache_path", lambda: tmp_path / "today.json")
+    settings = get_settings()
+    monkeypatch.setattr(settings, "school_id", "1")
+    monkeypatch.setattr(settings, "device_id", "edge-test")
+    monkeypatch.setattr(settings, "cameras", [])
+
+    repo = ClassSessionRepository(db_session)
+    auto_sid = "auto-session-no-context-001"
+    repo.create_session(
+        session_id=auto_sid,
+        school_id="1",
+        room_id="DEV",
+        device_id="edge-test",
+        title="Sessão automática",
+    )
+    assert db_session.query(ClassSession).filter(ClassSession.session_id == auto_sid).one().status == "active"
+
+    body = {
+        "lesson_occurrence_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "class_group_name": "Turma Teste 1",
+        "subject_name": "Matemática",
+        "external_lesson_id": "lesson-8b-math-50",
+        "scheduled_duration_minutes": 50,
+        "roster": [{"edge_student_key": "p01", "external_ref": "ext-stu-001"}],
+    }
+    r = lc.start_session_with_context(body)
+    assert r["ok"] is True
+    assert r["status"] == "started"
+    assert r["session_id"] != auto_sid
+    assert r["context"]["lesson_occurrence_id"] == body["lesson_occurrence_id"]
+
+    ended = db_session.query(ClassSession).filter(ClassSession.session_id == auto_sid).one()
+    assert ended.status == "ended"
+
+
 def test_reopen_creates_new_session(db_session, monkeypatch, tmp_path, clean_lxp_env):
     from app.db.models import ClassSession
     from app.db.repo import ClassSessionRepository

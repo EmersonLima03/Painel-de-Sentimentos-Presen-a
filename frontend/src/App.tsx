@@ -8,6 +8,8 @@ import { SettingsView } from "./components/views/SettingsView";
 import { AdminShellView } from "./components/views/admin/AdminShellView";
 import { LxpHomologView } from "./components/views/LxpHomologView";
 import { FacialEnrollmentView } from "./components/views/FacialEnrollmentView";
+import { LoginView } from "./components/views/LoginView";
+import { RootPlatformView } from "./components/views/RootPlatformView";
 import { LoadingState, ErrorState, DegradedState } from "./components/ui/EmptyState";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useAuth } from "./cloud/AuthContext";
@@ -50,19 +52,55 @@ export function App() {
     elapsed,
   } = useDashboardData();
 
+  // --- SaaS login wall ---
+  if (auth.loading) {
+    return <LoadingState />;
+  }
+
+  if (!auth.configured) {
+    return <LoginView />;
+  }
+
+  if (!auth.email) {
+    return <LoginView />;
+  }
+
+  if (auth.profileStatus === "disabled") {
+    return (
+      <div className="login-screen">
+        <div className="login-card state-box unavailable" role="alert">
+          <h1>Conta desativada</h1>
+          <p>Sua conta foi desativada. Contate o administrador da plataforma.</p>
+          <button type="button" className="btn" onClick={() => void auth.signOut()}>
+            Sair
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const productItems: { id: Tab; label: string; badge?: number }[] = [
     { id: "live", label: "Ao vivo", badge: tracks.length || undefined },
     { id: "report", label: "Relatórios" },
     { id: "school", label: "Escola" },
     { id: "history", label: "Histórico" },
-    { id: "facialEnrollment", label: "Cadastro facial" },
+    ...(auth.canManageFacial
+      ? [{ id: "facialEnrollment" as Tab, label: "Cadastro facial" }]
+      : []),
     { id: "lxpHomolog", label: "LXP Homologação" },
     { id: "settings", label: "Configurações" },
   ];
 
-  const adminItems: { id: Tab; label: string }[] = auth.email
-    ? [{ id: "admin", label: auth.isGestor ? "Administração" : "Minhas aulas" }]
-    : [];
+  const adminItems: { id: Tab; label: string }[] = [];
+  if (auth.canOpenAdmin) {
+    adminItems.push({
+      id: "admin",
+      label: auth.isGestor || auth.isRoot || auth.isAdminRede ? "Administração" : "Minhas aulas",
+    });
+  }
+  if (auth.isRoot) {
+    adminItems.push({ id: "platform", label: "Plataforma" });
+  }
 
   const qaItems: { id: Tab; label: string }[] = QA_QUERY
     ? [
@@ -72,7 +110,13 @@ export function App() {
       ]
     : [];
 
-  const effectiveTab: Tab = tab === "overview" ? "live" : tab;
+  let effectiveTab: Tab = tab === "overview" ? "live" : tab;
+  if (effectiveTab === "facialEnrollment" && !auth.canManageFacial) {
+    effectiveTab = "live";
+  }
+  if (effectiveTab === "platform" && !auth.isRoot) {
+    effectiveTab = "live";
+  }
 
   return (
     <AppShell
@@ -82,6 +126,8 @@ export function App() {
       adminItems={adminItems}
       qaItems={qaItems}
       demoBanner={isDemo ? <div className="demo-banner">{DEMO_BANNER}</div> : null}
+      sessionEmail={auth.email}
+      onSignOut={() => void auth.signOut()}
     >
       {loading && <LoadingState />}
       {edgeDegraded && !loading && (
@@ -129,13 +175,17 @@ export function App() {
 
       {!loading && effectiveTab === "lxpHomolog" && <LxpHomologView />}
 
-      {!loading && effectiveTab === "facialEnrollment" && <FacialEnrollmentView />}
+      {!loading && effectiveTab === "facialEnrollment" && auth.canManageFacial && (
+        <FacialEnrollmentView />
+      )}
 
       {!loading && effectiveTab === "settings" && (
         <SettingsView status={status} qaEnabled={QA_QUERY} />
       )}
 
       {!loading && effectiveTab === "admin" && <AdminShellView />}
+
+      {!loading && effectiveTab === "platform" && auth.isRoot && <RootPlatformView />}
 
       {effectiveTab === "students" && QA_QUERY && (
         <section>

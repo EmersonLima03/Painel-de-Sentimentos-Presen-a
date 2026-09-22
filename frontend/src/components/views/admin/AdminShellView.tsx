@@ -1172,6 +1172,7 @@ function LessonsAdmin({ schoolId, organizationId }: { schoolId: string; organiza
   const [rooms, setRooms] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [day, setDay] = useState(localDayIso());
   const [form, setForm] = useState({
     class_group_id: "",
@@ -1235,10 +1236,64 @@ function LessonsAdmin({ schoolId, organizationId }: { schoolId: string; organiza
     }
   }
 
+  async function startLesson(occ: LessonOccurrenceRow) {
+    setBusyId(occ.id);
+    setMsg("");
+    try {
+      const roster = await fetchRosterForClassGroup(occ.class_group_id);
+      const payload = buildEdgeContextPayload(occ, (roster.data as any[]) || []);
+      await pushLessonsCacheToEdge([payload]);
+      const { ok, data } = await startLessonOnEdge(payload);
+      if (!ok) {
+        setMsg(data?.message || data?.error || "Não foi possível iniciar a aula.");
+        setBusyId(null);
+        return;
+      }
+      if (data?.reopen && data?.warning) setMsg(data.warning);
+      else setMsg(data?.message || "Aula iniciada.");
+      await updateLessonOccurrence(occ.id, { status: "in_progress" });
+      window.dispatchEvent(new Event("presenca-lesson-context"));
+      await reload();
+    } catch (e: any) {
+      setMsg(`Erro: ${e.message || e}`);
+    }
+    setBusyId(null);
+  }
+
+  async function endActive() {
+    setMsg("");
+    try {
+      const ctx = await (
+        await fetch("/api/v1/sessions/current-context", {
+          headers: { "X-API-Token": localStorage.getItem("api_token") || "" },
+        })
+      ).json();
+      const sid = ctx?.session_id || ctx?.active_session_id;
+      if (!sid) {
+        setMsg("Nenhuma sessão ativa no Edge.");
+        return;
+      }
+      const { ok, data } = await endLessonOnEdge(sid);
+      if (!ok) {
+        setMsg(data?.detail || "Falha ao encerrar.");
+        return;
+      }
+      const occId = ctx?.context?.lesson_occurrence_id;
+      if (occId) await updateLessonOccurrence(occId, { status: "completed" });
+      setMsg("Aula encerrada.");
+      window.dispatchEvent(new Event("presenca-lesson-context"));
+      await reload();
+    } catch (e: any) {
+      setMsg(`Erro: ${e.message || e}`);
+    }
+  }
+
   return (
     <div>
       <h2>Aulas planejadas</h2>
-      <p className="muted">Somente gestor cria/edita. Professor apenas inicia no painel dele.</p>
+      <p className="muted">
+        Gestor cria, envia ao Edge, inicia e encerra. Professor também inicia/encerra em Minhas aulas.
+      </p>
       <div className="admin-toolbar">
         <label>
           Dia{" "}
@@ -1247,7 +1302,11 @@ function LessonsAdmin({ schoolId, organizationId }: { schoolId: string; organiza
         <button type="button" className="btn" onClick={() => void pushCache()}>
           Enviar aulas do dia ao Edge (cache)
         </button>
+        <button type="button" className="btn" onClick={() => void endActive()}>
+          Encerrar aula ativa
+        </button>
       </div>
+      <Flash msg={msg} />
       <table className="admin-table">
         <thead>
           <tr>
@@ -1259,6 +1318,7 @@ function LessonsAdmin({ schoolId, organizationId }: { schoolId: string; organiza
             <th>Duração</th>
             <th>Lesson</th>
             <th>Status</th>
+            <th />
           </tr>
         </thead>
         <tbody>
@@ -1272,6 +1332,17 @@ function LessonsAdmin({ schoolId, organizationId }: { schoolId: string; organiza
               <td>{r.scheduled_duration_minutes} min</td>
               <td>{r.external_lesson_id || "—"}</td>
               <td>{r.status}</td>
+              <td>
+                <button
+                  type="button"
+                  className="btn primary"
+                  data-testid={`start-lesson-${r.id}`}
+                  disabled={busyId === r.id || r.status === "cancelled"}
+                  onClick={() => void startLesson(r)}
+                >
+                  {busyId === r.id ? "Iniciando…" : "Iniciar aula"}
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>

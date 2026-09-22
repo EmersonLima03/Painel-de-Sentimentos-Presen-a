@@ -11,6 +11,8 @@ type Props = {
   adminItems?: NavItem[];
   qaItems?: NavItem[];
   demoBanner?: React.ReactNode;
+  sessionEmail?: string | null;
+  onSignOut?: () => void;
   children: React.ReactNode;
 };
 
@@ -21,6 +23,8 @@ export function AppShell({
   adminItems,
   qaItems,
   demoBanner,
+  sessionEmail,
+  onSignOut,
   children,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -44,6 +48,8 @@ export function AppShell({
         qaItems={qaItems}
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
+        sessionEmail={sessionEmail}
+        onSignOut={onSignOut}
       />
       <div className="app-main">{children}</div>
     </div>

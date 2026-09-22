@@ -25,6 +25,8 @@ wheels/
 
 # Environment
 .env
+.env.*
+!.env.example
 .venv
 
 # Database
@@ -44,9 +46,11 @@ validation_dataset/**
 .venv-hsemotion/
 .venv-deepface/
 
-# Frontend build
+# Frontend / Node
+node_modules/
 frontend/node_modules/
 frontend/dist/
+dist/
 
 # IDE
 .vscode/
@@ -105,3 +109,16 @@ experiments/smoke_e2e_sentimentos/modulo2_poc/.env.*
 !experiments/smoke_e2e_sentimentos/modulo2_poc/.env.example
 experiments/smoke_e2e_sentimentos/modulo2_poc/models/**
 !experiments/smoke_e2e_sentimentos/modulo2_poc/models/.gitkeep
+
+# ---------------------------------------------------------------------------
+# Limpeza controlada 2026-09-22 — labs pesados / artefatos (nunca commit)
+# ---------------------------------------------------------------------------
+.wrangler/
+.pytest_cache/
+_archive/
+results/
+experiments/scenario_i_ai/
+experiments/ex_emotion_model_benchmark/
+experiments/tri_manual_videos/input/
+experiments/tri_live_monitor/output/
+*.tsbuildinfo

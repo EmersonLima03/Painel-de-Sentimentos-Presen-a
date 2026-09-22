@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
     if (!email || !fullName || !schoolId || !password) {
       return json({ error: "missing_fields" }, 400);
     }
-    if (role !== "professor" && role !== "monitor" && role !== "gestor") {
+    if (role !== "professor" && role !== "monitor" && role !== "gestor" && role !== "coordenador") {
       return json({ error: "invalid_role" }, 400);
     }
     if (password.length < 8) {

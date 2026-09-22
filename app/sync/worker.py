@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Optional
+from typing import Optional, Sequence
 
 from app.config import get_settings
 from app.db.init_db import close_session, get_session
@@ -12,7 +12,12 @@ from app.db.repo import EventRepository
 from app.integrations.attendance_lxp import LXP_ATTENDANCE_EVENT_TYPE, LxpAttendanceClient
 from app.logging import get_logger
 from app.sync.client import SupabaseClient
-from app.sync.outbox_contract import SYNC_WORKER_PRIORITY, SYNC_WORKER_TYPES
+from app.sync.outbox_contract import (
+    CLOUD_MVP_PRIORITY_ORDER,
+    CLOUD_MVP_SYNCABLE_TYPES,
+    LXP_SYNCABLE_TYPES,
+    SYNC_WORKER_TYPES,
+)
 
 logger = get_logger(__name__)
 
@@ -20,8 +25,8 @@ logger = get_logger(__name__)
 class SyncWorker:
     """Sincroniza tipos product → Sentimentos e lxp_attendance_event → Simulator.
 
-    Seleção: filter tipos sincronizáveis → ORDER BY prioridade/created_at → LIMIT.
-    Telemetria (climate/engagement/…) permanece pending local e não bloqueia.
+    Lanes são processadas de forma independente: falha 401 no ingest A
+    não deve impedir envio de presença ao LXP B.
     """
 
     def __init__(
@@ -38,7 +43,6 @@ class SyncWorker:
         self.retry_backoff = getattr(self.settings, "sync_retry_backoff_seconds", 5)
         self.sync_interval = getattr(self.settings, "sync_interval_seconds", 10)
         self.syncable_types = list(SYNC_WORKER_TYPES)
-        self.priority_types = list(SYNC_WORKER_PRIORITY)
 
     async def start(self) -> None:
         """Inicia worker de sincronização."""
@@ -47,6 +51,7 @@ class SyncWorker:
             "sync_worker_started",
             syncable_types=self.syncable_types,
             batch_size=self.batch_size,
+            lanes=["lxp", "product"],
         )
 
         while self.running:
@@ -71,7 +76,7 @@ class SyncWorker:
             close_session(session)
 
     async def sync_batch(self) -> None:
-        """Sincroniza um lote de eventos product + lxp."""
+        """Sincroniza um lote de eventos product + lxp (lanes isoladas)."""
         session = get_session()
         try:
             await self._sync_batch_with_session(session)
@@ -85,12 +90,34 @@ class SyncWorker:
         return await self.client.send_event(payload)
 
     async def _sync_batch_with_session(self, session) -> None:
+        # LXP primeiro e isolado — não compete com fila product (ex.: snapshots 401)
+        await self._sync_lane(
+            session,
+            event_types=LXP_SYNCABLE_TYPES,
+            prioritize_types=LXP_SYNCABLE_TYPES,
+            lane="lxp",
+        )
+        await self._sync_lane(
+            session,
+            event_types=CLOUD_MVP_SYNCABLE_TYPES,
+            prioritize_types=CLOUD_MVP_PRIORITY_ORDER,
+            lane="product",
+        )
+
+    async def _sync_lane(
+        self,
+        session,
+        *,
+        event_types: Sequence[str],
+        prioritize_types: Sequence[str],
+        lane: str,
+    ) -> None:
         event_repo = EventRepository(session)
 
         pending_events = event_repo.get_pending_events(
             limit=self.batch_size,
-            event_types=self.syncable_types,
-            prioritize_types=self.priority_types,
+            event_types=list(event_types),
+            prioritize_types=list(prioritize_types),
         )
 
         if not pending_events:
@@ -98,6 +125,7 @@ class SyncWorker:
 
         logger.info(
             "sync_batch_start",
+            lane=lane,
             count=len(pending_events),
             types=[e.event_type for e in pending_events],
         )
@@ -111,6 +139,7 @@ class SyncWorker:
                     event_repo.mark_sent(event.event_id)
                     logger.info(
                         "event_synced",
+                        lane=lane,
                         event_id=event.event_id,
                         event_type=event.event_type,
                     )
@@ -124,6 +153,7 @@ class SyncWorker:
                         event_repo.mark_failed(event.event_id, "Max retries exceeded")
                         logger.warning(
                             "event_max_retries",
+                            lane=lane,
                             event_id=event.event_id,
                             retries=current_retries,
                         )
@@ -131,6 +161,7 @@ class SyncWorker:
                         backoff_time = self.retry_backoff * (2 ** (current_retries - 1))
                         logger.debug(
                             "event_retry_backoff",
+                            lane=lane,
                             event_id=event.event_id,
                             retry=current_retries,
                             backoff=backoff_time,
@@ -138,7 +169,12 @@ class SyncWorker:
                         await asyncio.sleep(backoff_time)
 
             except Exception as e:
-                logger.error("sync_event_error", event_id=event.event_id, error=str(e))
+                logger.error(
+                    "sync_event_error",
+                    lane=lane,
+                    event_id=event.event_id,
+                    error=str(e),
+                )
                 if event.retries >= self.retry_attempts:
                     event_repo.mark_failed(event.event_id, str(e))
                 else:
@@ -146,4 +182,4 @@ class SyncWorker:
                     event.last_error = str(e)
                     session.commit()
 
-        logger.info("sync_batch_complete", count=len(pending_events))
+        logger.info("sync_batch_complete", lane=lane, count=len(pending_events))

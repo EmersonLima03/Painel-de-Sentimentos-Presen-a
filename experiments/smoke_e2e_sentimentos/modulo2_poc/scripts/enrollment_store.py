@@ -387,7 +387,7 @@ class EnrollmentStore:
                 (
                     rid,
                     campaign_id,
-                    stu.get("fixture_key") or stu.get("edge_student_key"),
+                    stu.get("edge_student_key") or stu.get("fixture_key"),
                     student_id,
                     stu["display_name"],
                     code,
@@ -514,24 +514,46 @@ class EnrollmentStore:
         if match is None:
             raise KeyError(f"aluno nao encontrado na turma: {sid}")
 
+        from enrollment_promote import looks_like_uuid, require_edge_student_key
+
+        had_explicit = bool(
+            (match.get("edge_student_key") or match.get("fixture_key") or "").strip()
+        )
+        edge_key = require_edge_student_key(match)
+        official_sid = str(match.get("student_id") or sid)
+
+        # Persist derived key on Supabase A when aluno was created without manual key.
+        if not had_explicit and official_sid and looks_like_uuid(official_sid):
+            match["edge_student_key"] = edge_key
+            match["fixture_key"] = edge_key
+            if _ops_sync is not None:
+                _ops_sync.sync_in_background(
+                    _ops_sync.persist_edge_student_key,
+                    official_sid,
+                    edge_key,
+                )
+
         if replace:
             self._mark_student_facial_local(
-                str(match.get("student_id") or sid),
-                edge_student_key=str(
-                    match.get("fixture_key")
-                    or match.get("edge_student_key")
-                    or match.get("student_id")
-                    or sid
-                ),
+                official_sid,
+                edge_student_key=edge_key,
                 status="revoked",
                 now=ts,
             )
+            try:
+                from enrollment_promote import revoke_identity_from_matcher
+
+                revoke_identity_from_matcher(
+                    edge_student_key=edge_key, call_reload=True
+                )
+            except Exception:
+                pass
 
         created = self.create_campaign(
             school_id=school_id,
             class_group_id=class_group_id,
             now=ts,
-            student_ids=[str(match.get("student_id") or match.get("fixture_key") or sid)],
+            student_ids=[official_sid if match.get("student_id") else edge_key],
         )
         claim_code = (created.get("claim_sheet") or [{}])[0].get("claim_code")
         if not claim_code:
@@ -564,14 +586,8 @@ class EnrollmentStore:
             finally:
                 conn.close()
 
-        edge_key = str(
-            match.get("fixture_key")
-            or match.get("edge_student_key")
-            or match.get("student_id")
-            or sid
-        )
         self._mark_student_facial_local(
-            str(match.get("student_id") or sid),
+            official_sid,
             edge_student_key=edge_key,
             status="in_progress",
             now=ts,
@@ -579,7 +595,7 @@ class EnrollmentStore:
         if _ops_sync is not None:
             _ops_sync.sync_in_background(
                 _ops_sync.upsert_student_facial_status,
-                student_id=str(match.get("student_id") or sid),
+                student_id=official_sid,
                 edge_student_key=edge_key,
                 status="in_progress",
                 completed_at=None,
@@ -672,10 +688,34 @@ class EnrollmentStore:
     def revoke_student_invite(
         self, *, student_id: str, campaign_id: Optional[str] = None, now: Optional[float] = None
     ) -> dict[str, Any]:
+        """Revoke invite/campaign and remove identity from active matcher."""
         ts = time.time() if now is None else now
+        edge_key = ""
         with self._lock:
             conn = self._connect()
             try:
+                row = conn.execute(
+                    """
+                    SELECT edge_student_key FROM student_facial_status
+                    WHERE student_id = ?
+                    """,
+                    (str(student_id),),
+                ).fetchone()
+                if row and row["edge_student_key"]:
+                    edge_key = str(row["edge_student_key"])
+                if not edge_key:
+                    r2 = conn.execute(
+                        """
+                        SELECT fixture_key FROM roster
+                        WHERE student_id = ? AND fixture_key IS NOT NULL
+                          AND TRIM(fixture_key) != ''
+                        ORDER BY COALESCE(completed_at, 0) DESC
+                        LIMIT 1
+                        """,
+                        (str(student_id),),
+                    ).fetchone()
+                    if r2 and r2["fixture_key"]:
+                        edge_key = str(r2["fixture_key"])
                 conn.execute("BEGIN IMMEDIATE")
                 if campaign_id:
                     conn.execute(
@@ -704,22 +744,47 @@ class EnrollmentStore:
                         )
                 conn.execute("COMMIT")
             except Exception:
-                conn.execute("ROLLBACK")
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    pass
                 raise
             finally:
                 conn.close()
+
+        matcher_revoked: dict[str, Any] = {"ok": False, "skipped": True}
+        if edge_key:
+            try:
+                from enrollment_promote import (
+                    looks_like_uuid,
+                    revoke_identity_from_matcher,
+                )
+
+                if not looks_like_uuid(edge_key):
+                    matcher_revoked = revoke_identity_from_matcher(
+                        edge_student_key=edge_key, call_reload=True
+                    )
+            except Exception as exc:  # noqa: BLE001
+                matcher_revoked = {"ok": False, "error": str(exc)}
+
         self._mark_student_facial_local(
-            str(student_id), edge_student_key="", status="revoked", now=ts
+            str(student_id), edge_student_key=edge_key, status="revoked", now=ts
         )
         if _ops_sync is not None:
             _ops_sync.sync_in_background(
                 _ops_sync.upsert_student_facial_status,
                 student_id=str(student_id),
-                edge_student_key="",
+                edge_student_key=edge_key,
                 status="revoked",
                 completed_at=None,
             )
-        return {"ok": True, "student_id": student_id, "status": "revoked"}
+        return {
+            "ok": True,
+            "student_id": student_id,
+            "status": "revoked",
+            "edge_student_key": edge_key or None,
+            "matcher": matcher_revoked,
+        }
 
     def _mark_student_facial_local(
         self,
@@ -808,32 +873,40 @@ class EnrollmentStore:
         items: list[dict[str, Any]] = []
         for stu in students:
             sid = str(stu.get("student_id") or "")
-            edge_key = str(
-                stu.get("fixture_key")
-                or stu.get("edge_student_key")
-                or sid
-                or ""
-            )
-            enrolled = False
             try:
-                from enrollment_promote import edge_student_has_embeddings
+                from enrollment_promote import require_edge_student_key
 
-                enrolled = edge_student_has_embeddings(edge_key)
-            except Exception:
-                enrolled = False
+                edge_key = require_edge_student_key(stu)
+            except ValueError:
+                # Sem chave oficial: nunca usar UUID de students.id como identidade facial.
+                edge_key = ""
+            enrolled = False
+            if edge_key:
+                try:
+                    from enrollment_promote import edge_student_has_embeddings
+
+                    enrolled = edge_student_has_embeddings(edge_key)
+                except Exception:
+                    enrolled = False
 
             local = local_status.get(sid) if sid else None
             roster_st = ops.get(sid) or ops.get(edge_key)
 
-            if enrolled or local == "enrolled":
+            # Contrato: enrolled só com template persistente ativo.
+            # failed tem prioridade sobre roster in_progress (promote pode falhar apos claim).
+            if enrolled:
                 facial = "enrolled"
+            elif local == "enrolled" and not enrolled:
+                facial = "failed"
             elif local == "revoked" and not enrolled:
                 facial = "not_enrolled"
+            elif local == "failed":
+                facial = "failed"
+            elif roster_st == ROSTER_COMPLETED and not enrolled:
+                # Capture concluida no celular, mas identidade nao promovida ao matcher
+                facial = "failed"
             elif roster_st in (ROSTER_CLAIMED, ROSTER_IN_PROGRESS) or local == "in_progress":
                 facial = "in_progress"
-            elif roster_st == ROSTER_COMPLETED and not enrolled:
-                # Completed POC but not promoted — treat as not permanently enrolled
-                facial = "not_enrolled"
             else:
                 facial = "not_enrolled"
 
@@ -1386,48 +1459,67 @@ class EnrollmentStore:
 
             _ops_sync.sync_in_background(_sync_complete)
 
-        # Promote TEMP gallery → Edge face_embeddings (official matcher path).
-        promote_result: dict[str, Any] = {"ok": False, "skipped": True}
+        # Atomic promote: TEMP → face_embeddings → confirm → reload → then enrolled.
+        promote_result: dict[str, Any] = {
+            "ok": False,
+            "product_enrolled": False,
+            "skipped": True,
+        }
+        edge_key = str(info.get("fixture_key") or "").strip()
+        official_sid = info.get("student_id")
         try:
-            from enrollment_promote import promote_completed_enrollment
-
-            edge_key = info.get("fixture_key") or ""
-            promote_result = promote_completed_enrollment(
-                campaign_id=str(info["campaign_id"]),
-                roster_student_id=str(info["roster_student_id"]),
-                edge_student_key=str(edge_key),
-                display_name=str(info.get("display_name") or edge_key),
-                replace=True,
-                call_reload=True,
+            from enrollment_promote import (
+                looks_like_uuid,
+                promote_completed_enrollment,
             )
-            official_sid = info.get("student_id")
-            if promote_result.get("ok"):
-                self._mark_student_facial_local(
-                    str(official_sid or edge_key),
-                    edge_student_key=str(edge_key),
-                    status="enrolled",
-                    now=ts,
-                    completed_at=ts,
+
+            if not edge_key or looks_like_uuid(edge_key):
+                promote_result = {
+                    "ok": False,
+                    "product_enrolled": False,
+                    "error": "missing_or_invalid_edge_student_key",
+                }
+            else:
+                promote_result = promote_completed_enrollment(
+                    campaign_id=str(info["campaign_id"]),
+                    roster_student_id=str(info["roster_student_id"]),
+                    edge_student_key=edge_key,
+                    display_name=str(info.get("display_name") or edge_key),
+                    replace=True,
+                    call_reload=True,
                 )
-            if (
-                _ops_sync is not None
-                and promote_result.get("ok")
-                and official_sid
-            ):
-                _ops_sync.sync_in_background(
-                    _ops_sync.upsert_student_facial_status,
-                    student_id=str(official_sid),
-                    edge_student_key=str(edge_key),
-                    status="enrolled",
-                    completed_at=ts,
-                )
-        except Exception as exc:  # noqa: BLE001 — enrollment complete must not fail on promote
-            promote_result = {"ok": False, "error": str(exc)}
+        except Exception as exc:  # noqa: BLE001
+            promote_result = {
+                "ok": False,
+                "product_enrolled": False,
+                "error": str(exc),
+            }
+
+        product_enrolled = bool(promote_result.get("product_enrolled"))
+        facial_status = "enrolled" if product_enrolled else "failed"
+        mark_id = str(official_sid or edge_key or info["roster_student_id"])
+        self._mark_student_facial_local(
+            mark_id,
+            edge_student_key=edge_key,
+            status=facial_status,
+            now=ts,
+            completed_at=ts if product_enrolled else None,
+        )
+        if _ops_sync is not None and official_sid:
+            _ops_sync.sync_in_background(
+                _ops_sync.upsert_student_facial_status,
+                student_id=str(official_sid),
+                edge_student_key=edge_key,
+                status=facial_status,
+                completed_at=ts if product_enrolled else None,
+            )
 
         return {
             "roster_student_id": info["roster_student_id"],
             "roster_status": ROSTER_COMPLETED,
             "session_status": SESSION_COMPLETED,
+            "facial_status": facial_status,
+            "product_enrolled": product_enrolled,
             "promote": promote_result,
         }
 

@@ -11,6 +11,7 @@ Aluno paths remain public after QR.
 """
 from __future__ import annotations
 
+import os
 import secrets
 from typing import Optional, Set
 from urllib.parse import urljoin
@@ -111,7 +112,9 @@ async def require_gestor_gate(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized — provide X-API-Token or open via Dashboard")
 
     if getattr(settings, "m2_gestor_open", False):
-        return
+        env_name = (os.environ.get("APP_ENV") or os.environ.get("ENVIRONMENT") or "").strip().lower()
+        if env_name not in ("prod", "production"):
+            return
 
     if expected:
         raise HTTPException(
@@ -167,6 +170,13 @@ async def _proxy(request: Request, upstream_path: str) -> Response:
         for k, v in upstream_resp.headers.items()
         if k.lower() not in _HOP_BY_HOP and k.lower() != "content-encoding"
     }
+    # Avoid Cloudflare/browser stale M2 UI (schools dropdown empty with old app.js).
+    path_l = (upstream_path or "").lower()
+    if path_l.startswith("/gestor") or path_l.startswith("/gestor-static"):
+        resp_headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
+        resp_headers.pop("ETag", None)
+        resp_headers.pop("etag", None)
+
     return Response(
         content=upstream_resp.content,
         status_code=upstream_resp.status_code,
@@ -248,25 +258,24 @@ async def m2_healthz(request: Request):
 async def issue_gestor_gate(request: Request):
     """Issue HttpOnly cookie after Dashboard auth so iframe /gestor works same-origin.
 
-    Body optional: { "access_token": "<supabase jwt>" }.
-    When SUPABASE_URL+ANON_KEY set, validates JWT via Auth API.
-    When API_AUTH_TOKEN set, also accepts X-API-Token.
+    Body: { "access_token": "<supabase jwt>", "school_id": "<optional uuid>" }.
+    When Supabase is configured, requires JWT of root / admin_rede / gestor / coordenador.
+    API_AUTH_TOKEN remains break-glass for ops.
+    Production: M2_GESTOR_OPEN is ignored (fail-closed).
     """
     settings = get_settings()
     secret = (getattr(settings, "m2_gestor_gate_secret", None) or "").strip()
     if not secret:
-        # Auto-derive ephemeral secret from device_token or random (process lifetime)
         secret = (settings.device_token or settings.api_auth_token or "").strip()
         if not secret:
             if not getattr(settings, "_m2_gate_ephemeral", None):
                 settings._m2_gate_ephemeral = secrets.token_urlsafe(32)  # type: ignore[attr-defined]
             secret = settings._m2_gate_ephemeral  # type: ignore[attr-defined]
-        # Persist into settings for middleware compare
         settings.m2_gestor_gate_secret = secret  # type: ignore[attr-defined]
 
     authorized = False
+    auth_mode = "none"
 
-    # API token path
     expected_api = (settings.api_auth_token or "").strip()
     if expected_api:
         from app.auth import _extract_token
@@ -278,6 +287,7 @@ async def issue_gestor_gate(request: Request):
         )
         if tok == expected_api:
             authorized = True
+            auth_mode = "api_token"
 
     body: dict = {}
     try:
@@ -286,36 +296,112 @@ async def issue_gestor_gate(request: Request):
         body = {}
 
     access_token = (body.get("access_token") or "").strip()
-    if not authorized and access_token and (settings.supabase_url or "").strip():
+    school_id = (body.get("school_id") or "").strip()
+    supabase_url = (settings.supabase_url or "").strip()
+    anon_key = (settings.supabase_anon_key or "").strip()
+
+    if not authorized and access_token and supabase_url and anon_key:
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                r = await client.get(
-                    f"{settings.supabase_url.rstrip('/')}/auth/v1/user",
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                user_r = await client.get(
+                    f"{supabase_url.rstrip('/')}/auth/v1/user",
                     headers={
                         "Authorization": f"Bearer {access_token}",
-                        "apikey": settings.supabase_anon_key or "",
+                        "apikey": anon_key,
                     },
                 )
-                if r.status_code == 200 and r.json().get("id"):
+                if user_r.status_code != 200:
+                    raise HTTPException(401, "Unauthorized")
+                user = user_r.json() or {}
+                uid = (user.get("id") or "").strip()
+                if not uid:
+                    raise HTTPException(401, "Unauthorized")
+
+                # Role check via PostgREST with caller's JWT (RLS applies).
+                headers = {
+                    "Authorization": f"Bearer {access_token}",
+                    "apikey": anon_key,
+                }
+                prof_r = await client.get(
+                    f"{supabase_url.rstrip('/')}/rest/v1/profiles"
+                    f"?id=eq.{uid}&select=is_platform_admin,status",
+                    headers=headers,
+                )
+                prof_rows = prof_r.json() if prof_r.status_code == 200 else []
+                prof = prof_rows[0] if isinstance(prof_rows, list) and prof_rows else {}
+                if (prof.get("status") or "active") == "disabled":
+                    raise HTTPException(403, "forbidden_disabled")
+
+                if prof.get("is_platform_admin") is True:
                     authorized = True
+                    auth_mode = "root"
+                else:
+                    org_r = await client.get(
+                        f"{supabase_url.rstrip('/')}/rest/v1/organization_memberships"
+                        f"?profile_id=eq.{uid}&select=role,organization_id",
+                        headers=headers,
+                    )
+                    org_rows = org_r.json() if org_r.status_code == 200 else []
+                    if any(
+                        isinstance(r, dict) and r.get("role") == "admin_rede"
+                        for r in (org_rows or [])
+                    ):
+                        authorized = True
+                        auth_mode = "admin_rede"
+                    else:
+                        mem_q = (
+                            f"{supabase_url.rstrip('/')}/rest/v1/memberships"
+                            f"?profile_id=eq.{uid}&select=role,school_id"
+                        )
+                        if school_id:
+                            mem_q += f"&school_id=eq.{school_id}"
+                        mem_r = await client.get(mem_q, headers=headers)
+                        mem_rows = mem_r.json() if mem_r.status_code == 200 else []
+                        allowed_roles = {"gestor", "coordenador"}
+                        for r in mem_rows or []:
+                            if isinstance(r, dict) and r.get("role") in allowed_roles:
+                                authorized = True
+                                auth_mode = str(r.get("role"))
+                                break
+
+                if not authorized:
+                    raise HTTPException(403, "forbidden_role")
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.warning("m2_gestor_gate_jwt_check_failed", error=str(exc))
+            raise HTTPException(401, "Unauthorized") from exc
 
-    # Lab: if neither API token nor Supabase configured, allow for local smoke
+    # Lab open only when explicitly enabled AND Supabase not in fail-closed prod mode
+    env_name = (os.environ.get("APP_ENV") or os.environ.get("ENVIRONMENT") or "").strip().lower()
+    prod_like = env_name in ("prod", "production")
     if not authorized:
-        if not expected_api and not (settings.supabase_url or "").strip():
+        if (
+            getattr(settings, "m2_gestor_open", False)
+            and not prod_like
+            and not supabase_url
+        ):
             authorized = True
+            auth_mode = "lab_open"
+        elif not expected_api and not supabase_url:
+            # Pure local smoke without cloud
+            authorized = True
+            auth_mode = "lab_no_cloud"
         else:
             raise HTTPException(401, "Unauthorized")
 
-    resp = Response(content='{"ok":true}', media_type="application/json")
+    logger.info("m2_gestor_gate_ok", mode=auth_mode, school_id=school_id or None)
+    resp = Response(content='{"ok":true,"mode":"%s"}' % auth_mode, media_type="application/json")
+    # Named Tunnel terminates TLS at Cloudflare; Edge often sees http:// — honor X-Forwarded-Proto.
+    fwd = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    cookie_secure = request.url.scheme == "https" or fwd == "https"
     resp.set_cookie(
         key=_GESTOR_COOKIE,
         value=secret,
         max_age=_GESTOR_COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
-        secure=request.url.scheme == "https",
+        secure=cookie_secure,
         path="/",
     )
     return resp

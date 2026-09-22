@@ -1,55 +1,60 @@
-import { useEffect, useState } from "react";
-import { supabase, supabaseConfigured, type MembershipRow } from "./supabaseClient";
+import { useState } from "react";
+import { useAuth } from "./AuthContext";
+import { supabase, supabaseConfigured } from "./supabaseClient";
 
-type Props = {
-  onAuthChange?: (email: string | null) => void;
-};
-
-export function CloudAuthPanel({ onAuthChange }: Props) {
+/**
+ * Compact account panel for Settings — uses AuthContext as source of truth.
+ */
+export function CloudAuthPanel() {
+  const auth = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [memberships, setMemberships] = useState<MembershipRow[]>([]);
   const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then((res: { data: { session: any } }) => {
-      const e = res.data.session?.user?.email || null;
-      setUserEmail(e);
-      onAuthChange?.(e);
-      if (res.data.session) void loadMemberships();
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_ev: string, session: any) => {
-      const e = session?.user?.email || null;
-      setUserEmail(e);
-      onAuthChange?.(e);
-      if (session) void loadMemberships();
-      else setMemberships([]);
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
+  if (!supabaseConfigured || !supabase) {
+    return (
+      <div className="state-box unavailable" role="status">
+        <strong>Cloud Auth</strong>
+        <p>Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para login Sentimentos.</p>
+      </div>
+    );
+  }
 
-  async function loadMemberships() {
-    if (!supabase) return;
-    const { data, error } = await supabase
-      .from("memberships")
-      .select("role, school_id, organization_id, schools(id, name)");
-    if (error) {
-      setErr(error.message);
-      return;
-    }
-    setMemberships((data as any) || []);
+  if (auth.email) {
+    return (
+      <div className="cloud-auth-panel">
+        <p>
+          Conectado: <strong>{auth.email}</strong>
+          {auth.isRoot ? " (ROOT)" : ""}
+          {auth.activeRole ? ` — ${auth.activeRole}` : ""}
+        </p>
+        <ul>
+          {auth.memberships.map((m) => (
+            <li key={`${m.school_id}-${m.role}`}>
+              {(m.schools as any)?.name || m.school_id} — {m.role}
+            </li>
+          ))}
+          {auth.orgMemberships.map((m) => (
+            <li key={`org-${m.organization_id}-${m.role}`}>
+              {(m.organizations as any)?.name || m.organization_id} — {m.role}
+            </li>
+          ))}
+        </ul>
+        <button type="button" className="btn" onClick={() => void auth.signOut()}>
+          Sair
+        </button>
+      </div>
+    );
   }
 
   async function login(e: React.FormEvent) {
     e.preventDefault();
-    if (!supabase) return;
     setBusy(true);
     setErr("");
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await supabase!.auth.signInWithPassword({ email, password });
       if (error) {
         setErr(
           /invalid|credencial|password|email/i.test(error.message)
@@ -64,39 +69,25 @@ export function CloudAuthPanel({ onAuthChange }: Props) {
     }
   }
 
-  async function logout() {
-    if (!supabase) return;
-    await supabase.auth.signOut();
-    setMemberships([]);
-  }
-
-  if (!supabaseConfigured) {
-    return (
-      <div className="state-box unavailable" role="status">
-        <strong>Cloud Auth</strong>
-        <p>Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para login Sentimentos.</p>
-      </div>
-    );
-  }
-
-  if (userEmail) {
-    return (
-      <div className="cloud-auth-panel">
-        <p>
-          Conectado: <strong>{userEmail}</strong>
-        </p>
-        <ul>
-          {memberships.map((m) => (
-            <li key={`${m.school_id}-${m.role}`}>
-              {(m.schools as any)?.name || m.school_id} — {m.role}
-            </li>
-          ))}
-        </ul>
-        <button type="button" className="btn" onClick={() => void logout()}>
-          Sair
-        </button>
-      </div>
-    );
+  async function forgot() {
+    if (!email) {
+      setErr("Informe o e-mail para recuperar a senha.");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    setInfo("");
+    try {
+      const { error } = await supabase!.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/dashboard`,
+      });
+      if (error) setErr(error.message);
+      else setInfo("Se o e-mail existir, enviamos um link de recuperação.");
+    } catch {
+      setErr("Falha ao solicitar recuperação.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -116,8 +107,12 @@ export function CloudAuthPanel({ onAuthChange }: Props) {
         />
       </label>
       {err && <p className="error-text">{err}</p>}
+      {info && <p className="muted">{info}</p>}
       <button type="submit" className="btn" disabled={busy}>
         {busy ? "Entrando…" : "Entrar"}
+      </button>
+      <button type="button" className="btn-link" disabled={busy} onClick={() => void forgot()}>
+        Esqueci a senha
       </button>
     </form>
   );

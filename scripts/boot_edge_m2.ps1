@@ -149,6 +149,18 @@ function Ensure-FrontendBuild {
 
     Push-Location (Join-Path $Root "frontend")
     try {
+        # Inject Vite Supabase keys from process env / .env.smoke.local so Cloud Auth works.
+        $viteUrl = $env:VITE_SUPABASE_URL
+        $viteAnon = $env:VITE_SUPABASE_ANON_KEY
+        if (-not $viteUrl) { $viteUrl = $env:SUPABASE_URL }
+        if (-not $viteAnon) { $viteAnon = $env:SUPABASE_ANON_KEY }
+        if ($viteUrl) { $env:VITE_SUPABASE_URL = $viteUrl }
+        if ($viteAnon) { $env:VITE_SUPABASE_ANON_KEY = $viteAnon }
+        if ($env:VITE_SUPABASE_URL -and $env:VITE_SUPABASE_ANON_KEY) {
+            Write-Host "Vite Supabase env: configured for build" -ForegroundColor DarkGray
+        } else {
+            Write-Host "WARN: VITE_SUPABASE_* ausente - login cloud nao funcionara no dist" -ForegroundColor Yellow
+        }
         if (-not (Test-Path "node_modules")) {
             Write-Host "npm install..." -ForegroundColor DarkGray
             npm install
@@ -265,6 +277,8 @@ function Assert-M2Health([string]$Base) {
 # ----------------- main -----------------
 Import-DotEnv (Join-Path $Root ".env")
 Import-DotEnv (Join-Path (Split-Path $Root) "Presenca\.env")
+Import-DotEnv (Join-Path (Split-Path $Root) "Presenca\.env.smoke.local")
+Import-DotEnv (Join-Path $Root ".env.smoke.local")
 
 Write-Step "=== Boot Edge + M2 (Presenca / producao) ===" "Cyan"
 Write-Host "Root: $Root"
@@ -296,6 +310,11 @@ Write-Host "M2_PUBLIC_BASE_URL=$($env:M2_PUBLIC_BASE_URL)" -ForegroundColor Gree
 
 $env:M2_UPSTREAM_URL = if ($env:M2_UPSTREAM_URL) { $env:M2_UPSTREAM_URL } else { "http://127.0.0.1:$M2Port" }
 $env:M2_POC_TEST_HOOKS = "0"
+# M2 WorkingDirectory is modulo2_poc — relative ./data/dulino_edge.db would miss Edge schema.
+# Force absolute SQLITE_PATH so promote writes face_embeddings into the same DB as Edge/matcher.
+$sqliteAbs = Join-Path $Root "data\dulino_edge.db"
+$env:SQLITE_PATH = $sqliteAbs
+Write-Host "SQLITE_PATH=$sqliteAbs (shared Edge+M2)" -ForegroundColor Green
 Write-Host "M2_POC_TEST_HOOKS: 0 (operational)" -ForegroundColor DarkGray
 Write-Host "Tunnel esperado: Cloudflare -> http://127.0.0.1:$EdgePort (nunca :$M2Port)" -ForegroundColor DarkGray
 

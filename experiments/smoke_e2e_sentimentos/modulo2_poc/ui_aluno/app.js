@@ -274,6 +274,16 @@
 
   function finishDone(cap) {
     stopCamera();
+    // Capture pode concluir no celular e o promote no Edge falhar — nao mentir "sucesso".
+    if (cap && cap.product_enrolled === false) {
+      $("blockedTitle").textContent = "Cadastro incompleto";
+      $("blockedMsg").textContent =
+        cap.status_human ||
+        cap.promote_error ||
+        "A captura terminou, mas a identidade nao foi gravada. Peca um novo convite ao gestor.";
+      show("blocked");
+      return;
+    }
     $("doneMeta").textContent = `${state.displayName || (cap && cap.display_name) || ""} · ${state.classLabel || ""}`;
     show("done");
   }

@@ -11,6 +11,7 @@ export type Tab =
   | "settings"
   | "admin"
   | "lxpHomolog"
-  | "facialEnrollment";
+  | "facialEnrollment"
+  | "platform";
 
 export type WsState = "connecting" | "connected" | "disconnected";
