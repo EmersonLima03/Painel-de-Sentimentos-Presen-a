@@ -10,6 +10,29 @@ PC Edge
 Cloudflare Named Tunnel → http://127.0.0.1:8000 somente
 ```
 
+## Named Tunnel (HTTPS estável)
+
+| Campo | Valor |
+|-------|-------|
+| Tunnel | `presenca-edge` (`cf4c5452-a01c-4d32-a9ee-f6afae5c4f87`) |
+| Hostname | `https://presenca.sistemadulino.com.br` |
+| Origem | `http://127.0.0.1:8000` **somente** (nunca `:8766`) |
+| Config local | `%USERPROFILE%\.cloudflared\config.yml` |
+
+Subir o tunnel (manter Edge+M2 já no ar):
+
+```powershell
+cloudflared tunnel --config "$env:USERPROFILE\.cloudflared\config.yml" --no-autoupdate run presenca-edge
+```
+
+Boot Edge+M2 com base pública:
+
+```powershell
+.\scripts\boot_edge_m2.ps1 -PublicBaseUrl "https://presenca.sistemadulino.com.br"
+```
+
+`M2_PUBLIC_BASE_URL` deve ser esse hostname (QR/share_link). Secrets ficam só no `.env` local (gitignored).
+
 ## Paths proxy (sem catch-all)
 
 | Path | Destino | Auth |
@@ -19,7 +42,22 @@ Cloudflare Named Tunnel → http://127.0.0.1:8000 somente
 | `/a/*`, `/aluno-static/*`, `/api/aluno/*` | :8766 | público (QR) |
 | `/m2/healthz` | :8766/healthz | público |
 
-## Dados oficiais (Supabase A)
+## Modelo YuNet (obrigatório no Edge)
+
+O ONNX está no `.gitignore` (`*.onnx`) e **não** vem no worktree git.
+
+Copiar uma vez a partir do checkout que já tenha o arquivo:
+
+```powershell
+New-Item -ItemType Directory -Force -Path data\opencv_models | Out-Null
+Copy-Item "..\Presenca\data\opencv_models\face_detection_yunet_2023mar.onnx" `
+  "data\opencv_models\face_detection_yunet_2023mar.onnx"
+```
+
+Sem esse arquivo, `/api/aluno/session/frame` responde 200 com `ui_code=adjust` e a mensagem
+"Não foi possível analisar a imagem…" (FileNotFoundError do YuNet).
+
+`GET /m2/healthz` → `yunet_model_present: true|false`
 
 Fonte de escolas: `public.schools`  
 Fonte de turmas: `public.class_groups`  

@@ -395,22 +395,22 @@ class EnrollmentStore:
                 conn.close()
 
         if _ops_sync is not None:
+            # Sequential: campaign parent before roster children (avoids FK 409 race).
             _ops_sync.sync_in_background(
-                _ops_sync.upsert_campaign,
-                campaign_id=campaign_id,
-                school_id=school["id"],
-                school_name=school["name"],
-                class_group_id=class_group["id"],
-                class_label=class_group["label"],
-                campaign_token_hash=token_hash,
-                status=CAMPAIGN_ACTIVE,
-                expires_at=expires_at,
-                created_at=ts,
-                organization_id=school.get("organization_id"),
-            )
-            _ops_sync.sync_in_background(
-                _ops_sync.upsert_roster_rows,
-                [
+                _ops_sync.sync_create_campaign_and_roster,
+                campaign_kwargs={
+                    "campaign_id": campaign_id,
+                    "school_id": school["id"],
+                    "school_name": school["name"],
+                    "class_group_id": class_group["id"],
+                    "class_label": class_group["label"],
+                    "campaign_token_hash": token_hash,
+                    "status": CAMPAIGN_ACTIVE,
+                    "expires_at": expires_at,
+                    "created_at": ts,
+                    "organization_id": school.get("organization_id"),
+                },
+                roster_rows=[
                     {
                         "id": r[0],
                         "campaign_id": r[1],
@@ -679,25 +679,18 @@ class EnrollmentStore:
                 conn.close()
 
         if _ops_sync is not None:
-            roster_id = row["id"]
-            camp_id = camp["id"]
+            # Sequential: roster patch before session upsert (FK child).
             _ops_sync.sync_in_background(
-                _ops_sync.patch_roster,
-                roster_id,
-                status=ROSTER_CLAIMED,
+                _ops_sync.sync_claim,
+                roster_id=row["id"],
                 session_id=session_id,
-                claimed_at=ts,
-            )
-            _ops_sync.sync_in_background(
-                _ops_sync.upsert_session,
-                session_id=session_id,
-                campaign_id=camp_id,
-                roster_id=roster_id,
+                campaign_id=camp["id"],
                 token_hash=token_hash_val,
-                status=SESSION_CREATED,
+                claimed_at=ts,
                 expires_at=session_exp,
                 created_at=ts,
-                consent_ok=False,
+                roster_status=ROSTER_CLAIMED,
+                session_status=SESSION_CREATED,
             )
 
         return ClaimSuccess(
@@ -902,16 +895,14 @@ class EnrollmentStore:
             finally:
                 conn.close()
         if _ops_sync is not None:
-            _ops_sync.sync_in_background(
-                _ops_sync.patch_roster,
-                info["roster_student_id"],
-                status=ROSTER_IN_PROGRESS,
-            )
-            _ops_sync.sync_in_background(
-                _ops_sync.patch_session,
-                info["session_id"],
-                status=SESSION_CAPTURE,
-            )
+
+            def _sync_in_progress() -> None:
+                _ops_sync.patch_roster(
+                    info["roster_student_id"], status=ROSTER_IN_PROGRESS
+                )
+                _ops_sync.patch_session(info["session_id"], status=SESSION_CAPTURE)
+
+            _ops_sync.sync_in_background(_sync_in_progress)
         return self.validate_session_token(session_token, now=ts)
 
     def complete_enrollment(
@@ -952,17 +943,18 @@ class EnrollmentStore:
             finally:
                 conn.close()
         if _ops_sync is not None:
-            _ops_sync.sync_in_background(
-                _ops_sync.patch_roster,
-                info["roster_student_id"],
-                status=ROSTER_COMPLETED,
-                completed_at=ts,
-            )
-            _ops_sync.sync_in_background(
-                _ops_sync.patch_session,
-                info["session_id"],
-                status=SESSION_COMPLETED,
-            )
+
+            def _sync_complete() -> None:
+                _ops_sync.patch_roster(
+                    info["roster_student_id"],
+                    status=ROSTER_COMPLETED,
+                    completed_at=ts,
+                )
+                _ops_sync.patch_session(
+                    info["session_id"], status=SESSION_COMPLETED
+                )
+
+            _ops_sync.sync_in_background(_sync_complete)
         return {
             "roster_student_id": info["roster_student_id"],
             "roster_status": ROSTER_COMPLETED,

@@ -62,6 +62,11 @@ if ($PublicBaseUrl) {
 
 $env:M2_UPSTREAM_URL = if ($env:M2_UPSTREAM_URL) { $env:M2_UPSTREAM_URL } else { "http://127.0.0.1:8766" }
 
+# Operational boot: test hooks ALWAYS off (force-step / synthetic embeddings).
+# Automated F3/F4 harnesses set M2_POC_TEST_HOOKS=1 themselves when starting pytest.
+$env:M2_POC_TEST_HOOKS = "0"
+Write-Host "M2_POC_TEST_HOOKS: 0 (operational)" -ForegroundColor DarkGray
+
 $m2Proc = $null
 if (-not $SkipM2) {
     $m2Dir = Join-Path $Root "experiments\smoke_e2e_sentimentos\modulo2_poc"

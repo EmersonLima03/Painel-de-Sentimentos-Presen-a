@@ -260,6 +260,14 @@ def process_frame_bgr(cs: CaptureSession, frame: np.ndarray) -> dict[str, Any]:
         h, w = frame.shape[:2]
         try:
             faces = detect_faces_yunet(frame, score_th=0.72)
+        except FileNotFoundError:
+            cs.ui_code = "adjust"
+            cs.status_human = (
+                "Modelo de detecção facial ausente neste Edge. "
+                "Copie face_detection_yunet_2023mar.onnx para data/opencv_models/."
+            )
+            cs.stable = 0
+            return cs.ui_safe()
         except Exception:
             cs.ui_code = "adjust"
             cs.status_human = "Não foi possível analisar a imagem. Tente de novo."
