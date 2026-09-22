@@ -2,8 +2,8 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Cadastro facial — Painel do gestor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Cadastro facial</title>
   <link rel="stylesheet" href="/gestor-static/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -13,11 +13,11 @@
   <div class="page">
     <header class="top">
       <div>
-        <p class="eyebrow">Módulo 2 · Enrollment Escalável</p>
-        <h1>Painel do gestor</h1>
-        <p class="sub">Campanha de cadastro facial por turma — galeria temporária do POC</p>
+        <p class="eyebrow">Presença</p>
+        <h1>Cadastro facial</h1>
+        <p class="sub">Crie uma campanha de cadastro facial para uma turma.</p>
       </div>
-      <div class="badge-temp">POC isolado · sem banco de produção</div>
+      <div class="badge-source" id="sourceBadge" data-testid="source-badge">—</div>
     </header>
 
     <section class="card setup-card" id="setupSection">
@@ -31,16 +31,24 @@
           <select id="classSelect" data-testid="class-select"></select>
         </label>
         <div class="setup-meta">
-          <p class="meta-label">Alunos na turma</p>
+          <p class="meta-label">Quantidade</p>
           <p class="meta-value" id="studentCount" data-testid="student-count">—</p>
         </div>
         <div class="setup-actions">
-          <button type="button" class="btn primary" id="btnStartCampaign" data-testid="btn-start-campaign">
+          <button type="button" class="btn primary" id="btnStartCampaign" data-testid="btn-start-campaign" disabled>
             Iniciar campanha
           </button>
         </div>
       </div>
-      <p class="hint" id="setupHint">Selecione a escola e a turma para gerar o QR compartilhado.</p>
+      <p class="hint" id="setupHint">Selecione a escola e a turma com alunos ativos.</p>
+
+      <div class="preview-block" id="previewBlock">
+        <div class="roster-head">
+          <h3>Alunos da turma</h3>
+          <p class="hint tight">Status inicial: Pendente — confira a lista antes de iniciar.</p>
+        </div>
+        <ul class="roster-list" id="previewList" data-testid="preview-list"></ul>
+      </div>
     </section>
 
     <section class="campaign-panel hidden" id="campaignPanel" data-testid="campaign-panel">
@@ -49,7 +57,7 @@
           <p class="eyebrow">Campanha ativa</p>
           <h2 id="campaignTitle" data-testid="campaign-title">Cadastro facial</h2>
           <p class="progress-summary" data-testid="progress-summary">
-            <span id="progressNumbers">0 de 0</span> alunos cadastrados
+            <span id="progressNumbers">0 / 0</span> concluídos
           </p>
           <div class="progress-track" aria-hidden="true">
             <div class="progress-fill" id="progressFill" data-testid="progress-fill"></div>
@@ -60,11 +68,11 @@
           </p>
         </div>
         <div class="hero-qr">
-          <p class="qr-caption">Compartilhe este QR Code com os alunos</p>
+          <p class="qr-caption">QR compartilhado da turma</p>
           <div class="qr-frame">
             <img id="qrImage" data-testid="qr-image" alt="QR Code da campanha" />
           </div>
-          <p class="qr-help">Aponte a câmera do celular para acessar o cadastro.</p>
+          <p class="qr-help">O QR contém só o token da campanha — sem nomes nem códigos.</p>
           <div class="link-row">
             <input id="shareLink" data-testid="share-link" type="text" readonly />
             <button type="button" class="btn primary" id="btnCopyLink" data-testid="btn-copy-link">
@@ -80,16 +88,16 @@
 
       <div class="card">
         <div class="roster-head">
-          <h3>Alunos da turma</h3>
-          <p class="hint tight">Identidade no celular via código pessoal — sem escolha livre de nome.</p>
+          <h3>Progresso dos alunos</h3>
+          <p class="hint tight">Pendente · Em andamento · Concluído</p>
         </div>
         <ul class="roster-list" id="rosterList" data-testid="roster-list"></ul>
       </div>
 
       <div class="card codes-card" id="codesCard">
         <div class="roster-head">
-          <h3>Códigos para entregar</h3>
-          <p class="hint tight">Somente o gestor vê estes códigos. Não vão no QR.</p>
+          <h3>Códigos individuais (só gestor)</h3>
+          <p class="hint tight">Entregue um código a cada aluno. Não vão no QR.</p>
         </div>
         <ul class="code-list" id="codeList" data-testid="code-list"></ul>
       </div>

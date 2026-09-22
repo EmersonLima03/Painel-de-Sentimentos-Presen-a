@@ -37,8 +37,9 @@ def client(tmp_path: Path):
 def test_gestor_page_loads(client: TestClient):
     r = client.get("/gestor/")
     assert r.status_code == 200
-    assert "Painel do gestor" in r.text
+    assert "Cadastro facial" in r.text
     assert "school-select" in r.text
+    assert "POC isolado" not in r.text
 
 
 def test_schools_fixture_exposed(client: TestClient):

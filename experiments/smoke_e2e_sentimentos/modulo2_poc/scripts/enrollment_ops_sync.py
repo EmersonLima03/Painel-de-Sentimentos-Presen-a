@@ -34,6 +34,15 @@ def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
+def reset_config_for_tests() -> None:
+    """Clear cached configure() state (unit tests only)."""
+    global _ENABLED, _BASE, _KEY
+    with _lock:
+        _ENABLED = None
+        _BASE = ""
+        _KEY = ""
+
+
 def _configure() -> bool:
     global _ENABLED, _BASE, _KEY
     with _lock:
@@ -51,12 +60,15 @@ def _configure() -> bool:
             _ENABLED = False
             _BASE = ""
             _KEY = ""
-            logger.info("m2_ops_sync_disabled missing_url_or_service_key")
+            logger.warning(
+                "m2_ops_sync_DISABLED reason=missing_url_or_service_key "
+                "(SQLite local continua; configure SUPABASE_SERVICE_ROLE_KEY para dual-write)"
+            )
             return False
         _BASE = base
         _KEY = key
         _ENABLED = True
-        logger.info("m2_ops_sync_enabled base=%s", base)
+        logger.info("m2_ops_sync_ENABLED base=%s", base)
         return True
 
 
@@ -73,9 +85,10 @@ def _headers() -> dict[str, str]:
     }
 
 
-def _request(method: str, path: str, *, json_body: Any = None, params: str = "") -> None:
+def _request(method: str, path: str, *, json_body: Any = None, params: str = "") -> bool:
+    """Returns True on HTTP success. Never raises to caller of sync_*."""
     if not _configure():
-        return
+        return False
     try:
         import urllib.error
         import urllib.request
@@ -89,9 +102,13 @@ def _request(method: str, path: str, *, json_body: Any = None, params: str = "")
             data = _json.dumps(json_body).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         with urllib.request.urlopen(req, timeout=8) as resp:
+            code = getattr(resp, "status", 200)
             _ = resp.read()
+        logger.info("m2_ops_sync_OK method=%s path=%s status=%s", method, path, code)
+        return True
     except Exception as exc:  # noqa: BLE001 — never break enrollment on sync failure
-        logger.warning("m2_ops_sync_failed method=%s path=%s err=%s", method, path, exc)
+        logger.error("m2_ops_sync_FAIL method=%s path=%s err=%s", method, path, exc)
+        return False
 
 
 def upsert_campaign(

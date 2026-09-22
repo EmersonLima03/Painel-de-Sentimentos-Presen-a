@@ -16,6 +16,8 @@
     studentCount: document.getElementById("studentCount"),
     btnStart: document.getElementById("btnStartCampaign"),
     setupHint: document.getElementById("setupHint"),
+    previewList: document.getElementById("previewList"),
+    sourceBadge: document.getElementById("sourceBadge"),
     campaignPanel: document.getElementById("campaignPanel"),
     campaignTitle: document.getElementById("campaignTitle"),
     progressNumbers: document.getElementById("progressNumbers"),
@@ -36,13 +38,15 @@
   let claimSheet = [];
 
   async function api(path, opts = {}) {
-    const res = await fetch(path, {
-      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-      ...opts,
-    });
+    const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+    const res = await fetch(path, { ...opts, headers, credentials: "same-origin" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+      throw new Error(
+        (typeof data.detail === "string" ? data.detail : null) ||
+          data.error ||
+          `HTTP ${res.status}`
+      );
     }
     return data;
   }
@@ -55,25 +59,58 @@
 
   function fillSchools(data) {
     schools = data.schools || [];
-    els.schoolSelect.innerHTML = schools
-      .map((s) => `<option value="${s.id}">${s.name}</option>`)
-      .join("");
+    const src = data.roster_source || "—";
+    if (els.sourceBadge) {
+      els.sourceBadge.textContent =
+        src === "supabase"
+          ? "Dados oficiais (Supabase A)"
+          : src === "fixtures"
+            ? "Fixtures (lab/teste)"
+            : src;
+      els.sourceBadge.className = "badge-source " + (src === "supabase" ? "ok" : "lab");
+    }
+    els.schoolSelect.innerHTML =
+      `<option value="">Selecione a escola</option>` +
+      schools.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
     fillClasses();
   }
 
   function fillClasses() {
     const school = schools.find((s) => s.id === els.schoolSelect.value);
     const groups = school ? school.class_groups : [];
-    els.classSelect.innerHTML = groups
-      .map((c) => `<option value="${c.id}">${c.label}</option>`)
-      .join("");
-    updateCount();
+    els.classSelect.innerHTML =
+      `<option value="">Selecione a turma</option>` +
+      groups.map((c) => `<option value="${c.id}">${c.label}</option>`).join("");
+    updatePreview();
   }
 
-  function updateCount() {
+  function updatePreview() {
     const cg = currentClass();
-    const n = cg ? cg.student_count : 0;
-    els.studentCount.textContent = String(n);
+    const students = cg ? cg.students || [] : [];
+    const n = students.length;
+    els.studentCount.textContent = n ? `${n} aluno${n === 1 ? "" : "s"}` : "—";
+    els.btnStart.disabled = !cg || n === 0 || !!campaignId;
+    if (!cg) {
+      els.previewList.innerHTML =
+        `<li class="roster-item muted-row"><span class="roster-name">Selecione uma turma</span></li>`;
+      return;
+    }
+    if (n === 0) {
+      els.previewList.innerHTML =
+        `<li class="roster-item muted-row"><span class="roster-name">Turma sem alunos ativos</span></li>`;
+      els.setupHint.textContent = "Não é possível iniciar campanha vazia.";
+      return;
+    }
+    els.setupHint.textContent = "Confira os alunos e inicie a campanha.";
+    els.previewList.innerHTML = students
+      .map(
+        (st) => `
+      <li class="roster-item" data-status="pending">
+        <span class="roster-name">${st.display_name}</span>
+        <span class="badge-status pending">Pendente</span>
+      </li>`
+      )
+      .join("");
   }
 
   function statusLabel(raw) {
@@ -109,9 +146,11 @@
     const total = prog.total || 0;
     const done = prog.completed || 0;
     const pct = total ? (100 * done) / total : 0;
-    els.progressNumbers.textContent = `${done} de ${total}`;
+    els.progressNumbers.textContent = `${done} / ${total}`;
     els.progressFill.style.width = `${pct}%`;
-    els.campaignTitle.textContent = `Cadastro facial — ${prog.class_label || ""}`;
+    els.campaignTitle.textContent = prog.class_label
+      ? `Cadastro facial — ${prog.class_label}`
+      : "Cadastro facial";
     els.campaignStatus.textContent = statusLabel(prog.status);
     els.campaignStatus.className = `pill ${prog.status}`;
     const eyebrow = document.querySelector(".hero-copy .eyebrow");
@@ -124,7 +163,8 @@
     renderRoster(prog.items);
     const active = prog.status === "active";
     els.btnRevoke.disabled = !active;
-    els.btnStart.disabled = active;
+    const cg = currentClass();
+    els.btnStart.disabled = active || !cg || !(cg.students || []).length;
   }
 
   function showCampaign(payload) {
@@ -138,11 +178,13 @@
       completed: payload.completed ?? 0,
       class_label: payload.class_label,
       status: payload.status,
-      items: payload.items || (payload.claim_sheet || []).map((r) => ({
-        display_name: r.display_name,
-        claim_code: r.claim_code,
-        status: "pending",
-      })),
+      items:
+        payload.items ||
+        (payload.claim_sheet || []).map((r) => ({
+          display_name: r.display_name,
+          claim_code: r.claim_code,
+          status: "pending",
+        })),
     });
     startPolling();
   }
@@ -166,6 +208,11 @@
   }
 
   async function startCampaign() {
+    const cg = currentClass();
+    if (!cg || !(cg.students || []).length) {
+      els.setupHint.textContent = "Selecione uma turma com alunos.";
+      return;
+    }
     els.btnStart.disabled = true;
     els.setupHint.textContent = "Criando campanha…";
     try {
@@ -206,7 +253,7 @@
   }
 
   els.schoolSelect.addEventListener("change", fillClasses);
-  els.classSelect.addEventListener("change", updateCount);
+  els.classSelect.addEventListener("change", updatePreview);
   els.btnStart.addEventListener("click", startCampaign);
   els.btnRevoke.addEventListener("click", revokeCampaign);
   els.btnCopy.addEventListener("click", copyLink);

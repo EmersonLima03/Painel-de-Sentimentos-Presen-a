@@ -44,6 +44,38 @@ from enrollment_pipeline import (  # noqa: E402
 
 import os  # noqa: E402
 
+try:
+    import enrollment_ops_sync as _ops_sync_mod  # noqa: E402
+except ImportError:  # pragma: no cover
+    _ops_sync_mod = None  # type: ignore
+
+
+def _load_dotenv_files() -> None:
+    """Load backend .env without printing values. Never used by frontend."""
+    candidates = [
+        ROOT / ".env",
+        ROOT.parents[2] / ".env",  # _integrate_m2_ux or repo root depending on layout
+        ROOT.parents[2].parent / "Presenca" / ".env",
+        Path.cwd() / ".env",
+    ]
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k, v = k.strip(), v.strip().strip('"').strip("'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+        except OSError:
+            continue
+
+
+_load_dotenv_files()
+
 TEST_HOOKS = os.environ.get("M2_POC_TEST_HOOKS", "").strip() in ("1", "true", "yes")
 # URL pública HTTPS (ex.: https://enrollment.exemplo.com/) — obrigatória atrás de proxy/Cloudflare.
 # Sem este valor, share_link/QR usam request.base_url (ok em lab local).
@@ -100,12 +132,22 @@ def build_app(store: EnrollmentStore) -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict[str, Any]:
         """Healthcheck de produção — sem dados sensíveis."""
+        roster_mode = "unknown"
+        try:
+            roster_mode = store.roster_source_mode()
+        except Exception:
+            roster_mode = "error"
+        ops_ok = False
+        if _ops_sync_mod is not None:
+            ops_ok = bool(_ops_sync_mod.configured())
         return {
             "ok": True,
             "service": "m2-enrollment",
             "camera": True,
             "test_hooks": TEST_HOOKS,
             "public_base_configured": bool(PUBLIC_BASE_URL),
+            "roster_source": roster_mode,
+            "ops_sync_configured": ops_ok,
         }
 
     # ------------------------------------------------------------------ gestor
@@ -133,7 +175,11 @@ def build_app(store: EnrollmentStore) -> FastAPI:
                             "shift": cg.get("shift"),
                             "student_count": len(cg.get("students", [])),
                             "students": [
-                                {"display_name": st["display_name"]}
+                                {
+                                    "display_name": st["display_name"],
+                                    "student_id": st.get("student_id"),
+                                    "status": "pending",
+                                }
                                 for st in cg.get("students", [])
                             ],
                         }
@@ -141,7 +187,10 @@ def build_app(store: EnrollmentStore) -> FastAPI:
                     ],
                 }
             )
-        return {"schools": safe}
+        return {
+            "schools": safe,
+            "roster_source": store.roster_source_mode(),
+        }
 
     @app.post("/api/gestor/campaigns")
     def api_create_campaign(body: dict[str, Any], request: Request) -> dict[str, Any]:
@@ -155,6 +204,8 @@ def build_app(store: EnrollmentStore) -> FastAPI:
             )
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
         base = _public_base(request)
         link = urljoin(base, created["qr_path"].lstrip("/"))
@@ -170,6 +221,7 @@ def build_app(store: EnrollmentStore) -> FastAPI:
             "expires_at": created["expires_at"],
             "roster_count": created["roster_count"],
             "claim_sheet": created["claim_sheet"],
+            "roster_source": created.get("roster_source"),
         }
 
     @app.get("/api/gestor/campaigns/{campaign_id}")

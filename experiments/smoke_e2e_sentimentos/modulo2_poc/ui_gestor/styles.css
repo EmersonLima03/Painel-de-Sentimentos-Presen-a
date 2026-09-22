@@ -77,6 +77,26 @@ h3 {
   font-weight: 600;
   white-space: nowrap;
 }
+.badge-source {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-source.ok {
+  border-color: rgba(74, 222, 128, 0.4);
+  color: #4ade80;
+}
+.badge-source.lab {
+  border-color: rgba(240, 180, 41, 0.4);
+  color: var(--warn);
+}
+.preview-block { margin-top: 18px; }
+.muted-row .roster-name { color: var(--muted); }
 
 .card {
   background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%), var(--panel);
@@ -297,6 +317,12 @@ h3 {
   .setup-grid, .hero-campaign {
     grid-template-columns: 1fr;
   }
+  .top { flex-direction: column; }
+  .page { padding: 16px 12px 40px; overflow-x: hidden; }
+  .link-row { flex-direction: column; }
+  .link-row input { width: 100%; max-width: 100%; }
+  .btn { width: 100%; }
+}
   .top { flex-direction: column; }
   .link-row { flex-direction: column; }
 }

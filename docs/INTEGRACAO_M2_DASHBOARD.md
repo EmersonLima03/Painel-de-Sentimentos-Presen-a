@@ -19,7 +19,21 @@ Cloudflare Named Tunnel → http://127.0.0.1:8000 somente
 | `/a/*`, `/aluno-static/*`, `/api/aluno/*` | :8766 | público (QR) |
 | `/m2/healthz` | :8766/healthz | público |
 
-## Variáveis
+## Dados oficiais (Supabase A)
+
+Fonte de escolas: `public.schools`  
+Fonte de turmas: `public.class_groups`  
+Fonte de alunos: `public.students` via `public.enrollments` (status=`active`)  
+ID oficial do aluno: `students.id` (uuid) — gravado em `facial_enrollment_roster.student_id`  
+Autenticação gestor: Supabase Auth + `memberships` (Dashboard); M2 gestor via cookie gate no Edge  
+
+`M2_ROSTER_SOURCE=auto` (default): usa Supabase A se `SUPABASE_URL` + `SERVICE_ROLE` existirem; senão fixtures (só testes/lab).
+
+Smoke dados reais:
+
+```powershell
+python experiments\smoke_e2e_sentimentos\modulo2_poc\scripts\smoke_real_roster_supabase_a.py
+```
 
 ```env
 # Edge

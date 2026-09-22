@@ -92,8 +92,8 @@ export function FacialEnrollmentView() {
       <header className="facial-enrollment-head">
         <h1>Cadastro facial</h1>
         <p className="muted">
-          Campanhas, QR e progresso — mesmo host do Dashboard. Templates biométricos ficam TEMP/local
-          nesta etapa.
+          Campanhas com escolas e turmas oficiais (Supabase A). QR e progresso no mesmo host do
+          Dashboard. Templates biométricos permanecem TEMP/local nesta etapa.
         </p>
       </header>
       <iframe

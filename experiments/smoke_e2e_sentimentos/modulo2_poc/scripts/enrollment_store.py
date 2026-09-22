@@ -29,6 +29,11 @@ try:
 except ImportError:  # pragma: no cover
     _ops_sync = None  # type: ignore
 
+try:
+    import enrollment_roster_source as _roster_src
+except ImportError:  # pragma: no cover
+    _roster_src = None  # type: ignore
+
 # --- Public constants -------------------------------------------------------
 
 ROSTER_PENDING = "pending"
@@ -164,6 +169,7 @@ class EnrollmentStore:
                       id TEXT PRIMARY KEY,
                       campaign_id TEXT NOT NULL,
                       fixture_key TEXT,
+                      student_id TEXT,
                       display_name TEXT NOT NULL,
                       claim_code TEXT NOT NULL,
                       status TEXT NOT NULL,
@@ -233,6 +239,7 @@ class EnrollmentStore:
                           id TEXT PRIMARY KEY,
                           campaign_id TEXT NOT NULL,
                           fixture_key TEXT,
+                          student_id TEXT,
                           display_name TEXT NOT NULL,
                           claim_code TEXT NOT NULL,
                           status TEXT NOT NULL,
@@ -262,6 +269,12 @@ class EnrollmentStore:
                         );
                         """
                     )
+                roster_cols = {
+                    r[1]
+                    for r in conn.execute("PRAGMA table_info(roster)").fetchall()
+                }
+                if roster_cols and "student_id" not in roster_cols:
+                    conn.execute("ALTER TABLE roster ADD COLUMN student_id TEXT")
             finally:
                 conn.close()
 
@@ -272,11 +285,26 @@ class EnrollmentStore:
             return json.load(fh)
 
     def list_schools(self) -> list[dict[str, Any]]:
+        if _roster_src is not None:
+            _mode, schools = _roster_src.list_schools(self.fixtures_path)
+            self._last_roster_mode = _mode
+            return schools
+        # Legacy fallback
         data = self.load_fixtures()
         return [
             {"id": s["id"], "name": s["name"], "class_groups": s["class_groups"]}
             for s in data["schools"]
         ]
+
+    def roster_source_mode(self) -> str:
+        if getattr(self, "_last_roster_mode", None):
+            return self._last_roster_mode
+        if _roster_src is not None:
+            try:
+                return _roster_src.resolve_mode()
+            except Exception:
+                return "fixtures"
+        return "fixtures"
 
     # -- campaign ------------------------------------------------------------
 
@@ -293,12 +321,15 @@ class EnrollmentStore:
         ttl = self.campaign_ttl_sec if campaign_ttl_sec is None else float(campaign_ttl_sec)
 
         school, class_group = self._resolve_fixture(school_id, class_group_id)
+        students = class_group.get("students") or []
+        if not students:
+            raise ValueError("turma sem alunos ativos — não é possível iniciar campanha vazia")
+
         campaign_id = str(uuid.uuid4())
         campaign_token = generate_campaign_token()
         token_hash = hash_token(campaign_token)
         expires_at = ts + ttl
 
-        students = class_group["students"]
         codes: set[str] = set()
         roster_rows: list[tuple] = []
         claim_sheet: list[dict[str, str]] = []
@@ -307,11 +338,13 @@ class EnrollmentStore:
             code = generate_claim_code(codes)
             codes.add(code)
             rid = str(uuid.uuid4())
+            student_id = stu.get("student_id")
             roster_rows.append(
                 (
                     rid,
                     campaign_id,
-                    stu.get("fixture_key"),
+                    stu.get("fixture_key") or stu.get("edge_student_key"),
+                    student_id,
                     stu["display_name"],
                     code,
                     ROSTER_PENDING,
@@ -349,8 +382,8 @@ class EnrollmentStore:
                 conn.executemany(
                     """
                     INSERT INTO roster (
-                      id, campaign_id, fixture_key, display_name, claim_code, status
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                      id, campaign_id, fixture_key, student_id, display_name, claim_code, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     roster_rows,
                 )
@@ -373,6 +406,7 @@ class EnrollmentStore:
                 status=CAMPAIGN_ACTIVE,
                 expires_at=expires_at,
                 created_at=ts,
+                organization_id=school.get("organization_id"),
             )
             _ops_sync.sync_in_background(
                 _ops_sync.upsert_roster_rows,
@@ -381,9 +415,10 @@ class EnrollmentStore:
                         "id": r[0],
                         "campaign_id": r[1],
                         "fixture_key": r[2],
-                        "display_name": r[3],
-                        "claim_code": r[4],
-                        "status": r[5],
+                        "student_id": r[3],
+                        "display_name": r[4],
+                        "claim_code": r[5],
+                        "status": r[6],
                     }
                     for r in roster_rows
                 ],
@@ -399,11 +434,18 @@ class EnrollmentStore:
             "status": CAMPAIGN_ACTIVE,
             "claim_sheet": claim_sheet,
             "roster_count": len(roster_rows),
+            "roster_source": self.roster_source_mode(),
         }
 
     def _resolve_fixture(
         self, school_id: str, class_group_id: str
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if _roster_src is not None:
+            _mode, school, cg = _roster_src.resolve_class(
+                school_id, class_group_id, fixtures_path=self.fixtures_path
+            )
+            self._last_roster_mode = _mode
+            return school, cg
         for school in self.load_fixtures()["schools"]:
             if school["id"] != school_id:
                 continue

@@ -11,8 +11,31 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
+function Import-DotEnv([string]$Path) {
+    if (-not (Test-Path $Path)) { return }
+    Get-Content $Path | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#")) { return }
+        $idx = $line.IndexOf("=")
+        if ($idx -lt 1) { return }
+        $k = $line.Substring(0, $idx).Trim()
+        $v = $line.Substring($idx + 1).Trim().Trim('"').Trim("'")
+        if (-not [string]::IsNullOrWhiteSpace($k)) {
+            [Environment]::SetEnvironmentVariable($k, $v, "Process")
+        }
+    }
+    Write-Host "Loaded env from $Path (values not printed)" -ForegroundColor DarkGray
+}
+
+# Prefer worktree .env, then sibling Presenca .env (never print secrets)
+Import-DotEnv (Join-Path $Root ".env")
+Import-DotEnv (Join-Path (Split-Path $Root) "Presenca\.env")
+
 Write-Host "=== Boot Edge + M2 (Presenca) ===" -ForegroundColor Cyan
 Write-Host "Root: $Root"
+Write-Host ("SUPABASE_URL set: " + ([bool]$env:SUPABASE_URL)) -ForegroundColor DarkGray
+Write-Host ("SERVICE_ROLE set: " + ([bool]($env:SUPABASE_SERVICE_ROLE_KEY -or $env:M2_OPS_SUPABASE_SERVICE_KEY))) -ForegroundColor DarkGray
+Write-Host ("M2_ROSTER_SOURCE: " + ($(if ($env:M2_ROSTER_SOURCE) { $env:M2_ROSTER_SOURCE } else { "auto" }))) -ForegroundColor DarkGray
 
 if (-not $SkipFrontendBuild) {
     if (Test-Path "frontend\package.json") {
