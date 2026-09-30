@@ -33,7 +33,14 @@ Para cada item: sintoma → causa → diagnóstico → correção → confirmaç
 - **Causa:** FER+ ONNX classifica sorriso (incl. dentes) como `neutral` com alta conf; `smile_boost` desligado no TRI.  
 - **Correção:** `expression.smile_boost_enabled: true` em `config.tri.yaml` (+ heurística landmarks/pixels em `_compute_expression`).  
 - **Confirmação:** sorriso sustentado ~8s → `expressão predominantemente positiva`; relatório com tempos +/neutra coerentes.  
-- **Contrato ✅ (2026-08-03):** não desligar `smile_boost` no perfil TRI sem reteste — ver `docs/BASELINE_MANUAL_APROVADO_TRI.md` (EX+/EX=).
+- **Contrato ✅ (2026-08-03 / 2026-09-14 / 2026-09-29):** não desligar `smile_boost` no perfil TRI sem reteste — ver `docs/BASELINE_MANUAL_APROVADO_TRI.md` (EX+/EX=) e [`CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md`](CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md).
+
+### Sorriso visível na câmera mas `smile_score` / `mouth` ≈ 0 no live
+
+- **Causa (2026-09-29):** `FaceLandmarker.detect` chamado em paralelo no `ThreadPoolExecutor` sem lock → landmarks corrompidos. Offline no mesmo frame o score voltava (~0.88).  
+- **Correção:** `with _landmarker_lock:` em torno de `landmarker.detect(...)` em `app/vision/facial_signals.py` (`analyze_face_roi`).  
+- **Não “corrigir”** baixando limiares do smile_boost sem provar que landmarks live batem com o gesto.  
+- **Contrato:** [`CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md`](CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md).
 
 ### Cabeça baixa &gt;1 min sem evento / só poucos segundos no relatório
 

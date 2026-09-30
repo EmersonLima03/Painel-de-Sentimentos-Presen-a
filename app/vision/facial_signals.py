@@ -382,8 +382,11 @@ def analyze_face_roi(
     if not rgb.flags["C_CONTIGUOUS"]:
         rgb = np.ascontiguousarray(rgb)
     mp_img = mp_image.Image(image_format=mp_image.ImageFormat.SRGB, data=rgb)
+    # FaceLandmarker.detect NÃO é thread-safe; Edge usa ThreadPoolExecutor.
+    # Sem lock: landmarks corrompidos → smile/mouth ~0 com sorriso real na câmera.
     try:
-        result = landmarker.detect(mp_img)
+        with _landmarker_lock:
+            result = landmarker.detect(mp_img)
     except Exception as e:
         logger.debug("face_landmarker_detect_failed", error=str(e))
         return None
