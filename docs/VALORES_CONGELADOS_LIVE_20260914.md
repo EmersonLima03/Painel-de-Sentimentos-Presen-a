@@ -75,6 +75,8 @@ Take H (agente): ereto `head_forward` attn alta; baixo `head_down_persistent` ~9
 
 **Proibido:** `emotion_backend: hsemotion_vgaf` no overlay TRI (sorriso já virou negativa).
 
+**Revalidação 2026-09-29:** números **inalterados**. Caminho + lock MediaPipe em [`CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md`](CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md).
+
 ### Cabeça baixa (H)
 
 | Chave | Valor |

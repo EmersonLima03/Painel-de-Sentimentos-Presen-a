@@ -3,6 +3,7 @@
 **Branch oficial deste congelamento:** `tri/congelado-baseline-validado`  
 **Data do congelamento:** 2026-08-31  
 **Recongelamento LIVE:** 2026-09-14 — [`CONGELAMENTO_LIVE_20260914.md`](CONGELAMENTO_LIVE_20260914.md) · [`VALORES_CONGELADOS_LIVE_20260914.md`](VALORES_CONGELADOS_LIVE_20260914.md)  
+**Revalidação EX+/EX=:** 2026-09-29 — [`CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md`](CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md) (neutro+positivo aprovados; lock MediaPipe)  
 **Base Git anterior:** `98a9daa` → este branch inclui todo o trabalho acumulado até o congelamento.
 
 ---

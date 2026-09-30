@@ -173,13 +173,13 @@ Depois, webcam: 20s peito olhando câmera → 15s celular na frente do rosto.
 
 | Campo | Valor |
 |-------|--------|
-| Data | 2026-08-03; **revalidado LIVE 2026-09-14** (Emerson: neutro e positivo certos; `fer_onnx` + smile_boost) |
+| Data | 2026-08-03; **revalidado LIVE 2026-09-14**; **revalidado LIVE 2026-09-29** (Emerson: neutro e positivo aprovados) |
 | Esperado | Sorriso sustentado → **predominantemente positiva**; cara séria → neutra; relatório com tempos coerentes ao longo da sessão |
-| Obtido | Aprovado — ex.: Positiva **16 min 56s** / Neutra **20 min 59s** na sessão; “está ótima também” |
-| Proibido que volte | Sorriso longo sempre neutro; `smile_boost_enabled: false` no perfil TRI sem reteste |
-| Arquivos sensíveis | `config.tri.yaml` (`smile_boost_enabled: true`, `provider: fer_onnx`), `app/pipeline/analytics_track.py` (`_compute_expression`), `app/vision/emotion_engagement.py` (heurística sorriso), providers em `app/vision/expressions/` |
-| Params TRI | `smile_boost_enabled: true`, `minimum_confidence_positive` **0.50**, `window_seconds` **5**, `provider`/`emotion_backend` **fer_onnx** |
-| Doc relacionada | `docs/TROUBLESHOOTING.md` → “Sorriso aparece como expressão neutra” |
+| Obtido | Aprovado — ex.: Positiva **16 min 56s** / Neutra **20 min 59s** (03/08); LIVE 14/09 ambos certos; **29/09** neutro+positivo validados após restore do baseline + lock do FaceLandmarker |
+| Proibido que volte | Sorriso longo sempre neutro; `smile_boost_enabled: false` no perfil TRI sem reteste; **remover lock** de `FaceLandmarker.detect`; rebaixar limiares experimentais sem reteste |
+| Arquivos sensíveis | `config.tri.yaml` (`smile_boost_enabled: true`, `provider: fer_onnx`), `app/pipeline/analytics_track.py` (`_compute_expression`), `app/vision/facial_signals.py` (**lock** + geometria smile), `app/vision/emotion_engagement.py` (heurística sorriso), providers em `app/vision/expressions/` |
+| Params TRI | `smile_boost_enabled: true`, `minimum_confidence_positive` **0.50**, `window_seconds` **5**, `interval_seconds` **1.0**, `provider`/`emotion_backend` **fer_onnx** |
+| Doc relacionada | `docs/TROUBLESHOOTING.md` → “Sorriso aparece como expressão neutra”; **congelamento 29/09:** [`CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md`](CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md) |
 
 ### H — Cabeça baixa (ângulo extremo / leitura) ✅
 
@@ -237,7 +237,7 @@ VGAF (2026-09-09) foi promoção **offline** de EX−; **não** reativar no over
 ## Ainda pendentes na matriz (não travados)
 
 A (garrafa transparente formal), C×3 formais, F, E1–E2, P1–P5, smoke **I/L**.  
-**H/J/K/EX+/EX=:** reaprovados LIVE 2026-09-14. **E3/E4/D/C/E-lat:** LIVE 2026-09-13/14.
+**H/J/K/EX+/EX=:** reaprovados LIVE 2026-09-14. **EX+/EX=:** revalidados LIVE 2026-09-29 ([`CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md`](CONGELAMENTO_EX_PLUS_EX_NEUTRO_20260929.md)). **E3/E4/D/C/E-lat:** LIVE 2026-09-13/14.
 
 Ver matriz: `docs/VALIDACAO_FINAL_CENARIOS_TRI.md`.
 
